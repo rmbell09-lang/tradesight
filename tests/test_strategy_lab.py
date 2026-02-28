@@ -370,3 +370,92 @@ class TestStockOpportunityScorer:
         scorer = StockOpportunityScorer(weights=custom_weights)
         score = scorer.score_opportunity(self.test_data, 'BTC')
         assert isinstance(score, OpportunityScore)
+
+
+# --- Alpaca Integration Tests ---
+
+import sys
+sys.path.append('src')
+from data.alpaca_client import AlpacaClient, StockQuote, PaperPosition
+from scanners.stock_scanner import StockScanner, ScanResult
+
+
+class TestAlpacaClient:
+    
+    def setup_method(self):
+        self.client = AlpacaClient()  # Demo mode
+    
+    def test_initialization(self):
+        assert self.client.demo_mode is True
+        assert self.client.paper is True
+        assert len(self.client.SP500_SYMBOLS) >= 50
+    
+    def test_get_historical_data(self):
+        data = self.client.get_historical_data('AAPL', days=50)
+        assert len(data) == 50
+        assert all(col in data.columns for col in ['open', 'high', 'low', 'close', 'volume'])
+        assert data['high'].min() >= data['low'].min()
+        assert data['close'].min() > 0
+    
+    def test_get_quote(self):
+        quote = self.client.get_quote('AAPL')
+        assert isinstance(quote, StockQuote)
+        assert quote.symbol == 'AAPL'
+        assert quote.last > 0
+        assert quote.bid <= quote.ask
+    
+    def test_place_paper_trade(self):
+        order = self.client.place_paper_trade('AAPL', 10, 'buy')
+        assert 'order_id' in order
+        assert order['symbol'] == 'AAPL'
+        assert order['quantity'] == 10
+        assert order['side'] == 'buy'
+        assert order['demo_mode'] is True
+    
+    def test_get_paper_positions(self):
+        positions = self.client.get_paper_positions()
+        assert isinstance(positions, list)
+        if positions:
+            pos = positions[0]
+            assert isinstance(pos, PaperPosition)
+            assert pos.symbol is not None
+    
+    def test_demo_data_deterministic(self):
+        # Same symbol should produce same data
+        data1 = self.client._generate_demo_data('AAPL', 10)
+        data2 = self.client._generate_demo_data('AAPL', 10)
+        assert (data1["close"].values == data2["close"].values).all()
+
+
+class TestStockScanner:
+    
+    def setup_method(self):
+        self.scanner = StockScanner()
+    
+    def test_initialization(self):
+        assert self.scanner.alpaca is not None
+        assert self.scanner.scorer is not None
+        assert self.scanner.last_scan_result is None
+    
+    def test_quick_scan(self):
+        result = self.scanner.quick_scan(limit=3)
+        assert isinstance(result, ScanResult)
+        assert result.total_scanned == 3
+        assert result.scan_duration_seconds >= 0
+        assert result.scan_parameters['scan_type'] == 'quick'
+    
+    def test_custom_scan(self):
+        symbols = ['AAPL', 'MSFT']
+        result = self.scanner.custom_scan(symbols, min_score=0)
+        assert result.total_scanned == 2
+        assert result.scan_parameters['scan_type'] == 'custom'
+    
+    def test_get_quote(self):
+        quote = self.scanner.get_quote('AAPL')
+        assert isinstance(quote, StockQuote)
+        assert quote.symbol == 'AAPL'
+    
+    def test_get_historical_data(self):
+        data = self.scanner.get_historical_data('AAPL', days=30)
+        assert len(data) == 30
+        assert 'close' in data.columns
