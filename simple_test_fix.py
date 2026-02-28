@@ -1,0 +1,5 @@
+content = open('tests/test_paper_trading.py').read()
+
+# Fix MACD test data
+content = content.replace(
+    close: [150.0] AGENTS.md ENFORCEMENT.md HEARTBEAT.md HEARTBEAT_V2_DRAFT.md IDENTITY.md MEMORY.md QUICK-TASK-CHECK.md SKILLS_INVENTORY.md SOUL.md STRATEGIC_UPDATE.md TASK_QUEUE_MANAGEMENT.md TOOLS.md USER.md _sandbox capture-conversation.sh com.lucky.vps-watchdog.plist conversations emergency-messages-update.js final_tournament_fix.py fix-memory-logging.js gumroad-test-final.js gumroad-test-v2.js gumroad-test-v3.js gumroad-test.js heartbeat-function.js inkforge-quality-sprint-verification.md jinx-outbox logs memory node_modules package-lock.json package.json products projects ray-task-notifier.sh research scripts security-action-plan-2026-02-27.md security-audit-findings-2026-02-27.md skills skills-audit-report-2026-02-28.md task-decompositions temp_automation_module.py temp_automation_tests.py temp_cron_script.sh temp_strategy_lab.html temp_strategy_routes.py temp_tournament_fix.py templates tournament_results_fix.py updated-heartbeat-function.js verify_new_skills.py verify_skills.py vps-watchdog.sh workspace-optimization-report-2026-02-28.md 200,
