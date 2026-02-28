@@ -23,7 +23,7 @@
 
 ## Priority 2: Phase 4 - Stock Scanner (Market Data)
 
-- [ ] **Alpaca Integration** - Stock market data + paper trading API
+- [x] **Alpaca Integration** - Stock market data + paper trading API
   - Files: `src/data/alpaca_client.py`, `src/scanners/stock_scanner.py`
   - Spec: Real-time + historical stock data, technical indicators, paper trading setup
   - Network: `api.alpaca.markets`, `data.alpaca.markets`
