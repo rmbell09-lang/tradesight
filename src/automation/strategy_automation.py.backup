@@ -221,11 +221,6 @@ class StrategyAutomation:
         db_path = self.data_dir / 'tournament_history.db'
         report_lines = []
         
-        # If database does not exist, no sessions have been run yet
-        if not db_path.exists():
-            return "No tournament sessions completed today."
-
-        
         try:
             with sqlite3.connect(db_path) as conn:
                 # Get today's sessions
