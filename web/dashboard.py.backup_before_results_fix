@@ -112,10 +112,10 @@ def get_strategy_lab_stats():
         results = tournament.run_tournament(round_datasets)
         
         return {
-            'strategies_tested': results.total_strategies_entered,
-            'winner': results.winner if results.winner != 'None' else 'None',
-            'winner_score': results.winner_avg_score,
-            'rounds_completed': results.total_rounds,
+            'strategies_tested': len(results['participants']),
+            'winner': results['winner']['name'] if results['winner'] else 'None',
+            'winner_score': results['winner']['avg_score'] if results['winner'] else 0,
+            'rounds_completed': results['rounds_completed'],
             'last_run': datetime.now().isoformat()
         }
     except Exception as e:
@@ -250,7 +250,7 @@ def strategy_lab_tournament():
         return jsonify({
             'participants': participants,
             'winner': winner_data,
-            'rounds_completed': results.total_rounds,
+            'rounds_completed': results['rounds_completed'],
             'eliminations': results['eliminations']
         })
         
@@ -282,7 +282,7 @@ def start_tournament():
         elimination_rate = data.get('elimination_rate', 0.3)
         min_survivors = data.get('min_survivors', 2)
         max_rounds = data.get('max_rounds', 3)
-        data_days = max(60, data.get('data_days', 100))
+        data_days = data.get('data_days', 100)
         
         if tournament_in_progress:
             return jsonify({'error': 'Tournament already in progress'}), 400
@@ -323,9 +323,9 @@ def start_tournament():
             }
         })
         
-        # Convert results for JSON (results is TournamentResults dataclass)
+        # Convert results for JSON
         participants = []
-        for p in tournament.entries:  # Get participants from tournament entries
+        for p in results['participants']:
             participants.append({
                 'name': p.name,
                 'wins': p.wins,
@@ -337,22 +337,20 @@ def start_tournament():
             })
         
         winner_data = None
-        if results.winner != 'None':
-            winner_entry = next((p for p in tournament.entries if p.name == results.winner), None)
-            if winner_entry:
-                winner_data = {
-                    'name': winner_entry.name,
-                    'avg_score': winner_entry.avg_score,
-                    'wins': winner_entry.wins,
-                    'total_score': winner_entry.total_score
-                }
+        if results['winner']:
+            winner_data = {
+                'name': results['winner'].name,
+                'avg_score': results['winner'].avg_score,
+                'wins': results['winner'].wins,
+                'total_score': results['winner'].total_score
+            }
         
         return jsonify({
             'status': 'completed',
             'participants': participants,
             'winner': winner_data,
-            'rounds_completed': results.total_rounds,
-            'eliminations': results.elimination_log
+            'rounds_completed': results['rounds_completed'],
+            'eliminations': results['eliminations']
         })
         
     except Exception as e:
@@ -380,7 +378,7 @@ def tournament_results():
     
     # Convert results for JSON
     participants = []
-    for p in []:
+    for p in current_tournament['participants']:
         participants.append({
             'name': p.name,
             'wins': p.wins,
@@ -437,7 +435,7 @@ def export_winner():
         'export_timestamp': datetime.now().isoformat(),
         'tournament_info': {
             'rounds_completed': current_tournament['rounds_completed'],
-            'total_participants': len([])
+            'total_participants': len(current_tournament['participants'])
         }
     }
     

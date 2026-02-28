@@ -41,7 +41,7 @@
 
 ## Priority 3: Integration & Web Interface
 
-- [ ] **Unified Dashboard** - Extend current Polymarket dashboard for all markets
+- [x] **Unified Dashboard** - Extend current Polymarket dashboard for all markets
   - Files: `web/dashboard.py`, `web/templates/`
   - Spec: Tabs for Polymarket, Stocks, Strategy Lab with live data
   - Done when: Single dashboard shows opportunities across all market types
