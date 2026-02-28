@@ -309,3 +309,64 @@ class TestMultiAssetBacktester:
         )
         assert isinstance(report.warnings, list)
         assert isinstance(report.bias_flags, list)
+
+
+# --- Stock Opportunity Scorer Tests ---
+
+from scanners.stock_opportunities import StockOpportunityScorer, OpportunityScore
+
+
+class TestStockOpportunityScorer:
+    
+    def setup_method(self):
+        self.scorer = StockOpportunityScorer()
+        self.test_data = create_test_data('BTC', 250)
+    
+    def test_initialization(self):
+        assert self.scorer.weights is not None
+        assert abs(sum(self.scorer.weights.values()) - 1.0) < 0.01
+    
+    def test_score_opportunity(self):
+        score = self.scorer.score_opportunity(self.test_data, 'BTC')
+        assert isinstance(score, OpportunityScore)
+        assert score.symbol == 'BTC'
+        assert 0 <= score.overall_score <= 100
+        assert score.confidence in ('high', 'medium', 'low')
+        assert score.direction in ('bullish', 'bearish', 'neutral')
+    
+    def test_score_components_in_range(self):
+        score = self.scorer.score_opportunity(self.test_data, 'BTC')
+        assert 0 <= score.volume_score <= 100
+        assert 0 <= score.volatility_score <= 100
+        assert 0 <= score.technical_score <= 100
+        assert 0 <= score.momentum_score <= 100
+        assert 0 <= score.trend_score <= 100
+    
+    def test_needs_minimum_data(self):
+        small_data = create_test_data('BTC', 50)
+        with pytest.raises(ValueError, match="at least 200"):
+            self.scorer.score_opportunity(small_data, 'BTC')
+    
+    def test_rank_opportunities(self):
+        datasets = {
+            'BTC': create_test_data('BTC', 250),
+            'ETH': create_test_data('ETH', 250),
+            'SPY': create_test_data('SPY', 250),
+        }
+        ranked = self.scorer.rank_opportunities(datasets, min_score=0)
+        assert len(ranked) > 0
+        # Verify sorted descending
+        for i in range(len(ranked) - 1):
+            assert ranked[i].overall_score >= ranked[i+1].overall_score
+    
+    def test_custom_weights(self):
+        custom_weights = {
+            'volume': 0.50,
+            'volatility': 0.10,
+            'technical': 0.20,
+            'momentum': 0.10,
+            'trend': 0.10,
+        }
+        scorer = StockOpportunityScorer(weights=custom_weights)
+        score = scorer.score_opportunity(self.test_data, 'BTC')
+        assert isinstance(score, OpportunityScore)
