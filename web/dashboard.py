@@ -258,7 +258,7 @@ def strategy_lab_tournament():
         return jsonify({'error': str(e)})
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=3003)
+    app.run(debug=False, host="127.0.0.1", port=5000)
 # Strategy Lab Management - Global tournament state
 current_tournament = None
 tournament_in_progress = False
