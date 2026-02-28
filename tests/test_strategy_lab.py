@@ -142,3 +142,98 @@ class TestAIStrategyEngine:
                                     'max_drawdown': 0, 'profit_factor': 0}}
         score = self.ai_engine._calculate_performance_score(mock_result)
         assert score == 0.0
+
+
+# --- Tournament System Tests ---
+
+from strategy_lab.tournament import (
+    StrategyTournament, TournamentEntry, TournamentResults,
+    get_builtin_strategies, macd_crossover, bollinger_bounce,
+    dual_ma_rsi, momentum_breakout, conservative_trend
+)
+
+
+class TestStrategyTournament:
+    
+    def setup_method(self):
+        self.tournament = StrategyTournament(initial_balance=10000, elimination_rate=0.3, min_survivors=3)
+        self.test_data = create_test_data('BTC', 150)
+    
+    def test_tournament_initialization(self):
+        assert self.tournament.elimination_rate == 0.3
+        assert self.tournament.min_survivors == 3
+        assert len(self.tournament.entries) == 0
+    
+    def test_register_strategy(self):
+        result = self.tournament.register_strategy('Test', simple_ma_crossover)
+        assert result is True
+        assert len(self.tournament.entries) == 1
+        assert self.tournament.entries[0].name == 'Test'
+    
+    def test_register_duplicate_raises(self):
+        self.tournament.register_strategy('Test', simple_ma_crossover)
+        with pytest.raises(ValueError, match="already registered"):
+            self.tournament.register_strategy('Test', simple_ma_crossover)
+    
+    def test_tournament_needs_minimum_strategies(self):
+        self.tournament.register_strategy('Solo', simple_ma_crossover)
+        with pytest.raises(ValueError, match="at least 2"):
+            self.tournament.run_tournament([('BTC', self.test_data)])
+    
+    def test_get_builtin_strategies(self):
+        strategies = get_builtin_strategies()
+        assert len(strategies) >= 5
+        assert 'MA Crossover' in strategies
+        assert 'RSI Mean Reversion' in strategies
+        assert 'MACD Crossover' in strategies
+    
+    def test_full_tournament_runs(self):
+        strategies = get_builtin_strategies()
+        for name, func in strategies.items():
+            self.tournament.register_strategy(name, func)
+        
+        round_datasets = [
+            ('BTC', create_test_data('BTC', 150)),
+            ('ETH', create_test_data('ETH', 150)),
+        ]
+        
+        results = self.tournament.run_tournament(round_datasets)
+        
+        assert isinstance(results, TournamentResults)
+        assert results.total_rounds >= 1
+        assert results.winner != "None"
+        assert len(results.top_3) <= 3
+        assert results.final_survivors >= self.tournament.min_survivors
+    
+    def test_tournament_eliminates_strategies(self):
+        strategies = get_builtin_strategies()
+        for name, func in strategies.items():
+            self.tournament.register_strategy(name, func)
+        
+        round_datasets = [
+            ('BTC', create_test_data('BTC', 150)),
+            ('ETH', create_test_data('ETH', 150)),
+            ('SPY', create_test_data('SPY', 150)),
+        ]
+        
+        results = self.tournament.run_tournament(round_datasets)
+        assert len(results.elimination_log) > 0
+    
+    def test_get_surviving_strategies(self):
+        strategies = get_builtin_strategies()
+        for name, func in strategies.items():
+            self.tournament.register_strategy(name, func)
+        
+        self.tournament.run_tournament([('BTC', self.test_data)])
+        survivors = self.tournament.get_surviving_strategies()
+        assert len(survivors) >= self.tournament.min_survivors
+    
+    def test_get_entry_by_name(self):
+        self.tournament.register_strategy('Test Strategy', simple_ma_crossover)
+        entry = self.tournament.get_entry_by_name('Test Strategy')
+        assert entry is not None
+        assert entry.name == 'Test Strategy'
+    
+    def test_get_entry_by_name_not_found(self):
+        entry = self.tournament.get_entry_by_name('Nonexistent')
+        assert entry is None
