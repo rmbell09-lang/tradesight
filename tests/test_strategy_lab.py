@@ -237,3 +237,75 @@ class TestStrategyTournament:
     def test_get_entry_by_name_not_found(self):
         entry = self.tournament.get_entry_by_name('Nonexistent')
         assert entry is None
+
+
+# --- Multi-Asset Backtester Tests ---
+
+from strategy_lab.backtester import MultiAssetBacktester, WalkForwardResult, MonteCarloResult, OverfitReport
+
+
+class TestMultiAssetBacktester:
+    
+    def setup_method(self):
+        self.backtester = MultiAssetBacktester(initial_balance=10000)
+        self.test_data = create_test_data('BTC', 500)  # Need more data for walk-forward
+    
+    def test_initialization(self):
+        assert self.backtester.initial_balance == 10000
+        assert self.backtester.engine is not None
+    
+    def test_walk_forward_validation(self):
+        results = self.backtester.walk_forward_validation(
+            simple_ma_crossover, self.test_data, n_folds=3
+        )
+        assert len(results) > 0
+        for r in results:
+            assert isinstance(r, WalkForwardResult)
+            assert r.train_start < r.test_start
+    
+    def test_walk_forward_needs_enough_data(self):
+        small_data = create_test_data('BTC', 50)
+        with pytest.raises(ValueError, match="Not enough data"):
+            self.backtester.walk_forward_validation(simple_ma_crossover, small_data, n_folds=5)
+    
+    def test_monte_carlo_simulation(self):
+        result = self.backtester.monte_carlo_simulation(
+            simple_ma_crossover, self.test_data, n_simulations=10
+        )
+        assert isinstance(result, MonteCarloResult)
+        assert result.num_simulations == 10
+        assert 0 <= result.probability_profitable <= 100
+        assert result.percentile_5 <= result.percentile_95
+    
+    def test_cross_asset_test(self):
+        datasets = {
+            'BTC': create_test_data('BTC', 200),
+            'ETH': create_test_data('ETH', 200),
+        }
+        results = self.backtester.cross_asset_test(simple_ma_crossover, datasets)
+        assert 'BTC' in results
+        assert 'ETH' in results
+        assert '_aggregate' in results
+        assert 'consistency' in results['_aggregate']
+    
+    def test_detect_overfitting(self):
+        validation_datasets = {
+            'ETH': create_test_data('ETH', 200),
+            'SPY': create_test_data('SPY', 200),
+        }
+        report = self.backtester.detect_overfitting(
+            simple_ma_crossover, self.test_data, validation_datasets, n_monte_carlo=10
+        )
+        assert isinstance(report, OverfitReport)
+        assert report.recommendation in ('safe', 'caution', 'reject')
+        assert 0 <= report.confidence <= 1.0
+    
+    def test_overfit_report_has_bias_analysis(self):
+        validation_datasets = {
+            'ETH': create_test_data('ETH', 200),
+        }
+        report = self.backtester.detect_overfitting(
+            simple_ma_crossover, self.test_data, validation_datasets, n_monte_carlo=5
+        )
+        assert isinstance(report.warnings, list)
+        assert isinstance(report.bias_flags, list)
