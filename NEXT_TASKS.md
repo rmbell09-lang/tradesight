@@ -34,7 +34,7 @@
   - Spec: All major indicators from trading skill research (25KB knowledge base)
   - Done when: Signal generator produces confluence scores for any stock with 3+ indicators
 
-- [ ] **Stock Opportunity Scorer** - Multi-factor scoring like Polymarket scanner
+- [x] **Stock Opportunity Scorer** - Multi-factor scoring like Polymarket scanner
   - Files: `src/scanners/stock_opportunities.py`
   - Spec: Volume, volatility, technical signals, earnings proximity, sector strength
   - Done when: Produces ranked opportunity list for S&P 500 with confidence scores
