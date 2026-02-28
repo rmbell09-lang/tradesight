@@ -1,0 +1,16 @@
+2026-02-28 16:05:57,208 - StrategyAutomation - INFO - StrategyAutomation initialized at /Volumes/Crucial X10/TradeSight/src
+2026-02-28 16:05:57,210 - StrategyAutomation - ERROR - Failed to generate report: no such table: tournament_sessions
+2026-02-28 16:06:04,911 - StrategyAutomation - INFO - StrategyAutomation initialized at /Volumes/Crucial X10/TradeSight/src
+2026-02-28 16:06:04,911 - StrategyAutomation - INFO - Starting tournament session: quick_test_session
+2026-02-28 16:06:04,911 - StrategyAutomation - INFO - Registered strategy: MA Crossover
+2026-02-28 16:06:04,911 - StrategyAutomation - INFO - Registered strategy: RSI Mean Reversion
+2026-02-28 16:06:04,911 - StrategyAutomation - INFO - Registered strategy: MACD Crossover
+2026-02-28 16:06:04,911 - StrategyAutomation - INFO - Registered strategy: Bollinger Bounce
+2026-02-28 16:06:04,911 - StrategyAutomation - INFO - Registered strategy: Dual MA + RSI
+2026-02-28 16:06:04,911 - StrategyAutomation - INFO - Registered strategy: Momentum Breakout
+2026-02-28 16:06:04,911 - StrategyAutomation - INFO - Registered strategy: Conservative Trend
+2026-02-28 16:06:04,912 - StrategyAutomation - INFO - Created dataset for round 1: 100 days
+2026-02-28 16:06:04,912 - StrategyAutomation - INFO - Created dataset for round 2: 150 days
+2026-02-28 16:06:04,913 - StrategyAutomation - INFO - Created dataset for round 3: 200 days
+2026-02-28 16:06:05,011 - StrategyAutomation - INFO - Tournament completed in 0.1s - Winner: MACD Crossover
+2026-02-28 16:06:05,016 - StrategyAutomation - INFO - Stored session results: quick_test_session

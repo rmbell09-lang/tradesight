@@ -46,14 +46,14 @@
   - Spec: Tabs for Polymarket, Stocks, Strategy Lab with live data
   - Done when: Single dashboard shows opportunities across all market types
 
-- [ ] **Strategy Lab Web UI** - Interactive backtesting and tournament management
+- [x] **Strategy Lab Web UI** - Interactive backtesting and tournament management
   - Files: `web/strategy_lab.py`, `web/templates/strategy_lab.html`
   - Spec: Start tournaments, view AI iteration progress, export winning strategies
   - Done when: Can start/stop tournaments and view results via web interface
 
 ## Priority 4: Automation & Production
 
-- [ ] **Automated Strategy Development** - Overnight AI improvement cron jobs
+- [x] **Automated Strategy Development** - Overnight AI improvement cron jobs
   - Files: `scripts/nightly_strategy_improvement.sh`, `src/automation/`
   - Spec: Run strategy tournaments overnight, report best performers each morning
   - Done when: Cron job runs 8-hour improvement cycles and emails/logs results
