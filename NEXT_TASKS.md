@@ -11,7 +11,7 @@
   - Spec: Implement Michael Automates workflow - base strategy → AI iterate → multi-asset validation
   - Done when: Can take a simple strategy, run 5+ improvement iterations, validate across 3+ assets
 
-- [ ] **Strategy Tournament System** - Evolution approach from Alex Carter research
+- [x] **Strategy Tournament System** - Evolution approach from Alex Carter research
   - Files: `src/strategy_lab/tournament.py`
   - Spec: Run 10 strategies parallel, kill losers, evolve winners over 2-3 rounds
   - Done when: Tournament can run with mock strategies and report winners
