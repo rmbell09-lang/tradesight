@@ -29,7 +29,7 @@
   - Network: `api.alpaca.markets`, `data.alpaca.markets`
   - Done when: Can fetch S&P 500 data with OHLCV + indicators, paper trading account connected
 
-- [ ✅ **Technical Indicators Engine** - RSI, MACD, Bollinger, MAs, Volume analysis
+- [x] **Technical Indicators Engine** - RSI, MACD, Bollinger, MAs, Volume analysis
   - Files: `src/indicators/`, `src/scanners/technical_analysis.py`
   - Spec: All major indicators from trading skill research (25KB knowledge base)
   - Done when: Signal generator produces confluence scores for any stock with 3+ indicators
