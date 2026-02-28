@@ -1,0 +1,35 @@
+/Users/luckyai/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+2026-02-28 07:40:18,751 - INFO - Database initialized: data/tradesight.db
+2026-02-28 07:40:18,751 - INFO - Starting market scan...
+2026-02-28 07:40:19,152 - INFO - Fetched 500 markets from Polymarket
+2026-02-28 07:40:19,480 - INFO - Stored 500 market updates
+2026-02-28 07:40:19,480 - INFO - Scan complete: 500 markets, 395 opportunities, 0 arbitrage
+
+=== TradeSight Market Scan Results ===
+Scan Time: 2026-02-28T12:40:19.480866+00:00
+Markets Analyzed: 500
+Opportunities Found: 395
+Arbitrage Opportunities: 0
+
+Top Opportunities:
+1. Will Trump deport less than 250,000?...
+   Type: high_opportunity | Confidence: 0.71
+   Notes: High opportunity score: 0.71 - Volume: $1,266,887
+
+2. Will Trump deport 750,000-1,000,000 people?...
+   Type: high_opportunity | Confidence: 0.70
+   Notes: High opportunity score: 0.70 - Volume: $542,319
+
+3. Will Trump deport 1,000,000-1,250,000 people?...
+   Type: high_opportunity | Confidence: 0.70
+   Notes: High opportunity score: 0.70 - Volume: $534,106
+
+4. Will Trump deport 1,250,000-1,500,000 people?...
+   Type: high_opportunity | Confidence: 0.70
+   Notes: High opportunity score: 0.70 - Volume: $488,521
+
+5. Will Trump deport 1,500,000-1,750,000 people?...
+   Type: high_opportunity | Confidence: 0.70
+   Notes: High opportunity score: 0.70 - Volume: $474,582
+

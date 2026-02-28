@@ -1,0 +1,3 @@
+requests>=2.31.0
+sqlite3
+flask>=2.3.0
