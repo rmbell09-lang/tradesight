@@ -1,0 +1,44 @@
+🎯 TRADESIGHT LOGO CONCEPT
+═══════════════════════════════════
+
+MAIN LOGO (ASCII Art):
+████████╗██████╗  █████╗ ██████╗ ███████╗███████╗██╗ ██████╗ ██╗  ██╗████████╗
+╚══██╔══╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝██║██╔════╝ ██║  ██║╚══██╔══╝
+   ██║   ██████╔╝███████║██║  ██║█████╗  ███████╗██║██║  ███╗███████║   ██║   
+   ██║   ██╔══██╗██╔══██║██║  ██║██╔══╝  ╚════██║██║██║   ██║██╔══██║   ██║   
+   ██║   ██║  ██║██║  ██║██████╔╝███████╗███████║██║╚██████╔╝██║  ██║   ██║   
+   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   
+
+COMPACT LOGO:
+🎯 TradeSight
+
+ICON CONCEPT:
+📊🎯📈
+
+COLOR SCHEME (Terminal):
+- Primary: Bold White/Green
+- Secondary: Blue (links/info) 
+- Accent: Yellow/Orange (alerts)
+- Success: Green
+- Warning: Yellow
+- Error: Red
+
+BRAND ELEMENTS:
+🎯 Target/Bullseye - Represents precision targeting of opportunities
+📊 Chart/Graph - Data analysis and market intelligence
+📈 Trending Up - Profitable trading outcomes
+🤖 Robot - AI-powered automation
+⚡ Lightning - Speed and real-time analysis
+💰 Money - Trading and profit focus
+
+TAGLINES:
+- "AI-Powered Trading Intelligence"
+- "Target. Analyze. Profit."
+- "Your AI Trading Assistant"
+- "Precision Trading Intelligence"
+
+USAGE:
+- Terminal/CLI: ASCII art + 🎯 emoji
+- Desktop: TradeSight.command with description
+- Web: HTML formatted with CSS styling
+- Documentation: Markdown with emoji icons

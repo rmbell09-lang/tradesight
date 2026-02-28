@@ -1,0 +1,24 @@
+████████╗██████╗  █████╗ ██████╗ ███████╗███████╗██╗ ██████╗ ██╗  ██╗████████╗
+╚══██╔══╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝██║██╔════╝ ██║  ██║╚══██╔══╝
+   ██║   ██████╔╝███████║██║  ██║█████╗  ███████╗██║██║  ███╗███████║   ██║   
+   ██║   ██╔══██╗██╔══██║██║  ██║██╔══╝  ╚════██║██║██║   ██║██╔══██║   ██║   
+   ██║   ██║  ██║██║  ██║██████╔╝███████╗███████║██║╚██████╔╝██║  ██║   ██║   
+   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   
+
+🎯 Trading Intelligence Platform
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 Features:
+  • Polymarket Prediction Market Analysis
+  • Stock Market Scanner & Technical Analysis  
+  • AI-Powered Strategy Development
+  • Automated Strategy Tournaments
+  • Paper Trading System
+  • Real-time Dashboard Interface
+
+🚀 Quick Start:
+  Double-click: Desktop/TradeSight.command
+  Or run: ./launch_tradesight.sh
+  Dashboard: http://localhost:5000
+
+💡 Created by Lucky AI for Ray's Trading Operations

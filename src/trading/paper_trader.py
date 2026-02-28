@@ -20,7 +20,7 @@ import time
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from data.alpaca_client import AlpacaClient
+from src.data.alpaca_client import AlpacaClient
 from trading.position_manager import PositionManager, PortfolioState
 from automation.strategy_automation import StrategyAutomation
 from strategy_lab.tournament import get_builtin_strategies

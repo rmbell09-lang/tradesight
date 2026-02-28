@@ -12,7 +12,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 import json
 
-from data.alpaca_client import AlpacaClient, StockQuote
+from src.data.alpaca_client import AlpacaClient, StockQuote
 from scanners.stock_opportunities import StockOpportunityScorer, OpportunityScore
 
 
