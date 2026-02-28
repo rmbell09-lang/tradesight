@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeSight - Unified Trading Intelligence</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+        
+        /* Tab Navigation */
+        .tab-container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .tab {
+            flex: 1;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 10px 10px 0 0;
+            margin-right: 2px;
+            transition: all 0.3s ease;
+        }
+        .tab:last-child {
+            margin-right: 0;
+        }
+        .tab.active {
+            background: white;
+            color: #667eea;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        /* Table */
+        .opportunities-table {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: bold;
+            color: #333;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .positive {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .negative {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .score {
+            background: #667eea;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        /* Error */
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎯 TradeSight</h1>
+        <p>Unified Trading Intelligence Platform - Polymarket | Stocks | Strategy Lab</p>
+    </div>
+
+    <div class="tab-container">
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('polymarket')">📈 Polymarket</button>
+            <button class="tab" onclick="switchTab('stocks')">📊 Stocks</button>
+            <button class="tab" onclick="switchTab('strategy-lab')">🧪 Strategy Lab</button>
+        </div>
+
+        <!-- Polymarket Tab -->
+        <div id="polymarket-content" class="tab-content active">
+            <div class="stats-grid" id="polymarket-stats">
+                <div class="loading">Loading Polymarket data...</div>
+            </div>
+            <div class="opportunities-table">
+                <h3 style="padding: 20px; margin: 0; border-bottom: 1px solid #e0e0e0;">Top Volume Markets</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Market</th>
+                            <th>Category</th>
+                            <th>Volume</th>
+                            <th>Yes Price</th>
+                            <th>No Price</th>
+                            <th>Last Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody id="polymarket-opportunities">
+                        <tr><td colspan="6" class="loading">Loading opportunities...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Stocks Tab -->
+        <div id="stocks-content" class="tab-content">
+            <div class="stats-grid" id="stocks-stats">
+                <div class="loading">Loading stocks data...</div>
+            </div>
+            <div class="opportunities-table">
+                <h3 style="padding: 20px; margin: 0; border-bottom: 1px solid #e0e0e0;">Top Stock Opportunities</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Total Score</th>
+                            <th>Price</th>
+                            <th>Volume</th>
+                            <th>Technical</th>
+                            <th>Momentum</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stocks-opportunities">
+                        <tr><td colspan="6" class="loading">Loading opportunities...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Strategy Lab Tab -->
+        <div id="strategy-lab-content" class="tab-content">
+            <div class="stats-grid" id="strategy-lab-stats">
+                <div class="loading">Loading strategy lab data...</div>
+            </div>
+            <div class="opportunities-table">
+                <h3 style="padding: 20px; margin: 0; border-bottom: 1px solid #e0e0e0;">Tournament Results</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Strategy</th>
+                            <th>Average Score</th>
+                            <th>Wins</th>
+                            <th>Losses</th>
+                            <th>Total Score</th>
+                        </tr>
+                    </thead>
+                    <tbody id="strategy-lab-tournament">
+                        <tr><td colspan="5" class="loading">Loading tournament data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let activeTab = 'polymarket';
+        
+        function switchTab(tabName) {
+            // Hide all content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Remove active from all tabs
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected content
+            document.getElementById(tabName + '-content').classList.add('active');
+            
+            // Mark selected tab as active
+            event.target.classList.add('active');
+            
+            activeTab = tabName;
+            loadTabData(tabName);
+        }
+        
+        function loadTabData(tabName) {
+            if (tabName === 'polymarket') {
+                loadPolymarketData();
+            } else if (tabName === 'stocks') {
+                loadStocksData();
+            } else if (tabName === 'strategy-lab') {
+                loadStrategyLabData();
+            }
+        }
+        
+        function loadPolymarketData() {
+            // Load stats
+            fetch('/api/polymarket/stats')
+                .then(response => response.json())
+                .then(data => {
+                    const statsHtml = `
+                        <div class="stat-card">
+                            <div class="stat-number">${data.total_markets || 0}</div>
+                            <div class="stat-label">Total Markets</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.active_markets || 0}</div>
+                            <div class="stat-label">Active Markets</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.high_volume_markets || 0}</div>
+                            <div class="stat-label">High Volume Markets</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.last_scan ? new Date(data.last_scan).toLocaleTimeString() : 'Never'}</div>
+                            <div class="stat-label">Last Update</div>
+                        </div>
+                    `;
+                    document.getElementById('polymarket-stats').innerHTML = statsHtml;
+                })
+                .catch(error => {
+                    document.getElementById('polymarket-stats').innerHTML = '<div class="error">Error loading stats: ' + error + '</div>';
+                });
+            
+            // Load opportunities
+            fetch('/api/polymarket/opportunities')
+                .then(response => response.json())
+                .then(data => {
+                    let html = '';
+                    if (data.error) {
+                        html = '<tr><td colspan="6" class="error">Error: ' + data.error + '</td></tr>';
+                    } else if (data.length === 0) {
+                        html = '<tr><td colspan="6" style="text-align: center; padding: 20px;">No opportunities found</td></tr>';
+                    } else {
+                        data.forEach(opp => {
+                            html += `
+                                <tr>
+                                    <td>${opp.question.substring(0, 50)}...</td>
+                                    <td>${opp.category}</td>
+                                    <td>$${opp.volume?.toLocaleString() || 0}</td>
+                                    <td>$${opp.yes_price?.toFixed(3) || 0}</td>
+                                    <td>$${opp.no_price?.toFixed(3) || 0}</td>
+                                    <td>${opp.last_updated ? new Date(opp.last_updated).toLocaleDateString() : 'Unknown'}</td>
+                                </tr>
+                            `;
+                        });
+                    }
+                    document.getElementById('polymarket-opportunities').innerHTML = html;
+                })
+                .catch(error => {
+                    document.getElementById('polymarket-opportunities').innerHTML = '<tr><td colspan="6" class="error">Error loading opportunities: ' + error + '</td></tr>';
+                });
+        }
+        
+        function loadStocksData() {
+            // Load stats
+            fetch('/api/stocks/stats')
+                .then(response => response.json())
+                .then(data => {
+                    const statsHtml = `
+                        <div class="stat-card">
+                            <div class="stat-number">${data.total_scanned || 0}</div>
+                            <div class="stat-label">Stocks Scanned</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.opportunities_found || 0}</div>
+                            <div class="stat-label">Opportunities Found</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.top_opportunity || 'None'}</div>
+                            <div class="stat-label">Top Opportunity</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.scan_duration?.toFixed(1) || 0}s</div>
+                            <div class="stat-label">Scan Duration</div>
+                        </div>
+                    `;
+                    document.getElementById('stocks-stats').innerHTML = statsHtml;
+                })
+                .catch(error => {
+                    document.getElementById('stocks-stats').innerHTML = '<div class="error">Error loading stats: ' + error + '</div>';
+                });
+            
+            // Load opportunities
+            fetch('/api/stocks/opportunities')
+                .then(response => response.json())
+                .then(data => {
+                    let html = '';
+                    if (data.error) {
+                        html = '<tr><td colspan="6" class="error">Error: ' + data.error + '</td></tr>';
+                    } else if (data.length === 0) {
+                        html = '<tr><td colspan="6" style="text-align: center; padding: 20px;">No opportunities found</td></tr>';
+                    } else {
+                        data.forEach(opp => {
+                            html += `
+                                <tr>
+                                    <td><strong>${opp.symbol}</strong></td>
+                                    <td><span class="score">${opp.overall_score.toFixed(1)}</span></td>
+                                    <td>$${opp.current_price?.toFixed(2) || 0}</td>
+                                    <td>${opp.volume?.toLocaleString() || 0}</td>
+                                    <td>${opp.technical_score?.toFixed(1) || 0}</td>
+                                    <td>${opp.momentum_score?.toFixed(1) || 0}</td>
+                                </tr>
+                            `;
+                        });
+                    }
+                    document.getElementById('stocks-opportunities').innerHTML = html;
+                })
+                .catch(error => {
+                    document.getElementById('stocks-opportunities').innerHTML = '<tr><td colspan="6" class="error">Error loading opportunities: ' + error + '</td></tr>';
+                });
+        }
+        
+        function loadStrategyLabData() {
+            // Load stats
+            fetch('/api/strategy-lab/stats')
+                .then(response => response.json())
+                .then(data => {
+                    const statsHtml = `
+                        <div class="stat-card">
+                            <div class="stat-number">${data.strategies_tested || 0}</div>
+                            <div class="stat-label">Strategies Tested</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.winner || 'None'}</div>
+                            <div class="stat-label">Tournament Winner</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.winner_score?.toFixed(2) || 0}</div>
+                            <div class="stat-label">Winner Score</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${data.rounds_completed || 0}</div>
+                            <div class="stat-label">Rounds Completed</div>
+                        </div>
+                    `;
+                    document.getElementById('strategy-lab-stats').innerHTML = statsHtml;
+                })
+                .catch(error => {
+                    document.getElementById('strategy-lab-stats').innerHTML = '<div class="error">Error loading stats: ' + error + '</div>';
+                });
+            
+            // Load tournament results
+            fetch('/api/strategy-lab/tournament')
+                .then(response => response.json())
+                .then(data => {
+                    let html = '';
+                    if (data.error) {
+                        html = '<tr><td colspan="5" class="error">Error: ' + data.error + '</td></tr>';
+                    } else if (!data.participants || data.participants.length === 0) {
+                        html = '<tr><td colspan="5" style="text-align: center; padding: 20px;">No tournament data available</td></tr>';
+                    } else {
+                        data.participants.forEach(participant => {
+                            html += `
+                                <tr>
+                                    <td><strong>${participant.name}</strong></td>
+                                    <td><span class="score">${participant.avg_score.toFixed(2)}</span></td>
+                                    <td class="positive">${participant.wins}</td>
+                                    <td class="negative">${participant.losses}</td>
+                                    <td>${participant.total_score.toFixed(2)}</td>
+                                </tr>
+                            `;
+                        });
+                    }
+                    document.getElementById('strategy-lab-tournament').innerHTML = html;
+                })
+                .catch(error => {
+                    document.getElementById('strategy-lab-tournament').innerHTML = '<tr><td colspan="5" class="error">Error loading tournament: ' + error + '</td></tr>';
+                });
+        }
+        
+        // Load initial data
+        document.addEventListener('DOMContentLoaded', function() {
+            loadPolymarketData();
+        });
+        
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            loadTabData(activeTab);
+        }, 30000);
+    </script>
+</body>
+</html>
