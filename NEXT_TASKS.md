@@ -16,7 +16,7 @@
   - Spec: Run 10 strategies parallel, kill losers, evolve winners over 2-3 rounds
   - Done when: Tournament can run with mock strategies and report winners
 
-- [ ] **Multi-Asset Backtesting** - Anti-overfitting framework
+- [x] **Multi-Asset Backtesting** - Anti-overfitting framework
   - Files: `src/strategy_lab/backtester.py`, `src/data/historical.py`
   - Spec: Walk-forward validation, Monte Carlo simulation, cross-asset verification
   - Done when: Backtest results include overfitting detection and bias warnings
