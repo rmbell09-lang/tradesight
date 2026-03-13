@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeSight Strategy Lab</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+        
+        .header {
+            background: rgba(0,0,0,0.3);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .header p {
+            opacity: 0.8;
+            font-size: 1.1rem;
+        }
+        
+        .nav-links {
+            margin-top: 1rem;
+        }
+        
+        .nav-links a {
+            color: #fff;
+            text-decoration: none;
+            margin-right: 2rem;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            transition: background 0.3s;
+        }
+        
+        .nav-links a:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .card h2 {
+            margin-bottom: 1rem;
+            color: #fff;
+            font-size: 1.4rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+        
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 0.75rem;
+            border: none;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.2);
+            color: #fff;
+            font-size: 1rem;
+        }
+        
+        .form-group input::placeholder {
+            color: rgba(255,255,255,0.6);
+        }
+        
+        .btn {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a52);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255,107,107,0.3);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(45deg, #4ecdc4, #44a08d);
+        }
+        
+        .btn-secondary:hover {
+            box-shadow: 0 4px 12px rgba(78,205,196,0.3);
+        }
+        
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4ecdc4;
+        }
+        
+        .status-indicator.inactive {
+            background: #666;
+        }
+        
+        .status-indicator.active {
+            background: #ff6b6b;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .results-container {
+            background: rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-top: 2rem;
+        }
+        
+        .participants-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .participant-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            border: 2px solid transparent;
+        }
+        
+        .participant-card.winner {
+            border-color: #ffd700;
+            background: rgba(255,215,0,0.2);
+        }
+        
+        .participant-card.eliminated {
+            opacity: 0.6;
+            background: rgba(255,107,107,0.1);
+        }
+        
+        .participant-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        
+        .participant-stats {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .spinner {
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top: 3px solid #fff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .history-item {
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .export-area {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .export-area textarea {
+            width: 100%;
+            height: 200px;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            border-radius: 4px;
+            padding: 1rem;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            resize: vertical;
+        }
+        
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .participants-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧪 TradeSight Strategy Lab</h1>
+        <p>AI-powered strategy tournaments and backtesting platform</p>
+        <div class="nav-links">
+            <a href="/">← Back to Dashboard</a>
+            <a href="#" onclick="loadHistory()">Tournament History</a>
+            <a href="#" onclick="exportWinner()">Export Winner</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Tournament Control Panel -->
+        <div class="grid">
+            <div class="card">
+                <h2>🏁 Tournament Control</h2>
+                
+                <div class="status">
+                    <div class="status-indicator" id="statusIndicator"></div>
+                    <span id="statusText">Ready to start tournament</span>
+                </div>
+                
+                <form id="tournamentForm">
+                    <div class="form-group">
+                        <label for="initialBalance">Initial Balance ($)</label>
+                        <input type="number" id="initialBalance" value="10000" min="1000" step="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="eliminationRate">Elimination Rate (0.1-0.5)</label>
+                        <input type="number" id="eliminationRate" value="0.3" min="0.1" max="0.5" step="0.1">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="minSurvivors">Minimum Survivors</label>
+                        <input type="number" id="minSurvivors" value="2" min="1" max="5">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="dataDays">Test Data Days</label>
+                        <input type="number" id="dataDays" value="100" min="30" max="365">
+                    </div>
+                    
+                    <button type="submit" class="btn" id="startBtn">Start Tournament</button>
+                </form>
+            </div>
+            
+            <div class="card">
+                <h2>📊 Tournament Status</h2>
+                <div id="tournamentInfo">
+                    <p>No tournament running</p>
+                    <p>Configure parameters and click "Start Tournament" to begin</p>
+                </div>
+                
+                <div id="winnerInfo" class="hidden">
+                    <h3>🏆 Tournament Winner</h3>
+                    <div id="winnerDetails"></div>
+                    <button class="btn btn-secondary" onclick="exportWinner()" style="margin-top: 1rem;">
+                        Export Winner Strategy
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tournament Results -->
+        <div id="resultsContainer" class="results-container hidden">
+            <h2>🎯 Tournament Results</h2>
+            <div id="roundsInfo"></div>
+            <div class="participants-grid" id="participantsGrid"></div>
+        </div>
+        
+        <!-- Loading Indicator -->
+        <div id="loadingIndicator" class="loading hidden">
+            <div class="spinner"></div>
+            <p>Running tournament... This may take a moment.</p>
+        </div>
+        
+        <!-- Export Area -->
+        <div id="exportContainer" class="export-area hidden">
+            <h3>📄 Exported Strategy</h3>
+            <textarea id="exportText" readonly placeholder="Winner strategy will appear here..."></textarea>
+            <button class="btn btn-secondary" onclick="copyToClipboard()" style="margin-top: 0.5rem;">
+                Copy to Clipboard
+            </button>
+        </div>
+        
+        <!-- Tournament History -->
+        <div id="historyContainer" class="results-container hidden">
+            <h2>📚 Tournament History</h2>
+            <div id="historyList"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentStatus = { in_progress: false, has_results: false };
+
+        // Load initial status
+        document.addEventListener('DOMContentLoaded', function() {
+            checkStatus();
+            setInterval(checkStatus, 2000); // Check status every 2 seconds
+        });
+
+        function checkStatus() {
+            fetch('/api/strategy-lab/status')
+                .then(response => response.json())
+                .then(data => {
+                    currentStatus = data;
+                    updateUI();
+                    
+                    // If tournament finished and we have new results, load them
+                    if (!data.in_progress && data.has_results) {
+                        loadResults();
+                    }
+                })
+                .catch(error => console.error('Status check failed:', error));
+        }
+
+        function updateUI() {
+            const statusIndicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            const startBtn = document.getElementById('startBtn');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            
+            if (currentStatus.in_progress) {
+                statusIndicator.className = 'status-indicator active';
+                statusText.textContent = 'Tournament in progress...';
+                startBtn.disabled = true;
+                startBtn.textContent = 'Running...';
+                loadingIndicator.classList.remove('hidden');
+            } else {
+                statusIndicator.className = currentStatus.has_results ? 'status-indicator' : 'status-indicator inactive';
+                statusText.textContent = currentStatus.has_results ? 
+                    'Tournament completed - Ready for next run' : 
+                    'Ready to start tournament';
+                startBtn.disabled = false;
+                startBtn.textContent = 'Start Tournament';
+                loadingIndicator.classList.add('hidden');
+            }
+        }
+
+        document.getElementById('tournamentForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = {
+                initial_balance: parseFloat(document.getElementById('initialBalance').value),
+                elimination_rate: parseFloat(document.getElementById('eliminationRate').value),
+                min_survivors: parseInt(document.getElementById('minSurvivors').value),
+                data_days: parseInt(document.getElementById('dataDays').value)
+            };
+            
+            fetch('/api/strategy-lab/start-tournament', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                } else {
+                    displayResults(data);
+                }
+            })
+            .catch(error => {
+                console.error('Tournament start failed:', error);
+                alert('Failed to start tournament');
+            });
+        });
+
+        function loadResults() {
+            fetch('/api/strategy-lab/results')
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.error) {
+                        displayResults(data);
+                    }
+                })
+                .catch(error => console.error('Failed to load results:', error));
+        }
+
+        function displayResults(data) {
+            const resultsContainer = document.getElementById('resultsContainer');
+            const roundsInfo = document.getElementById('roundsInfo');
+            const participantsGrid = document.getElementById('participantsGrid');
+            const winnerInfo = document.getElementById('winnerInfo');
+            const winnerDetails = document.getElementById('winnerDetails');
+            
+            // Show results
+            resultsContainer.classList.remove('hidden');
+            
+            // Display round info
+            roundsInfo.innerHTML = `
+                <p><strong>Rounds Completed:</strong> ${data.rounds_completed}</p>
+                <p><strong>Total Participants:</strong> ${data.participants.length}</p>
+                <p><strong>Eliminations:</strong> ${data.eliminations.length}</p>
+            `;
+            
+            // Display participants
+            participantsGrid.innerHTML = '';
+            data.participants.forEach(participant => {
+                const card = document.createElement('div');
+                card.className = 'participant-card';
+                
+                if (data.winner && participant.name === data.winner.name) {
+                    card.classList.add('winner');
+                } else if (participant.eliminated) {
+                    card.classList.add('eliminated');
+                }
+                
+                card.innerHTML = `
+                    <div class="participant-name">${participant.name}</div>
+                    <div class="participant-stats">
+                        <div>Score: ${participant.avg_score.toFixed(2)}</div>
+                        <div>W/L: ${participant.wins}/${participant.losses}</div>
+                        <div>Rounds: ${participant.rounds_survived}</div>
+                        ${participant.eliminated ? '<div style="color: #ff6b6b;">Eliminated</div>' : ''}
+                    </div>
+                `;
+                participantsGrid.appendChild(card);
+            });
+            
+            // Display winner info
+            if (data.winner) {
+                winnerInfo.classList.remove('hidden');
+                winnerDetails.innerHTML = `
+                    <p><strong>Strategy:</strong> ${data.winner.name}</p>
+                    <p><strong>Avg Score:</strong> ${data.winner.avg_score.toFixed(2)}</p>
+                    <p><strong>Total Score:</strong> ${data.winner.total_score.toFixed(2)}</p>
+                    <p><strong>Win Rate:</strong> ${data.winner.wins}/${data.winner.wins + (data.winner.losses || 0)}</p>
+                `;
+            }
+        }
+
+        function exportWinner() {
+            fetch('/api/strategy-lab/export-winner')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                        return;
+                    }
+                    
+                    const exportContainer = document.getElementById('exportContainer');
+                    const exportText = document.getElementById('exportText');
+                    
+                    const exportContent = `# ${data.strategy_name} - Tournament Winner
+# Exported: ${data.export_timestamp}
+# Performance: ${data.performance.avg_score.toFixed(2)} avg score, ${data.performance.wins} wins
+# Tournament: ${data.tournament_info.rounds_completed} rounds, ${data.tournament_info.total_participants} participants
+
+${data.strategy_source}
+
+# Performance Details:
+# - Average Score: ${data.performance.avg_score.toFixed(2)}
+# - Total Score: ${data.performance.total_score.toFixed(2)}
+# - Wins: ${data.performance.wins}
+# - Losses: ${data.performance.losses}
+# - Rounds Survived: ${data.performance.rounds_survived}
+`;
+                    
+                    exportText.value = exportContent;
+                    exportContainer.classList.remove('hidden');
+                    exportContainer.scrollIntoView({ behavior: 'smooth' });
+                })
+                .catch(error => {
+                    console.error('Export failed:', error);
+                    alert('Failed to export winner');
+                });
+        }
+
+        function copyToClipboard() {
+            const exportText = document.getElementById('exportText');
+            exportText.select();
+            document.execCommand('copy');
+            
+            // Temporarily change button text
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(() => {
+                btn.textContent = originalText;
+            }, 2000);
+        }
+
+        function loadHistory() {
+            fetch('/api/strategy-lab/history')
+                .then(response => response.json())
+                .then(data => {
+                    const historyContainer = document.getElementById('historyContainer');
+                    const historyList = document.getElementById('historyList');
+                    
+                    if (data.length === 0) {
+                        historyList.innerHTML = '<p>No tournament history available</p>';
+                    } else {
+                        historyList.innerHTML = '';
+                        data.forEach(entry => {
+                            const historyItem = document.createElement('div');
+                            historyItem.className = 'history-item';
+                            
+                            const date = new Date(entry.timestamp).toLocaleString();
+                            historyItem.innerHTML = `
+                                <div>
+                                    <strong>${entry.winner || 'No winner'}</strong><br>
+                                    <small>${date}</small>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div>${entry.rounds_completed} rounds</div>
+                                    <div>${entry.participants_count} participants</div>
+                                </div>
+                            `;
+                            historyList.appendChild(historyItem);
+                        });
+                    }
+                    
+                    historyContainer.classList.remove('hidden');
+                    historyContainer.scrollIntoView({ behavior: 'smooth' });
+                })
+                .catch(error => {
+                    console.error('History load failed:', error);
+                    alert('Failed to load tournament history');
+                });
+        }
+    </script>
+</body>
+</html>

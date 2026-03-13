@@ -254,7 +254,7 @@ class TestPaperTrader:
         mock_conn.execute.return_value.fetchall.return_value = [
             ('MACD Crossover', 0.75, '2026-02-28T10:00:00'),
             ('RSI Mean Reversion', 0.68, '2026-02-28T11:00:00'),
-            ('Bollinger Bounce', 0.55, '2026-02-28T12:00:00')  # Below threshold
+            ('Bollinger Bounce', 0.55, '2026-02-28T12:00:00')  # Above 0.50 threshold
         ]
         
         # Mock path exists
@@ -264,18 +264,21 @@ class TestPaperTrader:
         
         winners = self.trader.get_latest_tournament_winners()
         
-        # Should return strategies above confidence threshold (0.65)
-        assert len(winners) == 2
+        # Should return strategies above confidence threshold (0.50)
+        assert len(winners) == 3
         assert ('MACD Crossover', 0.75) in winners
         assert ('RSI Mean Reversion', 0.68) in winners
-        assert ('Bollinger Bounce', 0.55) not in winners
+        assert ('Bollinger Bounce', 0.55) in winners
     
     @patch('trading.paper_trader.TechnicalIndicators')
     def test_generate_trading_signals_macd(self, mock_indicators):
         """Test MACD trading signal generation"""
-        # Mock market data
+        # Mock market data - include all OHLCV columns
         import pandas as pd
         mock_data = pd.DataFrame({
+            'open': [149.0] * 200,
+            'high': [151.0] * 200,
+            'low': [149.0] * 200,
             'close': [150.0] * 200,
             'volume': [1000] * 200
         }, index=pd.date_range('2026-01-01', periods=200))
@@ -283,14 +286,19 @@ class TestPaperTrader:
         # Mock Alpaca client
         self.trader.alpaca.get_historical_data = Mock(return_value=mock_data)
         
-        # Mock MACD indicators
+        # Mock MACD indicators with proper structure
         mock_indicator_instance = Mock()
         mock_indicators.return_value = mock_indicator_instance
         
-        macd_data = pd.DataFrame({
-            'histogram': [-0.5, 0.5]  # Bullish crossover
+        # Create proper MACD DataFrame with histogram showing bullish crossover
+        macd_df = pd.DataFrame({
+            'histogram': [-0.5] * 199 + [0.5]  # Last value is positive (bullish)
         })
-        mock_indicator_instance.calculate_all.return_value = {"signals": {"macd": 1}, "indicators": {}}
+        
+        mock_indicator_instance.calculate_all.return_value = {
+            "signals": {"macd": 1}, 
+            "indicators": {"macd": macd_df}
+        }
         
         # Generate signal
         signal = self.trader.generate_trading_signals('AAPL', 'MACD Crossover')
@@ -306,23 +314,27 @@ class TestPaperTrader:
     @patch('trading.paper_trader.TechnicalIndicators')
     def test_generate_trading_signals_rsi(self, mock_indicators):
         """Test RSI trading signal generation"""
-        # Mock market data
+        # Mock market data - include all OHLCV columns
         import pandas as pd
         mock_data = pd.DataFrame({
-            'close': list(range(200)),  # Declining prices
+            'open': list(range(200, 0, -1)),  # Declining open
+            'high': list(range(201, 1, -1)),  # Declining high
+            'low': list(range(199, -1, -1)),  # Declining low
+            'close': list(range(200, 0, -1)),  # Declining close (oversold signal)
             'volume': [1000] * 200
         }, index=pd.date_range('2026-01-01', periods=200))
         
         self.trader.alpaca.get_historical_data = Mock(return_value=mock_data)
         
-        # Mock RSI indicators
+        # Mock RSI indicators with proper structure
         mock_indicator_instance = Mock()
         mock_indicators.return_value = mock_indicator_instance
         
-        rsi_data = pd.DataFrame({
-            'rsi': [25.0]  # Oversold
-        })
-        mock_indicator_instance.calculate_all.return_value = {"indicators": {"rsi": 25.0}, "signals": {}}
+        # RSI value of 25.0 indicates oversold condition
+        mock_indicator_instance.calculate_all.return_value = {
+            "indicators": {"rsi": 25.0},  # Oversold RSI
+            "signals": {}
+        }
         
         # Generate signal
         signal = self.trader.generate_trading_signals('AAPL', 'RSI Mean Reversion')
@@ -376,10 +388,10 @@ class TestPaperTrader:
             conn.commit()
         
         # Mock Alpaca quote
-        self.trader.alpaca.get_latest_quote = Mock(return_value={'price': 160.0})
-        self.trader.alpaca.place_paper_order = Mock(return_value={
+        mock_quote = Mock(); mock_quote.last = 160.0; self.trader.alpaca.get_quote = Mock(return_value=mock_quote)
+        self.trader.alpaca.place_paper_trade = Mock(return_value={
             'status': 'filled', 
-            'filled_price': 160.0
+            'fill_price': 160.0
         })
         
         # Close aged positions

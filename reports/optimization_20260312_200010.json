@@ -1,0 +1,164 @@
+{
+  "winner": "RSI Mean Reversion",
+  "version": "v3-real-data",
+  "baseline": {
+    "pnl_pct": 61.96701975518118,
+    "sharpe": 1.772297496477992,
+    "win_rate": 100.0,
+    "parameters": {
+      "oversold": 30,
+      "overbought": 70,
+      "position_size": 0.6,
+      "stop_loss_pct": 0.07,
+      "take_profit_pct": 0.08,
+      "max_holding_bars": 0
+    }
+  },
+  "optimized": {
+    "pnl_pct": 228.50333722643353,
+    "sharpe": 1.7657040026493052,
+    "win_rate": 50.0,
+    "parameters": {
+      "oversold": 33,
+      "overbought": 75,
+      "position_size": 0.8,
+      "stop_loss_pct": 0.05,
+      "take_profit_pct": 0.06,
+      "max_holding_bars": 0
+    },
+    "composite_score": 1.298458926291126
+  },
+  "improvement": {
+    "pnl_pct": 166.53631747125235,
+    "sharpe": -0.006593493828686903
+  },
+  "top_5_variants": [
+    {
+      "parameters": {
+        "oversold": 33,
+        "overbought": 75,
+        "position_size": 0.8,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.06,
+        "max_holding_bars": 0
+      },
+      "pnl_pct": 228.50333722643353,
+      "sharpe": 1.7657040026493052,
+      "win_rate": 50.0,
+      "score": 1.298458926291126
+    },
+    {
+      "parameters": {
+        "oversold": 33,
+        "overbought": 75,
+        "position_size": 0.8,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.06,
+        "max_holding_bars": 20
+      },
+      "pnl_pct": 228.50333722643353,
+      "sharpe": 1.7657040026493052,
+      "win_rate": 50.0,
+      "score": 1.298458926291126
+    },
+    {
+      "parameters": {
+        "oversold": 33,
+        "overbought": 75,
+        "position_size": 0.8,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.09,
+        "max_holding_bars": 0
+      },
+      "pnl_pct": 228.50333722643353,
+      "sharpe": 1.7657040026493052,
+      "win_rate": 50.0,
+      "score": 1.298458926291126
+    },
+    {
+      "parameters": {
+        "oversold": 33,
+        "overbought": 75,
+        "position_size": 0.8,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.09,
+        "max_holding_bars": 20
+      },
+      "pnl_pct": 228.50333722643353,
+      "sharpe": 1.7657040026493052,
+      "win_rate": 50.0,
+      "score": 1.298458926291126
+    },
+    {
+      "parameters": {
+        "oversold": 33,
+        "overbought": 75,
+        "position_size": 0.8,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.12,
+        "max_holding_bars": 0
+      },
+      "pnl_pct": 228.50333722643353,
+      "sharpe": 1.7657040026493052,
+      "win_rate": 50.0,
+      "score": 1.298458926291126
+    }
+  ],
+  "search_space": {
+    "total_combinations": 1296,
+    "parameters_varied": [
+      "oversold",
+      "overbought",
+      "position_size",
+      "stop_loss_pct",
+      "take_profit_pct",
+      "max_holding_bars"
+    ]
+  },
+  "data_source": "alpaca",
+  "symbols_tested": [
+    "SPY",
+    "AAPL",
+    "MSFT",
+    "AMZN",
+    "GOOGL"
+  ],
+  "primary_symbol": "SPY",
+  "cross_validation": {
+    "SPY": {
+      "pnl_pct": 228.50333722643353,
+      "sharpe": 1.7657040026493052,
+      "win_rate": 50.0
+    },
+    "AAPL": {
+      "pnl_pct": 224.670976,
+      "sharpe": 2.4201181071454325,
+      "win_rate": 50.0
+    },
+    "MSFT": {
+      "pnl_pct": 3159.284589878188,
+      "sharpe": 4.285167128600154,
+      "win_rate": 33.33333333333333
+    },
+    "AMZN": {
+      "pnl_pct": 499.4724900864001,
+      "sharpe": 3.0700393167092,
+      "win_rate": 66.66666666666666
+    },
+    "GOOGL": {
+      "pnl_pct": 228.53668302341137,
+      "sharpe": 1.7517389447594152,
+      "win_rate": 50.0
+    }
+  },
+  "timestamp": "2026-03-12T20:00:10.590195",
+  "champion_decision": "Challenger has only 0/3 live sessions \u2014 keeping champion",
+  "active_params": {
+    "oversold": 30,
+    "overbought": 75,
+    "position_size": 0.8,
+    "stop_loss_pct": 0.05,
+    "take_profit_pct": 0.06,
+    "max_holding_bars": 0
+  }
+}

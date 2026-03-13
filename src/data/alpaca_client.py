@@ -5,6 +5,8 @@ Client for Alpaca Markets API - stock market data and paper trading.
 Provides real-time and historical OHLCV data for stocks.
 """
 
+import os
+import sys
 import requests
 import pandas as pd
 import numpy as np
@@ -14,8 +16,12 @@ from datetime import datetime, timedelta
 import json
 import time
 
-import sys
-sys.path.append("src")
+# Ensure src/ is on path regardless of working directory
+_src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _src_dir not in sys.path:
+    sys.path.insert(0, _src_dir)
+
+import config
 from indicators.technical_indicators import TechnicalIndicators
 
 
@@ -96,6 +102,19 @@ class AlpacaClient:
             }
         
         self.indicators = TechnicalIndicators()
+        self._demo_fallback_count = 0
+        
+        # Pre-warm DNS for Alpaca endpoints to catch resolution issues early
+        if not self.demo_mode:
+            import socket
+            for host in ['data.alpaca.markets', 'paper-api.alpaca.markets']:
+                try:
+                    socket.getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)
+                except socket.gaierror as e:
+                    import logging
+                    logging.getLogger('AlpacaClient').warning(
+                        f"DNS pre-warm failed for {host}: {e} — will retry on each request"
+                    )
     
     def get_historical_data(self, 
                           symbol: str,
@@ -113,21 +132,43 @@ class AlpacaClient:
             DataFrame with OHLCV data
         """
         if self.demo_mode:
-            return self._generate_demo_data(symbol, days)
+            df = self._generate_demo_data(symbol, days)
+            df.attrs['data_source'] = 'demo_mode'
+            return df
         
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
         
         url = f"{self.data_url}/v2/stocks/{symbol}/bars"
         params = {
-            'start': start_date.isoformat(),
-            'end': end_date.isoformat(),
+            'start': start_date.strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'end': end_date.strftime('%Y-%m-%dT%H:%M:%SZ'),
             'timeframe': timeframe,
             'limit': days + 50  # Buffer for weekends
         }
         
+        # Retry with backoff for transient DNS/network failures
+        max_retries = 3
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=self.headers, params=params, timeout=15)
+                break  # Success
+            except requests.exceptions.ConnectionError as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    wait = (attempt + 1) * 5  # 5s, 10s backoff
+                    import logging as _log
+                    _log.getLogger('AlpacaClient').warning(
+                        f"Connection error for {symbol} (attempt {attempt+1}/{max_retries}), retrying in {wait}s: {e}"
+                    )
+                    import time as _time
+                    _time.sleep(wait)
+                    continue
+                else:
+                    raise
         try:
-            response = requests.get(url, headers=self.headers, params=params, timeout=10)
+            response  # Check we have a response
             
             if response.status_code == 200:
                 data = response.json()
@@ -154,12 +195,37 @@ class AlpacaClient:
                 return df.tail(days)  # Return exactly what was requested
                 
             else:
-                print(f"API Error {response.status_code}: {response.text}")
-                return self._generate_demo_data(symbol, days)
+                self._demo_fallback_count += 1
+                import logging
+                logging.getLogger('AlpacaClient').warning(
+                    f"API Error {response.status_code} for {symbol} - falling back to DEMO data (fallback #{self._demo_fallback_count})"
+                )
+                df = self._generate_demo_data(symbol, days)
+                df.attrs['data_source'] = 'demo_fallback'
+                df.attrs['fallback_reason'] = f'API {response.status_code}'
+                return df
                 
         except Exception as e:
-            print(f"Error fetching {symbol} data: {e}")
-            return self._generate_demo_data(symbol, days)
+            self._demo_fallback_count += 1
+            import logging
+            logging.getLogger('AlpacaClient').warning(
+                f"Error fetching {symbol}: {e} - falling back to DEMO data (fallback #{self._demo_fallback_count})"
+            )
+            df = self._generate_demo_data(symbol, days)
+            df.attrs['data_source'] = 'demo_fallback'
+            df.attrs['fallback_reason'] = str(e)
+            return df
+        except NameError:
+            # response wasn't assigned (all retries failed)
+            self._demo_fallback_count += 1
+            import logging
+            logging.getLogger('AlpacaClient').warning(
+                f"All retries failed for {symbol}: {last_error} - falling back to DEMO data"
+            )
+            df = self._generate_demo_data(symbol, days)
+            df.attrs['data_source'] = 'demo_fallback'
+            df.attrs['fallback_reason'] = str(last_error)
+            return df
     
     def get_quote(self, symbol: str) -> Optional[StockQuote]:
         """Get real-time quote for a symbol"""
@@ -206,9 +272,9 @@ class AlpacaClient:
         
         print(f"📊 Scanning S&P 500 stocks...")
         
-        for i, symbol in enumerate(self.SP500_SYMBOLS[:20]):  # Limit to 20 for demo
+        for i, symbol in enumerate(self.SP500_SYMBOLS):
             try:
-                print(f"  Analyzing {symbol} ({i+1}/20)...")
+                print(f"  Analyzing {symbol} ({i+1}/{len(self.SP500_SYMBOLS)})...")
                 
                 # Get historical data
                 data = self.get_historical_data(symbol, days=100)
@@ -363,7 +429,7 @@ class AlpacaClient:
     
     def _generate_demo_data(self, symbol: str, days: int) -> pd.DataFrame:
         """Generate realistic demo OHLCV data"""
-        np.random.seed(hash(symbol) % 2147483647)  # Deterministic per symbol
+        np.random.seed((hash(symbol) + int(datetime.now().strftime("%Y%m%d"))) % 2147483647)  # Varies daily per symbol
         
         dates = pd.date_range(end=datetime.now(), periods=days, freq='D')
         

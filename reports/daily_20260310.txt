@@ -1,0 +1,23 @@
+============================================================
+  TRADESIGHT DAILY REPORT
+  Tuesday, March 10, 2026 — Generated 03:42 AM
+============================================================
+
+OVERNIGHT OPTIMIZATION (1 run(s) in last 24h)
+----------------------------------------
+  [03/09 20:00] Winner: RSI Mean Reversion
+    P&L: 64.7% → 89.4% (+24.8%)
+    Sharpe: 2.53 | Win Rate: 100%
+    Best params: {"oversold":28,"overbought":72,"position_size":0.8,"stop_loss_pct":0.05,"take_profit_pct":0.12,"max_holding_bars":0}
+
+PAPER TRADING P&L
+----------------------------------------
+  No paper trading data found.
+  (Run overnight_strategy_evolution.py to generate paper trades)
+
+STATUS
+----------------------------------------
+  Last optimization: 03/09 at 08:00 PM
+  Report generated: 03/10/2026 03:42 AM
+
+============================================================

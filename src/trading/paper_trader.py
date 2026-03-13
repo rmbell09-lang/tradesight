@@ -26,6 +26,20 @@ from automation.strategy_automation import StrategyAutomation
 from strategy_lab.tournament import get_builtin_strategies
 from indicators.technical_indicators import TechnicalIndicators
 
+# Feedback tracker — imported lazily to avoid circular imports
+try:
+    from trading.feedback_tracker import FeedbackTracker
+    _FEEDBACK_AVAILABLE = True
+except ImportError:
+    _FEEDBACK_AVAILABLE = False
+
+# Champion tracker — load optimizer-winning params
+try:
+    from trading.champion_tracker import ChampionTracker
+    _CHAMPION_AVAILABLE = True
+except ImportError:
+    _CHAMPION_AVAILABLE = False
+
 
 class PaperTrader:
     """Orchestrates paper trading with tournament-winning strategies"""
@@ -44,6 +58,26 @@ class PaperTrader:
         self.position_manager = PositionManager(base_dir=self.base_dir)
         self.automation = StrategyAutomation(base_dir=self.base_dir)
         
+        # Active params — loaded from ChampionTracker (optimizer winning params)
+        self.active_params: Dict = {}
+        if _CHAMPION_AVAILABLE:
+            try:
+                _ct = ChampionTracker(base_dir=str(self.base_dir.parent))
+                _champ = _ct.get_champion()
+                if _champ and _champ.get('params'):
+                    self.active_params = _champ['params']
+                    import logging
+                    logging.getLogger('PaperTrader').info(f'Loaded champion params: {self.active_params}')
+            except Exception as _e:
+                import logging
+                logging.getLogger('PaperTrader').warning(f'Could not load champion params: {_e}')
+        
+        # Feedback tracker
+        if _FEEDBACK_AVAILABLE:
+            self.feedback = FeedbackTracker(base_dir=str(self.base_dir))
+        else:
+            self.feedback = None
+        
         # Initialize Alpaca client (demo mode if no API keys)
         if alpaca_api_key and alpaca_secret:
             self.alpaca = AlpacaClient(api_key=alpaca_api_key, secret_key=alpaca_secret, paper=True)
@@ -55,8 +89,14 @@ class PaperTrader:
         
         # Trading parameters
         self.config = {
-            'trading_symbols': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'NFLX'],
-            'min_strategy_confidence': 0.65,  # Minimum score to trade
+            'trading_symbols': [
+                'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'GOOG', 'TSLA', 'BRK.B', 'UNH', 'JNJ', 'XOM',
+                'JPM', 'V', 'PG', 'CVX', 'HD', 'MA', 'BAC', 'ABBV', 'PFE', 'KO',
+                'PEP', 'AVGO', 'COST', 'DIS', 'WMT', 'TMO', 'VZ', 'ADBE', 'MRK', 'NFLX',
+                'ABT', 'CRM', 'ACN', 'NKE', 'TXN', 'LIN', 'MDT', 'UPS', 'AMD', 'PM',
+                'BMY', 'QCOM', 'HON', 'RTX', 'LLY', 'ORCL', 'IBM', 'BA', 'GE', 'MMM'
+            ],
+            'min_strategy_confidence': 0.50,  # Minimum score to trade (lowered for real data scores)
             'max_concurrent_trades': 5,       # Max open positions at once
             'trade_frequency_hours': 4,       # Check for signals every 4 hours
             'position_hold_days': 5,          # Hold positions for 5 days max
@@ -119,13 +159,14 @@ class PaperTrader:
         """Generate trading signals for a symbol using a specific strategy"""
         try:
             # Get market data
-            data = self.alpaca.get_historical_data(symbol, days=30)
-            if data is None or len(data) < 200:
+            data = self.alpaca.get_historical_data(symbol, days=500, timeframe='1Hour')
+            if data is None or len(data) < 20:
                 self.logger.warning(f"Insufficient data for {symbol}")
                 return None
             
-            # Calculate technical indicators
-            from indicators.technical_indicators import TechnicalIndicators; indicators = TechnicalIndicators(); indicators.data = data
+            # Calculate technical indicators using module-level import
+            indicators = TechnicalIndicators()
+            indicators.data = data
             
             # Calculate all indicators
             indicators_data = indicators.calculate_all(data)
@@ -146,7 +187,7 @@ class PaperTrader:
             return None
     
     def _apply_strategy_logic(self, strategy_name: str, data: pd.DataFrame, 
-                            indicators: TechnicalIndicators) -> Optional[Dict]:
+                            indicators_data: Dict) -> Optional[Dict]:
         """Apply specific strategy logic to generate buy/sell signals"""
         
         # Get the latest values
@@ -156,57 +197,75 @@ class PaperTrader:
         signal = None
         
         if strategy_name == 'MACD Crossover':
-            macd_signal = indicators_data.get("signals", {}).get("macd", 0)
-            if len(macd) >= 2:
-                current_histogram = macd.iloc[-1]['histogram']
-                prev_histogram = macd.iloc[-2]['histogram']
-                
-                # MACD bullish crossover
-                if current_histogram > 0 and prev_histogram <= 0:
-                    signal = {
-                        'action': 'buy',
-                        'side': 'long',
-                        'confidence': 0.75,
-                        'reason': 'MACD bullish crossover'
-                    }
-                # MACD bearish crossover
-                elif current_histogram < 0 and prev_histogram >= 0:
-                    signal = {
-                        'action': 'sell',
-                        'side': 'short',
-                        'confidence': 0.70,
-                        'reason': 'MACD bearish crossover'
-                    }
+            # Get MACD data from indicators_data dict
+            indicators_dict = indicators_data.get("indicators", {})
+            macd_data = indicators_dict.get("macd", pd.DataFrame())
+            
+            # Check if we have MACD data and enough history
+            if isinstance(macd_data, pd.DataFrame) and len(macd_data) >= 2 and 'histogram' in macd_data.columns:
+                try:
+                    current_histogram = float(macd_data.iloc[-1]['histogram'])
+                    prev_histogram = float(macd_data.iloc[-2]['histogram'])
+                    
+                    # MACD bullish crossover
+                    if current_histogram > 0 and prev_histogram <= 0:
+                        signal = {
+                            'action': 'buy',
+                            'side': 'long',
+                            'confidence': 0.75,
+                            'reason': 'MACD bullish crossover'
+                        }
+                    # MACD bearish crossover
+                    elif current_histogram < 0 and prev_histogram >= 0:
+                        signal = {
+                            'action': 'sell',
+                            'side': 'short',
+                            'confidence': 0.70,
+                            'reason': 'MACD bearish crossover'
+                        }
+                except (KeyError, IndexError, ValueError):
+                    pass  # Skip if data access fails
         
         elif strategy_name == 'RSI Mean Reversion':
-            rsi = indicators.calculate_rsi()
-            if len(rsi) >= 1:
-                current_rsi = rsi.iloc[-1]['rsi']
+            # Get RSI data from indicators_data dict
+            indicators_dict = indicators_data.get("indicators", {})
+            rsi_value = indicators_dict.get("rsi", None)
+            
+            if rsi_value is not None:
+                current_rsi = rsi_value if isinstance(rsi_value, (int, float)) else rsi_value.iloc[-1] if isinstance(rsi_value, pd.DataFrame) else None
                 
-                # Oversold condition
-                if current_rsi < 30:
-                    signal = {
-                        'action': 'buy',
-                        'side': 'long',
-                        'confidence': min(0.80, (30 - current_rsi) / 30 + 0.60),
-                        'reason': f'RSI oversold: {current_rsi:.1f}'
-                    }
-                # Overbought condition
-                elif current_rsi > 70:
-                    signal = {
-                        'action': 'sell',
-                        'side': 'short',
-                        'confidence': min(0.80, (current_rsi - 70) / 30 + 0.60),
-                        'reason': f'RSI overbought: {current_rsi:.1f}'
-                    }
+                if current_rsi is not None:
+                    # RSI thresholds from champion params
+                    oversold_thresh = self.active_params.get("oversold", 33)
+                    overbought_thresh = self.active_params.get("overbought", 70)
+                    if current_rsi < oversold_thresh:
+                        signal = {
+                            "action": "buy",
+                            "side": "long",
+                            "confidence": min(0.80, (oversold_thresh - current_rsi) / oversold_thresh + 0.60),
+                            "reason": f"RSI oversold: {current_rsi:.1f}"
+                        }
+                    # Overbought condition
+                    elif current_rsi > overbought_thresh:
+                        signal = {
+                            "action": "sell",
+                            "side": "short",
+                            "confidence": min(0.80, (current_rsi - overbought_thresh) / overbought_thresh + 0.60),
+                            "reason": f"RSI overbought: {current_rsi:.1f}"
+                        }
         
         elif strategy_name == 'Bollinger Bounce':
-            bb = indicators.calculate_bollinger_bands()
-            if len(bb) >= 1:
-                current_bb = bb.iloc[-1]
+            # Get Bollinger Bands data from indicators_data dict
+            indicators_dict = indicators_data.get("indicators", {})
+            bb_data = indicators_dict.get("bollinger_bands", pd.DataFrame())
+            
+            if isinstance(bb_data, pd.DataFrame) and len(bb_data) >= 1:
+                current_bb = bb_data.iloc[-1]
+                upper_band = current_bb.get('upper_band', float('inf')) if hasattr(current_bb, 'get') else current_bb['upper_band']
+                lower_band = current_bb.get('lower_band', float('-inf')) if hasattr(current_bb, 'get') else current_bb['lower_band']
                 
                 # Price near lower band (buy signal)
-                if current_price <= current_bb['lower_band'] * 1.02:
+                if current_price <= lower_band * 1.02:
                     signal = {
                         'action': 'buy',
                         'side': 'long',
@@ -214,7 +273,7 @@ class PaperTrader:
                         'reason': 'Price near Bollinger lower band'
                     }
                 # Price near upper band (sell signal)
-                elif current_price >= current_bb['upper_band'] * 0.98:
+                elif current_price >= upper_band * 0.98:
                     signal = {
                         'action': 'sell',
                         'side': 'short',
@@ -263,7 +322,7 @@ class PaperTrader:
         """Execute a buy order"""
         try:
             # Place order with Alpaca (or simulate in demo mode)
-            order_result = self.alpaca.place_paper_order(
+            order_result = self.alpaca.place_paper_trade(
                 symbol=symbol,
                 quantity=int(quantity),
                 side='buy'
@@ -271,7 +330,7 @@ class PaperTrader:
             
             if order_result and order_result.get('status') in ['filled', 'accepted']:
                 # Record position
-                fill_price = order_result.get('filled_price', price)
+                fill_price = order_result.get('fill_price', price)
                 success = self.position_manager.open_position(
                     symbol=symbol,
                     strategy=strategy,
@@ -309,7 +368,7 @@ class PaperTrader:
                 quantity = position[0]
             
             # Place sell order
-            order_result = self.alpaca.place_paper_order(
+            order_result = self.alpaca.place_paper_trade(
                 symbol=symbol,
                 quantity=int(abs(quantity)),
                 side='sell'
@@ -317,7 +376,7 @@ class PaperTrader:
             
             if order_result and order_result.get('status') in ['filled', 'accepted']:
                 # Close position
-                fill_price = order_result.get('filled_price', price)
+                fill_price = order_result.get('fill_price', price)
                 success = self.position_manager.close_position(
                     symbol=symbol,
                     strategy=strategy,
@@ -355,9 +414,9 @@ class PaperTrader:
             price_data = {}
             for symbol in self.config['trading_symbols']:
                 try:
-                    quote = self.alpaca.get_latest_quote(symbol)
+                    quote = self.alpaca.get_quote(symbol)
                     if quote:
-                        price_data[symbol] = quote['price']
+                        price_data[symbol] = quote.last
                 except Exception as e:
                     self.logger.warning(f"Failed to get quote for {symbol}: {e}")
             
@@ -427,9 +486,9 @@ class PaperTrader:
                 for symbol, strategy in aged_positions:
                     try:
                         # Get current price
-                        quote = self.alpaca.get_latest_quote(symbol)
+                        quote = self.alpaca.get_quote(symbol)
                         if quote:
-                            current_price = quote['price']
+                            current_price = quote.last
                             success = self._execute_sell_order(symbol, strategy, current_price)
                             if success:
                                 self.logger.info(f"Closed aged position: {symbol} {strategy}")
@@ -505,9 +564,41 @@ class PaperTrader:
             with open(report_file, 'w') as f:
                 f.write(report)
             
+            # --- FEEDBACK LOOP ---
+            if self.feedback and self.active_params:
+                try:
+                    portfolio = self.position_manager.get_portfolio_state()
+                    pnl_pct = (portfolio.total_pnl / max(portfolio.total_value - portfolio.total_pnl, 1)) * 100
+                    perf = self.position_manager.get_performance_report(days=1)
+                    # Parse win rate from report text (rough)
+                    win_rate = 0.0
+                    for line in perf.splitlines():
+                        if 'win rate' in line.lower():
+                            try:
+                                win_rate = float(line.split(':')[-1].strip().rstrip('%')) / 100
+                            except Exception:
+                                pass
+                    self.feedback.log_session(
+                        params=self.active_params,
+                        pnl=pnl_pct,
+                        trades_opened=getattr(portfolio, 'position_count', 0),
+                        win_rate=win_rate
+                    )
+                    self.logger.info(f"Feedback logged: P&L={pnl_pct:.2f}%, params={list(self.active_params.keys())}")
+                except Exception as fe:
+                    self.logger.warning(f"Feedback logging failed (non-fatal): {fe}")
+
             self.logger.info(f"Trading session completed. Report saved to {report_file}")
+            # Append trade-level analysis to report
+            try:
+                if hasattr(self.position_manager, 'trade_logger') and self.position_manager.trade_logger:
+                    trade_analysis = self.position_manager.trade_logger.report(days=30)
+                    report = report + "\n\n" + trade_analysis
+            except Exception as te:
+                self.logger.warning(f"Trade report failed (non-fatal): {te}")
+
             return report
-            
+
         except Exception as e:
             self.logger.error(f"Trading session failed: {e}")
             return f"Trading session failed: {e}"

@@ -10,6 +10,12 @@ import os
 import sys
 import json
 import sqlite3
+
+try:
+    from trading.trade_logger import TradeLogger
+    _TRADE_LOGGER_AVAILABLE = True
+except ImportError:
+    _TRADE_LOGGER_AVAILABLE = False
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -60,13 +66,16 @@ class PositionManager:
         self.data_dir.mkdir(exist_ok=True)
         
         # Setup logging
-        self.logger = logging.getLogger("PositionManager")
-        
+        self.logger = logging.getLogger('PositionManager')
+
+        # Trade logger for individual trade tracking
+        if _TRADE_LOGGER_AVAILABLE:
+            self.trade_logger = TradeLogger(base_dir=str(self.base_dir))
+        else:
+            self.trade_logger = None
+
         # Initialize database
         self._init_database()
-        
-        # Setup logging
-        self.logger = logging.getLogger('PositionManager')
         
         # Portfolio parameters
         self.config = {
@@ -153,6 +162,9 @@ class PositionManager:
                 conn.commit()
                 
             self.logger.info(f"Opened {side} position: {quantity} {symbol} @ ${entry_price:.2f} (Strategy: {strategy})")
+            if self.trade_logger:
+                self.trade_logger.log_open(symbol=symbol, strategy=strategy, side=side,
+                                           quantity=quantity, entry_price=entry_price)
             return True
             
         except Exception as e:
@@ -194,6 +206,9 @@ class PositionManager:
                 conn.commit()
                 
             self.logger.info(f"Closed {side} position: {quantity} {symbol} @ ${exit_price:.2f}, P&L: ${realized_pnl:.2f}")
+            if self.trade_logger:
+                self.trade_logger.log_close(symbol=symbol, strategy=strategy,
+                                            exit_price=exit_price, exit_reason='signal')
             return True
             
         except Exception as e:

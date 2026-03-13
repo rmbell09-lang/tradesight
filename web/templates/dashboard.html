@@ -174,7 +174,7 @@
 
     {% if opportunities %}
     <div class="section">
-        <h2>🎯 Top Opportunities</h2>
+        <h2><img src="/static/images/logo.png" alt="TradeSight" style="height: 32px; width: auto; vertical-align: middle;"> Top Opportunities</h2>
         {% for opp in opportunities %}
         <div class="opportunity-card">
             <div class="opportunity-header">{{ opp.question[:100] }}{% if opp.question|length > 100 %}...{% endif %}</div>

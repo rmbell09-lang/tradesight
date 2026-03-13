@@ -1,0 +1,81 @@
+{
+  "winner": "RSI Mean Reversion",
+  "baseline": {
+    "pnl_pct": 64.68,
+    "sharpe": 2.436586689463817,
+    "win_rate": 100.0,
+    "parameters": {
+      "oversold": 30,
+      "overbought": 70,
+      "position_size": 0.6
+    }
+  },
+  "optimized": {
+    "pnl_pct": 86.24000000000001,
+    "sharpe": 2.4386040584709994,
+    "win_rate": 100.0,
+    "parameters": {
+      "oversold": 28,
+      "overbought": 65,
+      "position_size": 0.8
+    },
+    "composite_score": 0.67751624350826
+  },
+  "improvement": {
+    "pnl_pct": 21.560000000000002,
+    "sharpe": 0.0020173690071825234
+  },
+  "top_5_variants": [
+    {
+      "parameters": {
+        "oversold": 28,
+        "overbought": 65,
+        "position_size": 0.8
+      },
+      "pnl_pct": 86.24000000000001,
+      "sharpe": 2.4386040584709994,
+      "score": 0.67751624350826
+    },
+    {
+      "parameters": {
+        "oversold": 28,
+        "overbought": 68,
+        "position_size": 0.8
+      },
+      "pnl_pct": 86.24000000000001,
+      "sharpe": 2.4386040584709994,
+      "score": 0.67751624350826
+    },
+    {
+      "parameters": {
+        "oversold": 28,
+        "overbought": 70,
+        "position_size": 0.8
+      },
+      "pnl_pct": 86.24000000000001,
+      "sharpe": 2.4386040584709994,
+      "score": 0.67751624350826
+    },
+    {
+      "parameters": {
+        "oversold": 28,
+        "overbought": 72,
+        "position_size": 0.8
+      },
+      "pnl_pct": 86.24000000000001,
+      "sharpe": 2.4386040584709994,
+      "score": 0.67751624350826
+    },
+    {
+      "parameters": {
+        "oversold": 28,
+        "overbought": 75,
+        "position_size": 0.8
+      },
+      "pnl_pct": 86.24000000000001,
+      "sharpe": 2.4386040584709994,
+      "score": 0.67751624350826
+    }
+  ],
+  "timestamp": "2026-03-01T22:02:00.704284"
+}

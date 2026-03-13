@@ -11,6 +11,38 @@ from datetime import datetime, timedelta
 import os
 import sys
 import pandas as pd
+import threading
+
+def sanitize_for_json(obj):
+    """Recursively convert numpy types to native Python types."""
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(v) for v in obj]
+    elif isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, (np.floating,)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    return obj
+
+
+import numpy as np
+
+class NumpySafeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
 
 # Add project root to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -19,7 +51,13 @@ from scanners.stock_scanner import StockScanner
 from strategy_lab.tournament import StrategyTournament
 from strategy_lab.ai_engine import create_test_data
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
+app.json_encoder = NumpySafeEncoder
+
+def safe_jsonify(data):
+    """Convert numpy types before jsonifying."""
+    return json.loads(json.dumps(data, cls=NumpySafeEncoder))
+
 
 def get_db_connection():
     """Get database connection"""
@@ -95,12 +133,19 @@ def get_stock_stats():
 def get_strategy_lab_stats():
     """Get Strategy Lab statistics"""
     try:
+        from strategy_lab.tournament import get_builtin_strategies
+        
         # Create tournament
         tournament = StrategyTournament(
             initial_balance=10000.0,
             elimination_rate=0.3,
             min_survivors=2
         )
+        
+        # Register built-in strategies
+        builtin_strategies = get_builtin_strategies()
+        for name, strategy_func in builtin_strategies.items():
+            tournament.register_strategy(name, strategy_func)
         
         # Create test data for tournament
         test_data = create_test_data(days=100)
@@ -136,7 +181,7 @@ def dashboard():
 @app.route('/api/polymarket/stats')
 def polymarket_stats():
     """API endpoint for Polymarket statistics"""
-    return jsonify(get_polymarket_stats())
+    return jsonify(sanitize_for_json(get_polymarket_stats()))
 
 @app.route('/api/polymarket/opportunities')
 def polymarket_opportunities():
@@ -166,7 +211,7 @@ def polymarket_opportunities():
             })
         
         conn.close()
-        return jsonify(opportunities)
+        return jsonify(sanitize_for_json(opportunities))
         
     except Exception as e:
         return jsonify({'error': str(e)})
@@ -174,7 +219,7 @@ def polymarket_opportunities():
 @app.route('/api/stocks/stats')
 def stocks_stats():
     """API endpoint for stock statistics"""
-    return jsonify(get_stock_stats())
+    return jsonify(sanitize_for_json(get_stock_stats()))
 
 @app.route('/api/stocks/opportunities')
 def stocks_opportunities():
@@ -200,7 +245,7 @@ def stocks_opportunities():
                 'market_cap': getattr(opp, 'market_cap', 0)
             })
         
-        return jsonify(opportunities)
+        return jsonify(sanitize_for_json(opportunities))
         
     except Exception as e:
         return jsonify({'error': str(e)})
@@ -208,17 +253,24 @@ def stocks_opportunities():
 @app.route('/api/strategy-lab/stats')
 def strategy_lab_stats():
     """API endpoint for Strategy Lab statistics"""
-    return jsonify(get_strategy_lab_stats())
+    return jsonify(sanitize_for_json(get_strategy_lab_stats()))
 
 @app.route('/api/strategy-lab/tournament')
 def strategy_lab_tournament():
-    """API endpoint for tournament results"""
+    """API endpoint for tournament results - runs a quick tournament"""
     try:
+        from strategy_lab.tournament import get_builtin_strategies
+        
         tournament = StrategyTournament(
             initial_balance=10000.0,
             elimination_rate=0.3,
             min_survivors=2
         )
+        
+        # Register built-in strategies
+        builtin_strategies = get_builtin_strategies()
+        for name, strategy_func in builtin_strategies.items():
+            tournament.register_strategy(name, strategy_func)
         
         # Create test data for tournament
         test_data = create_test_data(days=100)
@@ -230,39 +282,45 @@ def strategy_lab_tournament():
         
         # Convert results to JSON-serializable format
         participants = []
-        for p in results['participants']:
+        for p in tournament.entries:
             participants.append({
                 'name': p.name,
                 'wins': p.wins,
                 'losses': p.losses,
                 'total_score': p.total_score,
-                'avg_score': p.avg_score
+                'avg_score': p.avg_score,
+                'eliminated': p.eliminated,
+                'rounds_survived': p.rounds_survived
             })
         
         winner_data = None
-        if results['winner']:
-            winner_data = {
-                'name': results['winner'].name,
-                'avg_score': results['winner'].avg_score,
-                'wins': results['winner'].wins
-            }
+        if results.winner and results.winner != 'None':
+            winner_entry = next((p for p in tournament.entries if p.name == results.winner), None)
+            if winner_entry:
+                winner_data = {
+                    'name': winner_entry.name,
+                    'avg_score': winner_entry.avg_score,
+                    'wins': winner_entry.wins,
+                    'total_score': winner_entry.total_score
+                }
         
-        return jsonify({
+        return jsonify(sanitize_for_json({
             'participants': participants,
             'winner': winner_data,
             'rounds_completed': results.total_rounds,
-            'eliminations': results['eliminations']
-        })
+            'eliminations': results.elimination_log
+        }))
         
     except Exception as e:
         return jsonify({'error': str(e)})
 
-if __name__ == '__main__':
-    app.run(debug=False, host="127.0.0.1", port=5000)
-# Strategy Lab Management - Global tournament state
+
+# Strategy Lab Management - Thread-safe tournament state
 current_tournament = None
 tournament_in_progress = False
 tournament_results_history = []
+MAX_TOURNAMENT_HISTORY = 20
+tournament_lock = threading.Lock()
 
 @app.route('/strategy-lab')
 def strategy_lab():
@@ -284,8 +342,10 @@ def start_tournament():
         max_rounds = data.get('max_rounds', 3)
         data_days = max(60, data.get('data_days', 100))
         
-        if tournament_in_progress:
-            return jsonify({'error': 'Tournament already in progress'}), 400
+        with tournament_lock:
+            if tournament_in_progress:
+                return jsonify({'error': 'Tournament already in progress'}), 400
+            tournament_in_progress = True
         
         # Create tournament
         tournament = StrategyTournament(
@@ -304,16 +364,19 @@ def start_tournament():
         test_data = create_test_data(days=data_days)
         round_datasets = [('Test Data', test_data)]
         
-        # Start tournament (blocking call - in production this would be async)
-        tournament_in_progress = True
+        # Run tournament (blocking but protected by lock)
         results = tournament.run_tournament(round_datasets)
         tournament_in_progress = False
         
-        # Store results
+        # Store results (TournamentResults dataclass)
         current_tournament = results
+        # Trim history to prevent unbounded memory growth
+        if len(tournament_results_history) >= MAX_TOURNAMENT_HISTORY:
+            tournament_results_history.pop(0)
         tournament_results_history.append({
             'timestamp': datetime.now().isoformat(),
             'results': results,
+            'tournament_ref': tournament,
             'parameters': {
                 'initial_balance': initial_balance,
                 'elimination_rate': elimination_rate,
@@ -322,6 +385,9 @@ def start_tournament():
                 'data_days': data_days
             }
         })
+        # Cap history to prevent unbounded memory growth
+        while len(tournament_results_history) > 20:
+            tournament_results_history.pop(0)
         
         # Convert results for JSON (results is TournamentResults dataclass)
         participants = []
@@ -373,75 +439,69 @@ def tournament_status():
 @app.route('/api/strategy-lab/results')
 def tournament_results():
     """Get latest tournament results"""
-    global current_tournament
+    global current_tournament, tournament_results_history
     
     if not current_tournament:
         return jsonify({'error': 'No tournament results available'}), 404
     
-    # Convert results for JSON
-    participants = []
-    for p in []:
-        participants.append({
-            'name': p.name,
-            'wins': p.wins,
-            'losses': p.losses,
-            'total_score': p.total_score,
-            'avg_score': p.avg_score,
-            'eliminated': p.eliminated,
-            'rounds_survived': p.rounds_survived
-        })
-    
-    winner_data = None
-    if current_tournament['winner']:
-        winner_data = {
-            'name': current_tournament['winner'].name,
-            'avg_score': current_tournament['winner'].avg_score,
-            'wins': current_tournament['winner'].wins,
-            'total_score': current_tournament['winner'].total_score
-        }
-    
-    return jsonify({
-        'participants': participants,
-        'winner': winner_data,
-        'rounds_completed': current_tournament['rounds_completed'],
-        'eliminations': current_tournament['eliminations']
-    })
+    # current_tournament is a TournamentResults dataclass from last start-tournament call
+    try:
+        # Get participant data from the latest history entry
+        participants = []
+        if tournament_results_history:
+            latest = tournament_results_history[-1]
+            # Re-extract from stored results
+            results = latest['results']
+            if hasattr(results, 'top_3'):
+                for entry in results.top_3:
+                    participants.append(entry)
+        
+        winner_data = None
+        if hasattr(current_tournament, 'winner') and current_tournament.winner != 'None':
+            winner_data = {
+                'name': current_tournament.winner,
+                'avg_score': current_tournament.winner_avg_score,
+                'wins': 0,
+                'total_score': current_tournament.winner_avg_score
+            }
+        
+        eliminations = []
+        if hasattr(current_tournament, 'elimination_log'):
+            eliminations = current_tournament.elimination_log
+        
+        return jsonify(sanitize_for_json({
+            'participants': participants,
+            'winner': winner_data,
+            'rounds_completed': current_tournament.total_rounds if hasattr(current_tournament, 'total_rounds') else 0,
+            'eliminations': eliminations
+        }))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/strategy-lab/export-winner')
 def export_winner():
     """Export winning strategy details"""
-    global current_tournament
+    global current_tournament, tournament_results_history
     
-    if not current_tournament or not current_tournament.get('winner'):
+    if not current_tournament or (hasattr(current_tournament, 'winner') and current_tournament.winner == 'None'):
         return jsonify({'error': 'No winning strategy available'}), 404
     
-    winner = current_tournament['winner']
-    
-    # Get strategy function source if possible
-    try:
-        import inspect
-        strategy_source = inspect.getsource(winner.strategy_func)
-    except:
-        strategy_source = "# " + winner.name + " strategy (source not available)"
+    winner_name = current_tournament.winner if hasattr(current_tournament, 'winner') else 'Unknown'
+    winner_score = current_tournament.winner_avg_score if hasattr(current_tournament, 'winner_avg_score') else 0
     
     export_data = {
-        'strategy_name': winner.name,
+        'strategy_name': winner_name,
         'performance': {
-            'avg_score': winner.avg_score,
-            'total_score': winner.total_score,
-            'wins': winner.wins,
-            'losses': winner.losses,
-            'rounds_survived': winner.rounds_survived
+            'avg_score': winner_score,
         },
-        'strategy_source': strategy_source,
         'export_timestamp': datetime.now().isoformat(),
         'tournament_info': {
-            'rounds_completed': current_tournament['rounds_completed'],
-            'total_participants': len([])
+            'rounds_completed': current_tournament.total_rounds if hasattr(current_tournament, 'total_rounds') else 0,
+            'total_participants': current_tournament.total_strategies_entered if hasattr(current_tournament, 'total_strategies_entered') else 0
         }
     }
     
-    return jsonify(export_data)
+    return jsonify(sanitize_for_json(export_data))
 
 @app.route('/api/strategy-lab/history')
 def tournament_history():
@@ -451,16 +511,19 @@ def tournament_history():
     # Return simplified history (last 10 tournaments)
     history = []
     for entry in tournament_results_history[-10:]:
+        results = entry['results']
         winner_name = None
-        if entry['results'].get('winner'):
-            winner_name = entry['results']['winner'].name
+        if hasattr(results, 'winner') and results.winner != 'None':
+            winner_name = results.winner
         
         history.append({
             'timestamp': entry['timestamp'],
             'winner': winner_name,
-            'rounds_completed': entry['results']['rounds_completed'],
-            'participants_count': len(entry['results']['participants']),
+            'rounds_completed': results.total_rounds if hasattr(results, 'total_rounds') else 0,
+            'participants_count': results.total_strategies_entered if hasattr(results, 'total_strategies_entered') else 0,
             'parameters': entry['parameters']
         })
     
-    return jsonify(history)
+    return jsonify(sanitize_for_json(history))
+if __name__ == '__main__':
+    app.run(debug=False, host="127.0.0.1", port=5001)
