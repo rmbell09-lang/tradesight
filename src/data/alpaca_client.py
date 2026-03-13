@@ -144,7 +144,15 @@ class AlpacaClient:
             'start': start_date.strftime('%Y-%m-%dT%H:%M:%SZ'),
             'end': end_date.strftime('%Y-%m-%dT%H:%M:%SZ'),
             'timeframe': timeframe,
-            'limit': days + 50  # Buffer for weekends
+            # For intraday bars, limit must account for bars-per-day (not days)
+            'limit': min({
+                '1Min': (days + 10) * 390,
+                '5Min': (days + 10) * 78,
+                '15Min': (days + 10) * 26,
+                '30Min': (days + 10) * 13,
+                '1Hour': (days + 10) * 7,
+                '1Day': days + 50,
+            }.get(timeframe, days + 50), 10000)  # Cap at Alpaca max
         }
         
         # Retry with backoff for transient DNS/network failures
