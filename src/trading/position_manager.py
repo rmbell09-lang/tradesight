@@ -79,11 +79,11 @@ class PositionManager:
         
         # Portfolio parameters
         self.config = {
-            'initial_balance': 50000.0,  # Starting paper money
-            'max_position_size': 0.10,   # 10% max per position
-            'max_strategy_allocation': 0.25,  # 25% max per strategy
-            'stop_loss_percent': 0.08,   # 8% stop loss
-            'take_profit_percent': 0.15  # 15% take profit
+            'initial_balance': 500.0,    # Starting paper money ($500 realistic account)
+            'max_position_size': 0.40,   # 40% max per position ($200 max on $500)
+            'max_strategy_allocation': 0.80,  # 80% max per strategy
+            'stop_loss_percent': 0.05,   # 5% stop loss
+            'take_profit_percent': 0.06  # 6% take profit (matches champion params)
         }
     
     def _init_database(self):
@@ -351,8 +351,8 @@ class PositionManager:
             if max_value <= 0:
                 return 0
             
-            # Convert to shares
-            max_shares = int(max_value / price)
+            # Convert to shares (fractional shares supported by Alpaca)
+            max_shares = round(max_value / price, 6)  # fractional OK
             
             return max(0, max_shares)
             

@@ -89,15 +89,17 @@ class PaperTrader:
         
         # Trading parameters
         self.config = {
+            # Stocks affordable at $500 account (Alpaca fractional shares)
+            # Removed: UNH, AVGO, NFLX, LLY, TMO, BRK.B (too expensive for realistic testing)
             'trading_symbols': [
-                'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'GOOG', 'TSLA', 'BRK.B', 'UNH', 'JNJ', 'XOM',
-                'JPM', 'V', 'PG', 'CVX', 'HD', 'MA', 'BAC', 'ABBV', 'PFE', 'KO',
-                'PEP', 'AVGO', 'COST', 'DIS', 'WMT', 'TMO', 'VZ', 'ADBE', 'MRK', 'NFLX',
-                'ABT', 'CRM', 'ACN', 'NKE', 'TXN', 'LIN', 'MDT', 'UPS', 'AMD', 'PM',
-                'BMY', 'QCOM', 'HON', 'RTX', 'LLY', 'ORCL', 'IBM', 'BA', 'GE', 'MMM'
+                'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'TSLA', 'AMD', 'QCOM', 'ADBE',
+                'JPM', 'BAC', 'V', 'MA', 'KO', 'PEP', 'WMT', 'COST',
+                'PFE', 'BMY', 'JNJ', 'MRK', 'ABT', 'VZ', 'T', 'IBM',
+                'NKE', 'DIS', 'HD', 'XOM', 'CVX', 'BA', 'GE', 'ORCL',
+                'GOOG', 'META', 'PYPL', 'INTC', 'MU', 'CSCO', 'TXN', 'HON'
             ],
-            'min_strategy_confidence': 0.50,  # Minimum score to trade (lowered for real data scores)
-            'max_concurrent_trades': 5,       # Max open positions at once
+            'min_strategy_confidence': 0.50,  # Minimum score to trade
+            'max_concurrent_trades': 2,       # Max 2 positions ($250 each on $500)
             'trade_frequency_hours': 4,       # Check for signals every 4 hours
             'position_hold_days': 5,          # Hold positions for 5 days max
             'rebalance_frequency_days': 7     # Rebalance weekly
