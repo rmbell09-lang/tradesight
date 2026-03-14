@@ -62,7 +62,7 @@ class PaperTrader:
         self.active_params: Dict = {}
         if _CHAMPION_AVAILABLE:
             try:
-                _ct = ChampionTracker(base_dir=str(self.base_dir.parent))
+                _ct = ChampionTracker(base_dir=str(Path(__file__).parent.parent.parent))
                 _champ = _ct.get_champion()
                 if _champ and _champ.get('params'):
                     self.active_params = _champ['params']
