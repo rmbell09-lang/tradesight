@@ -162,7 +162,7 @@ class TestPositionManager:
         
         # Should be limited by max position size (10% of portfolio)
         expected_max_value = self.pm.config['initial_balance'] * self.pm.config['max_position_size']
-        expected_max_shares = int(expected_max_value / 150.0)
+        expected_max_shares = round(expected_max_value / 150.0, 6)
         
         assert size == expected_max_shares
         
