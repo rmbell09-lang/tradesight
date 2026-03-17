@@ -50,6 +50,15 @@ log_dir = Path(__file__).parent.parent / 'logs'
 log_dir.mkdir(exist_ok=True)
 
 log_file = log_dir / f"overnight_evolution_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+# Guard: must have real Alpaca keys (not running via SSH without Keychain context)
+_alpaca_key = os.environ.get('ALPACA_API_KEY', '')
+if not _alpaca_key:
+    print('ERROR: ALPACA_API_KEY not set. Run via launchd (com.luckyai.tradesight-optimizer) for Keychain access.')
+    print('Exiting to prevent synthetic data run.')
+    sys.exit(1)
+
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -66,7 +75,7 @@ class ParameterTuner:
     
     def __init__(self, training_data: pd.DataFrame):
         self.training_data = training_data
-        self.backtest_engine = BacktestEngine(initial_balance=10000.0)
+        self.backtest_engine = BacktestEngine(initial_balance=500.0)
         self.results = []
     
     def create_rsi_variant(self, oversold: int, overbought: int, size: float,
@@ -130,9 +139,11 @@ class ParameterTuner:
         overbought_values = [65, 68, 72, 75]         # 4 values
         size_values       = [0.50, 0.65, 0.80]       # 3 values
         
-        # NEW: risk/reward parameters
-        stop_loss_values     = [0.05, 0.08, 0.12]    # 5%, 8%, 12% stop loss
-        take_profit_values   = [0.06, 0.09, 0.12]    # 6%, 9%, 12% take profit
+        # Risk/reward parameters — TP must be reachable within max_holding_bars on 1H bars.
+        # SPY/large-caps move 0.5-2% per day; 10 bars ≈ 1.5 trading days.
+        # Old values (6/9/12%) never triggered → dead parameter. Fixed.
+        stop_loss_values     = [0.02, 0.05, 0.08]    # 2%, 5%, 8% stop loss
+        take_profit_values   = [0.015, 0.03, 0.05]   # 1.5%, 3%, 5% take profit (intraday-realistic)
         
         # NEW: max holding period (0 = unlimited)
         holding_bars_values  = [0, 10, 20]            # unlimited, 10 bars, 20 bars
@@ -167,14 +178,26 @@ class ParameterTuner:
                                 
                                 metrics = backtest_results['metrics']
                                 
-                                # Composite score: PnL (50%) + Sharpe (30%) + Win Rate (20%)
-                                pnl_score      = metrics['total_pnl_pct'] / 100.0
-                                sharpe_score   = metrics['sharpe_ratio'] / 5.0
-                                win_rate_score = (metrics['win_rate'] / 100.0) * 0.5
+                                # Composite score: balanced across PnL, Sharpe, win rate, and trade count.
+                                # PnL is normalized and capped to prevent one lucky outlier dominating.
+                                # Sharpe ratio is the primary signal — it measures risk-adjusted returns.
+                                # Trade count bonus rewards param sets that generate actual signals
+                                # (a strategy with 0 trades scores 0 regardless of metrics).
+                                trades = max(metrics['total_trades'], 0)
+                                pnl_normalized = min(metrics['total_pnl_pct'] / 50.0, 3.0)  # cap at 3x (150% real PnL)
+                                sharpe_score   = metrics['sharpe_ratio'] / 3.0              # normalize to ~1 at Sharpe=3
+                                win_rate_score = metrics['win_rate'] / 100.0
+                                trade_bonus    = min(trades / 20.0, 1.0)                    # bonus for 20+ trades
                                 
-                                composite_score = (pnl_score * 0.5 +
-                                                   sharpe_score * 0.3 +
-                                                   win_rate_score * 0.2)
+                                # Penalize strategies with fewer than 3 trades (unreliable stats)
+                                trade_penalty = 0.0 if trades >= 3 else (0.5 * (3 - trades) / 3.0)
+                                
+                                composite_score = (
+                                    pnl_normalized * 0.30 +   # 30% PnL (capped, normalized)
+                                    sharpe_score   * 0.40 +   # 40% Sharpe (risk-adjusted)
+                                    win_rate_score * 0.20 +   # 20% win rate
+                                    trade_bonus    * 0.10     # 10% trade frequency bonus
+                                ) - trade_penalty
                                 
                                 results.append({
                                     'oversold':       oversold,
@@ -232,29 +255,55 @@ class ParameterTuner:
         return results
     
     def cross_validate(self, best_params, datasets):
-        """Test best parameters against other symbols to check for overfitting."""
+        """
+        True walk-forward + cross-symbol validation.
+        
+        For each symbol: split data 70/30 (time-based). The optimizer only saw the
+        first 70% (training). We validate on the last 30% (unseen future data).
+        This is genuine out-of-sample testing — not just running on different tickers
+        over the same time period (which can still overfit to a market regime).
+        
+        Also runs on other symbols for cross-asset robustness.
+        """
         cv_results = {}
         for sym, df in datasets.items():
-            variant = self.create_rsi_variant(
-                best_params['oversold'], best_params['overbought'],
-                best_params['position_size'], best_params['stop_loss_pct'],
-                best_params['take_profit_pct'], best_params['max_holding_bars']
-            )
-            bt = BacktestEngine(initial_balance=10000.0)
-            res = bt.run_backtest(df, variant, asset_name=f"CV_{sym}")
-            m = res['metrics']
-            cv_results[sym] = {
-                'pnl_pct': float(m['total_pnl_pct']),
-                'sharpe': float(m['sharpe_ratio']),
-                'win_rate': float(m['win_rate'])
-            }
-            logger.info(f"  Cross-val {sym}: PnL={m['total_pnl_pct']:.2f}% Sharpe={m['sharpe_ratio']:.4f} WR={m['win_rate']:.2f}%")
+            try:
+                # Time-split: first 70% = in-sample (optimizer saw this),
+                # last 30% = out-of-sample (optimizer never saw this)
+                split_idx = int(len(df) * 0.70)
+                oos_data = df.iloc[split_idx:].copy()  # Out-of-sample slice
+                
+                if len(oos_data) < 50:
+                    logger.warning(f"  CV {sym}: skipped — OOS slice too short ({len(oos_data)} bars)")
+                    continue
+                
+                variant = self.create_rsi_variant(
+                    best_params['oversold'], best_params['overbought'],
+                    best_params['position_size'], best_params['stop_loss_pct'],
+                    best_params['take_profit_pct'], best_params['max_holding_bars']
+                )
+                bt = BacktestEngine(initial_balance=500.0)
+                res = bt.run_backtest(oos_data, variant, asset_name=f"OOS_{sym}")
+                m = res['metrics']
+                cv_results[sym] = {
+                    'pnl_pct': float(m['total_pnl_pct']),
+                    'sharpe': float(m['sharpe_ratio']),
+                    'win_rate': float(m['win_rate']),
+                    'trades': int(m['total_trades']),
+                    'oos_bars': len(oos_data),
+                    'note': 'out-of-sample (last 30% of data)'
+                }
+                logger.info(
+                    f"  OOS {sym}: PnL={m['total_pnl_pct']:.2f}% "                    f"Sharpe={m['sharpe_ratio']:.4f} WR={m['win_rate']:.2f}% "                    f"Trades={m['total_trades']} ({len(oos_data)} OOS bars)"
+                )
+            except Exception as e:
+                logger.warning(f"  CV {sym}: failed — {e}")
         return cv_results
 
 
 def get_latest_tournament_winner() -> Optional[Dict]:
     """Get the most recently won strategy from tournament history DB, with hardcoded fallback."""
-    db_path = Path(__file__).parent.parent / 'data' / 'tournament_history.db'
+    db_path = Path(__file__).parent.parent / "src" / "data" / "tournament_history.db"
     
     # Try to read from actual tournament results
     if db_path.exists():
@@ -357,11 +406,20 @@ def optimize_winner_strategy(winner: Dict) -> Dict:
     
     # Use SPY as primary (broadest market), or first available
     primary_symbol = 'SPY' if 'SPY' in training_datasets else list(training_datasets.keys())[0]
-    training_data = training_datasets[primary_symbol]
-    logger.info(f"Primary optimization symbol: {primary_symbol} ({len(training_data)} bars, source: {data_source})")
+    full_primary_data = training_datasets[primary_symbol]
+    
+    # WALK-FORWARD SPLIT: optimizer trains on first 70% only.
+    # Last 30% is reserved for out-of-sample validation in cross_validate().
+    # This enforces true data separation — the optimizer NEVER sees the test period.
+    train_split = int(len(full_primary_data) * 0.70)
+    training_data = full_primary_data.iloc[:train_split].copy()
+    
+    logger.info(
+        f"Primary optimization symbol: {primary_symbol} | "        f"Total bars: {len(full_primary_data)} | "        f"Training (70%): {len(training_data)} bars | "        f"OOS holdout (30%): {len(full_primary_data) - train_split} bars | "        f"Source: {data_source}"
+    )
     
     # Baseline backtest with original strategy
-    backtest_engine = BacktestEngine(initial_balance=10000.0)
+    backtest_engine = BacktestEngine(initial_balance=500.0)
     baseline_results = backtest_engine.run_backtest(
         training_data,
         rsi_mean_reversion,
@@ -401,13 +459,15 @@ def optimize_winner_strategy(winner: Dict) -> Dict:
         
         # Cross-validate best params against all symbols
         if len(training_datasets) > 1:
-            logger.info("")  # blank line
-            logger.info(f"Cross-validating best parameters across {len(training_datasets)} symbols...")
+            logger.info("")
+            logger.info(f"Walk-forward OOS validation across {len(training_datasets)} symbols (last 30% of each, unseen by optimizer)...")
             cv_results = tuner.cross_validate(best, training_datasets)
-            avg_pnl = sum(r["pnl_pct"] for r in cv_results.values()) / max(len(cv_results), 1)
-            avg_sharpe = sum(r["sharpe"] for r in cv_results.values()) / max(len(cv_results), 1)
-            logger.info(f"Cross-validation avg: PnL={avg_pnl:.2f}% Sharpe={avg_sharpe:.4f}")
-        else:
+            if cv_results:
+                avg_pnl = sum(r["pnl_pct"] for r in cv_results.values()) / len(cv_results)
+                avg_sharpe = sum(r["sharpe"] for r in cv_results.values()) / len(cv_results)
+                avg_trades = sum(r.get("trades",0) for r in cv_results.values()) / len(cv_results)
+                logger.info(f"OOS avg: PnL={avg_pnl:.2f}% Sharpe={avg_sharpe:.4f} Trades/symbol={avg_trades:.1f}")
+                logger.info("NOTE: OOS PnL is the honest number. Lower than training = overfit.")
             cv_results = None
         
         return {
