@@ -57,7 +57,7 @@ class AIStrategyEngine:
     7. Only strategies that work across assets survive
     """
     
-    def __init__(self, initial_balance: float = 10000.0, max_generations: int = 20):
+    def __init__(self, initial_balance: float = 500.0, max_generations: int = 20):
         self.initial_balance = initial_balance
         self.max_generations = max_generations
         self.backtest_engine = BacktestEngine(initial_balance)
@@ -518,7 +518,7 @@ def example_evolution():
     """Example of running the AI strategy evolution"""
     
     # Create AI engine
-    ai_engine = AIStrategyEngine(initial_balance=10000, max_generations=5)
+    ai_engine = AIStrategyEngine(initial_balance=500, max_generations=5)
     
     # Create test data for multiple assets
     btc_data = create_test_data("BTC", 300)

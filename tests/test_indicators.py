@@ -142,9 +142,9 @@ def test_confluence_score_calculation():
 def test_insufficient_data_handling():
     """Test error handling with insufficient data"""
     engine = TechnicalIndicators()
-    insufficient_data = create_test_data(periods=50)  # Less than required 200
+    insufficient_data = create_test_data(periods=20)  # Less than required 50
     
-    with pytest.raises(ValueError, match="Need at least 200 periods"):
+    with pytest.raises(ValueError, match="Need at least 50 periods"):
         engine.calculate_all(insufficient_data)
 
 def test_vwap_calculation():

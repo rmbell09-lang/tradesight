@@ -3,12 +3,18 @@ import os
 import logging
 from pathlib import Path
 
-# Import keychain utilities for secure API key management
+# Import keychain utilities — try absolute first (standalone script), then relative (package)
 try:
-    from .utils.keychain import (
-        get_alpaca_api_key, get_alpaca_secret_key,
-        get_polygon_api_key, get_yahoo_api_key, get_openai_api_key
-    )
+    try:
+        from src.utils.keychain import (
+            get_alpaca_api_key, get_alpaca_secret_key,
+            get_polygon_api_key, get_yahoo_api_key, get_openai_api_key
+        )
+    except ImportError:
+        from .utils.keychain import (
+            get_alpaca_api_key, get_alpaca_secret_key,
+            get_polygon_api_key, get_yahoo_api_key, get_openai_api_key
+        )
     KEYCHAIN_AVAILABLE = True
 except ImportError as e:
     logging.warning(f"Keychain utilities not available: {e}")
@@ -112,3 +118,83 @@ if not ALPACA_API_KEY:
 
 # Log startup status
 logger.info(f"TradeSight config loaded - Keychain: {KEYCHAIN_AVAILABLE}, API keys: {sum(get_api_key_status().values())}/5")
+
+
+# ---------------------------------------------------------------------------
+# Alerts Configuration (Phase 5.1)
+# ---------------------------------------------------------------------------
+# All alert channels are disabled by default.  Enable and configure via
+# config/config.json (settings persist across restarts).
+# ---------------------------------------------------------------------------
+import json as _json
+
+_ALERTS_CONFIG_PATH = CONFIG_DIR / 'config.json'
+
+_ALERTS_DEFAULTS: dict = {
+    # Master switch — no alerts fire until this is True
+    'alerts_enabled': False,
+
+    # --- Email (SMTP) ---
+    'email_enabled': False,
+    'smtp_host': '',
+    'smtp_port': 587,
+    'smtp_use_tls': True,
+    'smtp_username': '',   # keep empty if no auth needed
+    'smtp_password': '',   # never hardcode — set via config.json
+    'email_from': '',
+    'email_to': [],        # list of recipient addresses
+
+    # --- Webhook ---
+    'webhook_enabled': False,
+    'webhook_url': '',
+    'webhook_timeout': 10,
+    'webhook_headers': {},  # extra HTTP headers if required by target
+}
+
+
+def _load_alerts_config() -> dict:
+    """Load alerts config from config.json, falling back to defaults."""
+    cfg = dict(_ALERTS_DEFAULTS)
+    if _ALERTS_CONFIG_PATH.exists():
+        try:
+            with open(_ALERTS_CONFIG_PATH) as f:
+                stored = _json.load(f)
+            alerts_section = stored.get('alerts', {})
+            cfg.update(alerts_section)
+        except Exception as e:
+            logger.warning(f"Could not read alerts config from {_ALERTS_CONFIG_PATH}: {e}")
+    return cfg
+
+
+def save_alerts_config(updates: dict) -> bool:
+    """
+    Persist alert config changes to config.json.
+    Merges *updates* into the existing file (creates if absent).
+    Returns True on success.
+    """
+    try:
+        existing: dict = {}
+        if _ALERTS_CONFIG_PATH.exists():
+            with open(_ALERTS_CONFIG_PATH) as f:
+                existing = _json.load(f)
+        alerts_section = existing.get('alerts', {})
+        alerts_section.update(updates)
+        existing['alerts'] = alerts_section
+        _ALERTS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(_ALERTS_CONFIG_PATH, 'w') as f:
+            _json.dump(existing, f, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save alerts config: {e}")
+        return False
+
+
+# Active alerts config (module-level singleton — reload with load_alerts_config())
+ALERTS_CONFIG: dict = _load_alerts_config()
+
+
+def reload_alerts_config():
+    """Reload ALERTS_CONFIG from disk (useful after saving new settings)."""
+    global ALERTS_CONFIG
+    ALERTS_CONFIG = _load_alerts_config()
+    return ALERTS_CONFIG

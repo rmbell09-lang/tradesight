@@ -79,7 +79,7 @@ class StrategyTournament:
     """
     
     def __init__(self, 
-                 initial_balance: float = 10000.0,
+                 initial_balance: float = 500.0,
                  elimination_rate: float = 0.3,
                  min_survivors: int = 3):
         self.initial_balance = initial_balance

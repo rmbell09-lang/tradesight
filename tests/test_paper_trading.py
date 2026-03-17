@@ -273,32 +273,22 @@ class TestPaperTrader:
     @patch('trading.paper_trader.TechnicalIndicators')
     def test_generate_trading_signals_macd(self, mock_indicators):
         """Test MACD trading signal generation"""
-        # Mock market data - include all OHLCV columns
+        # Mock market data: long decline then sharp final jump forces MACD bullish cross
         import pandas as pd
+        import numpy as np
+        prices = list(np.linspace(200, 100, 199)) + [200.0]
         mock_data = pd.DataFrame({
-            'open': [149.0] * 200,
-            'high': [151.0] * 200,
-            'low': [149.0] * 200,
-            'close': [150.0] * 200,
-            'volume': [1000] * 200
-        }, index=pd.date_range('2026-01-01', periods=200))
-        
-        # Mock Alpaca client
+            'open': [p - 0.5 for p in prices],
+            'high': [p + 1.0 for p in prices],
+            'low': [p - 1.0 for p in prices],
+            'close': prices,
+            'volume': [1000000] * 200
+        }, index=pd.date_range('2026-01-01', periods=200, freq='h'))
         self.trader.alpaca.get_historical_data = Mock(return_value=mock_data)
-        
-        # Mock MACD indicators with proper structure
         mock_indicator_instance = Mock()
         mock_indicators.return_value = mock_indicator_instance
-        
-        # Create proper MACD DataFrame with histogram showing bullish crossover
-        macd_df = pd.DataFrame({
-            'histogram': [-0.5] * 199 + [0.5]  # Last value is positive (bullish)
-        })
-        
-        mock_indicator_instance.calculate_all.return_value = {
-            "signals": {"macd": 1}, 
-            "indicators": {"macd": macd_df}
-        }
+        mock_indicator_instance.calculate_all.return_value = {"signals": {}, "indicators": {}}
+        mock_indicator_instance.calculate_all.return_value = {"signals": {}, "indicators": {}}
         
         # Generate signal
         signal = self.trader.generate_trading_signals('AAPL', 'MACD Crossover')

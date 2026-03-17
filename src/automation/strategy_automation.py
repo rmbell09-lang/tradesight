@@ -24,6 +24,18 @@ from strategy_lab.ai_engine import AIStrategyEngine, create_test_data
 from data.alpaca_client import AlpacaClient
 
 
+
+# AlertManager — optional push notifications for tournament results
+try:
+    import sys as _sys, os as _os
+    _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), '..'))
+    from alerts.alert_manager import AlertManager as _AlertManager
+    from alerts.alert_types import AlertType as _AlertType
+    from config import ALERTS_CONFIG as _ALERTS_CONFIG
+    _AUTOMATION_ALERTS_AVAILABLE = True
+except Exception:
+    _AUTOMATION_ALERTS_AVAILABLE = False
+
 class StrategyAutomation:
     """Automated strategy development and tournament runner"""
     
@@ -42,7 +54,7 @@ class StrategyAutomation:
         
         # Tournament parameters
         self.tournament_config = {
-            'initial_balance': 10000.0,
+            'initial_balance': 500.0,
             'elimination_rate': 0.3,
             'min_survivors': 2,
             'rounds': 3,
@@ -50,6 +62,16 @@ class StrategyAutomation:
         }
         
         self.logger.info(f"StrategyAutomation initialized at {self.base_dir}")
+        # Alert manager (optional)
+        self._alert_manager = None
+        if _AUTOMATION_ALERTS_AVAILABLE:
+            try:
+                self._alert_manager = _AlertManager(
+                    config=_ALERTS_CONFIG,
+                    data_dir=str(self.data_dir)
+                )
+            except Exception:
+                pass
     
     def _setup_logging(self):
         """Setup logging for automation runs"""
@@ -133,6 +155,18 @@ class StrategyAutomation:
                 })
             
             self.logger.info(f"Tournament completed in {duration:.1f}s - Winner: {results.winner}")
+            # Fire strategy evolved alert
+            if self._alert_manager:
+                try:
+                    self._alert_manager.fire(
+                        _AlertType.STRATEGY_EVOLVED,
+                        winner=results.winner,
+                        score=results.winner_avg_score,
+                        rounds=results.total_rounds,
+                        session_id=session_id,
+                    )
+                except Exception:
+                    pass
             return session_results
             
         except Exception as e:

@@ -242,10 +242,10 @@ class StockOpportunityScorer:
         current_rsi = rsi.iloc[-1]
         
         rsi_score = 50.0
-        if current_rsi < 33:
+        if current_rsi < 30:
             rsi_score = 80.0  # Oversold = buy opportunity
             signals.append("rsi_oversold")
-        elif current_rsi > 65:
+        elif current_rsi > 70:
             rsi_score = 80.0  # Overbought = sell opportunity
             signals.append("rsi_overbought")
         elif 40 < current_rsi < 60:

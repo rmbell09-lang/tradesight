@@ -156,3 +156,26 @@ Early buyers get v2 free. One purchase, lifetime updates.
 
 *Artifact: ~/Projects/TradeSight/docs/GUMROAD_LISTING.md*
 *Task #450 — DONE*
+
+---
+
+## REVIEW_NOTES (Lucky — Mar 15 4:15 AM)
+
+**Verdict: READY_TO_POST** (already live on Gumroad since Mar 14)
+
+### Strengths
+- Title clear and keyword-rich
+- Price point ($49) competitive with urgency hook ($79 v2)
+- "Who This Is NOT For" section builds trust
+- Tech stack section gives confidence to developers
+- Demo mode removes friction
+
+### Minor Gaps (non-blocking)
+1. **Cover image path** — listed as text concept only, no actual file path reference. Cover was uploaded to Gumroad Mar 14 via browser relay.
+2. **Test count stale** — says "94 tests" but InkForge integration brought it higher. May want to update if count changed significantly.
+3. **"672 tests across the full stack"** in social proof — unclear what "full stack" means. Could confuse buyers who think TradeSight alone has 672 tests.
+4. **No screenshot/demo GIF** mentioned — Gumroad listings with visuals convert better. Dashboard screenshots would help.
+5. **v2 timeline says "~4-6 weeks"** — written Mar 10, so deadline is mid-to-late April. May need updating if timeline slips.
+
+### Already Live
+Product published at qcautonomous.gumroad.com on Mar 14. Custom cover image uploaded. This doc is the source copy — any edits here should be manually synced to Gumroad.

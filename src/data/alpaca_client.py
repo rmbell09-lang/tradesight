@@ -152,7 +152,8 @@ class AlpacaClient:
                 '30Min': (days + 10) * 13,
                 '1Hour': (days + 10) * 7,
                 '1Day': days + 50,
-            }.get(timeframe, days + 50), 10000)  # Cap at Alpaca max
+            }.get(timeframe, days + 50), 10000),  # Cap at Alpaca max
+            'feed': 'iex'  # Explicit IEX feed; swap to 'sip' if on paid tier
         }
         
         # Retry with backoff for transient DNS/network failures
@@ -200,7 +201,10 @@ class AlpacaClient:
                 df.set_index('timestamp', inplace=True)
                 df.columns = ['open', 'high', 'low', 'close', 'volume']
                 
-                return df.tail(days)  # Return exactly what was requested
+                # Return timeframe-appropriate number of rows (not just calendar days)
+                bars_per_day = {'1Min':390,'5Min':78,'15Min':26,'30Min':13,'1Hour':7,'1Day':1}
+                max_rows = days * bars_per_day.get(timeframe, 1)
+                return df.tail(max_rows)
                 
             else:
                 self._demo_fallback_count += 1
@@ -372,9 +376,10 @@ class AlpacaClient:
         # Real Alpaca paper trading API
         url = f"{self.base_url}/v2/orders"
         
+        # Use 'qty' as string for fractional share support on Alpaca
         order_data = {
             'symbol': symbol,
-            'qty': quantity,
+            'qty': str(round(float(quantity), 6)),  # fractional OK as string
             'side': side,
             'type': order_type,
             'time_in_force': 'day'
@@ -383,8 +388,14 @@ class AlpacaClient:
         try:
             response = requests.post(url, headers=self.headers, json=order_data, timeout=10)
             
-            if response.status_code == 201:
-                return response.json()
+            if response.status_code in (200, 201):
+                order = response.json()
+                # Normalize status: Alpaca returns 'new'/'accepted_for_bidding'/etc.
+                if 'status' not in order or order['status'] not in ('filled',):
+                    order['status'] = 'accepted'  # treat as accepted
+                # fill_price: use limit_price or estimate from filled_avg_price
+                order['fill_price'] = float(order.get('filled_avg_price') or order.get('limit_price') or 0) or None
+                return order
             else:
                 print(f"Order failed: {response.status_code} - {response.text}")
                 return {'error': response.text}
@@ -393,6 +404,41 @@ class AlpacaClient:
             print(f"Error placing order: {e}")
             return {'error': str(e)}
     
+    def get_account(self) -> dict:
+        """Get Alpaca account info (cash, buying power, equity, positions value)."""
+        if self.demo_mode:
+            return {"cash": "500.00", "buying_power": "500.00", "equity": "500.00",
+                    "portfolio_value": "500.00", "long_market_value": "0", "status": "ACTIVE"}
+        
+        url = f"{self.base_url}/v2/account"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"Account query failed: {response.status_code} - {response.text}")
+                return {}
+        except Exception as e:
+            print(f"Error getting account: {e}")
+            return {}
+
+    def get_remote_positions(self) -> list:
+        """Get open positions from Alpaca API (not local DB)."""
+        if self.demo_mode:
+            return []
+        
+        url = f"{self.base_url}/v2/positions"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"Positions query failed: {response.status_code} - {response.text}")
+                return []
+        except Exception as e:
+            print(f"Error getting positions: {e}")
+            return []
+
     def get_paper_positions(self) -> List[PaperPosition]:
         """Get current paper trading positions"""
         if self.demo_mode:
@@ -443,7 +489,14 @@ class AlpacaClient:
         
         # Base price varies by symbol
         base_prices = {
-            'AAPL': 150, 'MSFT': 300, 'AMZN': 3000, 'GOOGL': 2500, 'TSLA': 200
+            'AAPL':222,'MSFT':380,'AMZN':210,'GOOGL':175,'GOOG':175,
+            'TSLA':260,'AMD':105,'META':520,'PYPL':68,'NVDA':900,
+            'QCOM':165,'INTC':25,'IBM':230,'ORCL':130,'CSCO':52,
+            'MU':98,'TXN':185,'ADBE':450,'HON':210,'GE':175,
+            'JPM':230,'BAC':46,'V':300,'MA':510,'KO':72,
+            'PEP':165,'WMT':90,'COST':935,'HD':385,'NKE':75,
+            'DIS':112,'XOM':115,'CVX':155,'BA':170,'PFE':28,
+            'BMY':58,'JNJ':158,'MRK':125,'ABT':124,'VZ':42,'T':22
         }
         base_price = base_prices.get(symbol, 100)
         

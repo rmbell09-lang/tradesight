@@ -27,6 +27,18 @@ class ScanResult:
     scan_parameters: Dict
 
 
+
+# AlertManager — optional push notifications
+try:
+    import sys as _sys, os as _os
+    _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), '..'))
+    from alerts.alert_manager import AlertManager as _AlertManager
+    from alerts.alert_types import AlertType as _AlertType
+    from config import ALERTS_CONFIG as _ALERTS_CONFIG
+    _SCANNER_ALERTS_AVAILABLE = True
+except Exception:
+    _SCANNER_ALERTS_AVAILABLE = False
+
 class StockScanner:
     """
     Complete stock scanning system that combines:
@@ -55,6 +67,13 @@ class StockScanner:
         )
         self.scorer = StockOpportunityScorer()
         self.last_scan_result = None
+        # Alert manager (optional)
+        self._alert_manager = None
+        if _SCANNER_ALERTS_AVAILABLE:
+            try:
+                self._alert_manager = _AlertManager(config=_ALERTS_CONFIG)
+            except Exception:
+                pass
     
     def quick_scan(self, limit: int = 10) -> ScanResult:
         """
@@ -165,6 +184,19 @@ class StockScanner:
                 if opportunity.overall_score >= min_score:
                     opportunities.append(opportunity)
                     print(f"  ✅ {symbol}: Score {opportunity.overall_score:.1f} ({opportunity.confidence} confidence)")
+                    # Fire signal alert
+                    if self._alert_manager:
+                        try:
+                            self._alert_manager.fire(
+                                _AlertType.SIGNAL_FIRED,
+                                symbol=symbol,
+                                action=opportunity.direction,
+                                score=round(opportunity.overall_score, 1),
+                                confidence=opportunity.confidence,
+                                reason=f"Scanner score {opportunity.overall_score:.1f}",
+                            )
+                        except Exception:
+                            pass
                 else:
                     print(f"  ❌ {symbol}: Score {opportunity.overall_score:.1f} (below {min_score})")
                 

@@ -75,6 +75,44 @@
         .tab-panel { display: none; }
         .tab-panel.active { display: block; }
 
+
+        /* Alerts tab styles */
+        .settings-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+        .settings-row label { color: #94a3b8; }
+        .settings-label { display: flex; align-items: center; gap: 8px; color: #f1f5f9; cursor: pointer; }
+        .settings-input {
+            background: #0a0e1a;
+            border: 1px solid #2d3748;
+            border-radius: 4px;
+            color: #f1f5f9;
+            padding: 4px 8px;
+            font-size: 0.85em;
+            width: 55%;
+        }
+        .settings-input:focus { outline: none; border-color: #22c55e; }
+        .btn-save {
+            background: #22c55e; color: #0a0e1a; border: none;
+            border-radius: 4px; padding: 8px 16px; cursor: pointer; font-weight: 700;
+        }
+        .btn-test {
+            background: #3b82f6; color: #fff; border: none;
+            border-radius: 4px; padding: 8px 16px; cursor: pointer; font-weight: 700;
+        }
+        .btn-small {
+            background: none; border: 1px solid #2d3748; color: #94a3b8;
+            border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.8em;
+        }
+        .alert-type-signal { color: #3b82f6; }
+        .alert-type-trade  { color: #22c55e; }
+        .alert-type-summary { color: #f59e0b; }
+        .alert-type-evolved { color: #a855f7; }
+
         /* Cards */
         .stats-row {
             display: grid;
@@ -258,6 +296,7 @@
     <button class="tab-btn" onclick="switchTab('strategy-lab')">🧪 Strategy Lab</button>
     <button class="tab-btn" onclick="switchTab('paper-trading')">💰 Paper Trading</button>
     <button class="tab-btn" onclick="switchTab('system')">⚙️ System</button>
+    <button class="tab-btn" onclick="switchTab('alerts')">🔔 Alerts</button>
 </div>
 
 <div class="content">
@@ -516,6 +555,105 @@
         </div>
     </div>
 
+<!-- ===== ALERTS TAB ===== -->
+<div id="tab-alerts" class="tab-panel">
+
+  <!-- Summary stats -->
+  <div class="stats-row" id="alerts-stats-row">
+    <div class="card">
+      <h3>Total Alerts</h3>
+      <div class="value blue" id="alerts-total">--</div>
+      <div class="sub">All time</div>
+    </div>
+    <div class="card">
+      <h3>Alerts Enabled</h3>
+      <div class="value" id="alerts-enabled-val">--</div>
+      <div class="sub">Master switch</div>
+    </div>
+    <div class="card">
+      <h3>Email Channel</h3>
+      <div class="value" id="alerts-email-val">--</div>
+      <div class="sub">SMTP</div>
+    </div>
+    <div class="card">
+      <h3>Webhook Channel</h3>
+      <div class="value" id="alerts-webhook-val">--</div>
+      <div class="sub">HTTP POST</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Recent alerts history -->
+    <div class="table-card">
+      <div class="table-header">
+        <h2>📋 Recent Alerts</h2>
+        <button class="btn-small" onclick="loadAlertsData()">↺ Refresh</button>
+      </div>
+      <table>
+        <thead><tr><th>Time</th><th>Type</th><th>Details</th></tr></thead>
+        <tbody id="alerts-history">
+          <tr><td colspan="3" class="loading-msg">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Settings -->
+    <div class="table-card">
+      <div class="table-header"><h2>⚙️ Alert Settings</h2></div>
+      <div style="padding: 16px;">
+        <form id="alerts-settings-form">
+
+          <!-- Master switch -->
+          <div class="settings-row">
+            <label class="settings-label">
+              <input type="checkbox" id="cfg-alerts-enabled"> Enable Alerts
+            </label>
+          </div>
+
+          <hr style="border-color:#2d3748; margin:12px 0;">
+
+          <!-- Email settings -->
+          <div class="settings-section">
+            <h3 style="color:#94a3b8;font-size:.8em;text-transform:uppercase;margin-bottom:10px;">Email (SMTP)</h3>
+            <div class="settings-row">
+              <label class="settings-label">
+                <input type="checkbox" id="cfg-email-enabled"> Enable Email
+              </label>
+            </div>
+            <div class="settings-row"><label>SMTP Host</label><input class="settings-input" type="text" id="cfg-smtp-host" placeholder="smtp.gmail.com"></div>
+            <div class="settings-row"><label>SMTP Port</label><input class="settings-input" type="number" id="cfg-smtp-port" placeholder="587"></div>
+            <div class="settings-row">
+              <label class="settings-label"><input type="checkbox" id="cfg-smtp-tls"> Use TLS</label>
+            </div>
+            <div class="settings-row"><label>Username</label><input class="settings-input" type="text" id="cfg-smtp-user" placeholder="you@gmail.com"></div>
+            <div class="settings-row"><label>Password</label><input class="settings-input" type="password" id="cfg-smtp-pass" placeholder="app password"></div>
+            <div class="settings-row"><label>From Address</label><input class="settings-input" type="text" id="cfg-email-from" placeholder="tradesight@example.com"></div>
+            <div class="settings-row"><label>To Addresses</label><input class="settings-input" type="text" id="cfg-email-to" placeholder="you@example.com, other@example.com"></div>
+          </div>
+
+          <hr style="border-color:#2d3748; margin:12px 0;">
+
+          <!-- Webhook settings -->
+          <div class="settings-section">
+            <h3 style="color:#94a3b8;font-size:.8em;text-transform:uppercase;margin-bottom:10px;">Webhook</h3>
+            <div class="settings-row">
+              <label class="settings-label"><input type="checkbox" id="cfg-webhook-enabled"> Enable Webhook</label>
+            </div>
+            <div class="settings-row"><label>Webhook URL</label><input class="settings-input" type="url" id="cfg-webhook-url" placeholder="https://hooks.example.com/..."></div>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:16px;">
+            <button type="button" class="btn-save" onclick="saveAlertsConfig()">💾 Save Settings</button>
+            <button type="button" class="btn-test" onclick="testAlert()">🧪 Send Test</button>
+          </div>
+          <div id="alerts-save-status" style="margin-top:8px;font-size:.85em;"></div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 </div>
 
 <script>
@@ -537,6 +675,7 @@
         event.target.classList.add('active');
         activeTab = name;
         loadTabData(name);
+        if (name === 'alerts') loadAlertsData();
     }
 
     function loadTabData(name) {

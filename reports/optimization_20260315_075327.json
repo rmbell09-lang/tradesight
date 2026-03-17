@@ -1,0 +1,134 @@
+{
+  "winner": "RSI Mean Reversion",
+  "version": "v3-real-data",
+  "baseline": {
+    "pnl_pct": 7838.007971100977,
+    "sharpe": 2.3496978786936893,
+    "win_rate": 77.77777777777779,
+    "parameters": {
+      "oversold": 30,
+      "overbought": 70,
+      "position_size": 0.6,
+      "stop_loss_pct": 0.07,
+      "take_profit_pct": 0.08,
+      "max_holding_bars": 0
+    }
+  },
+  "optimized": {
+    "pnl_pct": 88400.80565774888,
+    "sharpe": 2.64394831709087,
+    "win_rate": 72.72727272727273,
+    "parameters": {
+      "oversold": 33,
+      "overbought": 75,
+      "position_size": 0.8,
+      "stop_loss_pct": 0.05,
+      "take_profit_pct": 0.12,
+      "max_holding_bars": 0
+    },
+    "composite_score": 442.2353924604971
+  },
+  "improvement": {
+    "pnl_pct": 80562.7976866479,
+    "sharpe": 0.2942504383971807
+  },
+  "top_5_variants": [
+    {
+      "parameters": {
+        "oversold": 33,
+        "overbought": 75,
+        "position_size": 0.8,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.12,
+        "max_holding_bars": 0
+      },
+      "pnl_pct": 88400.80565774888,
+      "sharpe": 2.64394831709087,
+      "win_rate": 72.72727272727273,
+      "score": 442.2353924604971
+    },
+    {
+      "parameters": {
+        "oversold": 33,
+        "overbought": 72,
+        "position_size": 0.8,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.12,
+        "max_holding_bars": 0
+      },
+      "pnl_pct": 87766.41248808354,
+      "sharpe": 2.6417114938598383,
+      "win_rate": 72.72727272727273,
+      "score": 439.06329240277654
+    },
+    {
+      "parameters": {
+        "oversold": 33,
+        "overbought": 68,
+        "position_size": 0.8,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.12,
+        "max_holding_bars": 0
+      },
+      "pnl_pct": 81659.42263908593,
+      "sharpe": 2.6030554571076143,
+      "win_rate": 72.72727272727273,
+      "score": 408.52602379558334
+    },
+    {
+      "parameters": {
+        "oversold": 33,
+        "overbought": 75,
+        "position_size": 0.8,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.09,
+        "max_holding_bars": 0
+      },
+      "pnl_pct": 80844.41444219886,
+      "sharpe": 2.605983548587616,
+      "win_rate": 72.72727272727273,
+      "score": 404.4511584966368
+    },
+    {
+      "parameters": {
+        "oversold": 33,
+        "overbought": 72,
+        "position_size": 0.8,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.09,
+        "max_holding_bars": 0
+      },
+      "pnl_pct": 80264.18714072913,
+      "sharpe": 2.603767650809048,
+      "win_rate": 72.72727272727273,
+      "score": 401.5498890354215
+    }
+  ],
+  "search_space": {
+    "total_combinations": 1296,
+    "parameters_varied": [
+      "oversold",
+      "overbought",
+      "position_size",
+      "stop_loss_pct",
+      "take_profit_pct",
+      "max_holding_bars"
+    ]
+  },
+  "data_source": "synthetic",
+  "symbols_tested": [
+    "SYNTHETIC"
+  ],
+  "primary_symbol": "SYNTHETIC",
+  "cross_validation": null,
+  "timestamp": "2026-03-15T07:53:27.598127",
+  "champion_decision": "Challenger has only 0/3 live sessions \u2014 keeping champion",
+  "active_params": {
+    "oversold": 33,
+    "overbought": 65,
+    "position_size": 0.8,
+    "stop_loss_pct": 0.05,
+    "take_profit_pct": 0.06,
+    "max_holding_bars": 10
+  }
+}

@@ -71,7 +71,7 @@ class MultiAssetBacktester:
     - Overfitting detection with bias warnings
     """
     
-    def __init__(self, initial_balance: float = 10000.0):
+    def __init__(self, initial_balance: float = 500.0):
         self.initial_balance = initial_balance
         self.engine = BacktestEngine(initial_balance)
     

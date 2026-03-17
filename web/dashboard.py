@@ -52,6 +52,19 @@ from strategy_lab.tournament import StrategyTournament
 from strategy_lab.ai_engine import create_test_data
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
+# AlertManager — for dashboard alerts tab
+import sys as _sys
+_sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+try:
+    from alerts.alert_manager import AlertManager as _AlertManager
+    from alerts.alert_types import AlertType as _AlertType
+    from config import ALERTS_CONFIG as _ALERTS_CONFIG, save_alerts_config as _save_alerts_config, reload_alerts_config as _reload_alerts_config, DATA_DIR as _DATA_DIR
+    _dashboard_alert_manager = _AlertManager(config=_ALERTS_CONFIG, data_dir=str(_DATA_DIR))
+    _DASHBOARD_ALERTS_AVAILABLE = True
+except Exception as _e:
+    _dashboard_alert_manager = None
+    _DASHBOARD_ALERTS_AVAILABLE = False
+
 app.json_encoder = NumpySafeEncoder
 
 def safe_jsonify(data):
@@ -525,5 +538,77 @@ def tournament_history():
         })
     
     return jsonify(sanitize_for_json(history))
+
+# ===========================================================================
+# Alerts API routes (Phase 5.1)
+# ===========================================================================
+
+@app.route('/api/alerts/recent')
+def alerts_recent():
+    """Return recent alert history."""
+    if not _DASHBOARD_ALERTS_AVAILABLE or not _dashboard_alert_manager:
+        return jsonify({'alerts': [], 'error': 'Alerts module not available'})
+    limit = min(int(request.args.get('limit', 50)), 200)
+    alerts = _dashboard_alert_manager.get_recent_alerts(limit=limit)
+    return jsonify({'alerts': alerts})
+
+
+@app.route('/api/alerts/stats')
+def alerts_stats():
+    """Return alert summary statistics."""
+    if not _DASHBOARD_ALERTS_AVAILABLE or not _dashboard_alert_manager:
+        return jsonify({'total': 0, 'alerts_enabled': False, 'error': 'Alerts module not available'})
+    return jsonify(_dashboard_alert_manager.get_alert_stats())
+
+
+@app.route('/api/alerts/config', methods=['GET'])
+def alerts_config_get():
+    """Return current alerts configuration (no credentials)."""
+    if not _DASHBOARD_ALERTS_AVAILABLE:
+        return jsonify({'error': 'Alerts module not available'}), 500
+    safe_config = {k: v for k, v in _ALERTS_CONFIG.items()
+                   if k not in ('smtp_password', 'smtp_username')}
+    safe_config['smtp_password'] = '***' if _ALERTS_CONFIG.get('smtp_password') else ''
+    safe_config['smtp_username'] = _ALERTS_CONFIG.get('smtp_username', '')
+    return jsonify(safe_config)
+
+
+@app.route('/api/alerts/config', methods=['POST'])
+def alerts_config_save():
+    """Save alerts configuration."""
+    if not _DASHBOARD_ALERTS_AVAILABLE:
+        return jsonify({'error': 'Alerts module not available'}), 500
+    data = request.get_json() or {}
+    # Protect — don't overwrite password if placeholder sent
+    if data.get('smtp_password') == '***':
+        data.pop('smtp_password', None)
+    ok = _save_alerts_config(data)
+    if ok:
+        _reload_alerts_config()
+        # Refresh the in-process alert manager config
+        if _dashboard_alert_manager:
+            _dashboard_alert_manager.config.update(_ALERTS_CONFIG)
+        return jsonify({'status': 'saved'})
+    return jsonify({'error': 'Failed to save config'}), 500
+
+
+@app.route('/api/alerts/test', methods=['POST'])
+def alerts_test():
+    """Send a test alert through all configured channels."""
+    if not _DASHBOARD_ALERTS_AVAILABLE or not _dashboard_alert_manager:
+        return jsonify({'error': 'Alerts module not available'}), 500
+    try:
+        fired = _dashboard_alert_manager.fire(
+            _AlertType.SIGNAL_FIRED,
+            symbol='TEST',
+            action='buy',
+            score=99.9,
+            reason='Dashboard test alert',
+        )
+        return jsonify({'sent': fired})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=False, host="127.0.0.1", port=5001)

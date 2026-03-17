@@ -61,7 +61,7 @@ class BacktestEngine:
     {'action': 'buy'/'sell'/'hold', 'size': 1.0, 'stop_loss': price, 'take_profit': price}
     """
     
-    def __init__(self, initial_balance: float = 10000.0, fee_rate: float = 0.001):
+    def __init__(self, initial_balance: float = 500.0, fee_rate: float = 0.001):
         self.initial_balance = initial_balance
         self.fee_rate = fee_rate  # 0.1% per trade
         self.reset()
@@ -202,15 +202,20 @@ class BacktestEngine:
         size = signal.get('size', 1.0)
         entry_price = bar['close']
         
-        # Calculate position value
-        position_value = self.balance * size
+        # Fixed dollar position sizing based on INITIAL balance, not current balance.
+        # Using self.balance * size compounds gains exponentially and inflates backtest PnL.
+        # Real traders risk a fixed % of starting capital (or use Kelly criterion), not
+        # a reinvested fraction of every prior gain.
+        position_value = self.initial_balance * size
         fee = position_value * self.fee_rate
+        total_cost = position_value + fee
         
-        if position_value + fee > self.balance:
-            return  # Not enough balance
+        if total_cost > self.balance:
+            return  # Not enough balance (account down, can't afford full position)
         
-        # Deduct fee
-        self.balance -= fee
+        # Deduct full position cost (capital tied up) + entry fee
+        # On close, position_value is returned plus/minus P&L minus exit fee.
+        self.balance -= total_cost
         
         position = {
             'direction': direction,

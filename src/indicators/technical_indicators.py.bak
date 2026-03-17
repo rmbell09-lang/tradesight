@@ -33,8 +33,8 @@ class TechnicalIndicators:
         Returns:
             Dict with all indicator values and signals
         """
-        if len(ohlcv) < 50:  # Minimum for RSI(14), MACD(26+9), Bollinger(20)
-            raise ValueError(f"Need at least 50 periods, got {len(ohlcv)}")
+        if len(ohlcv) < 200:  # Need enough data for 200-day MA
+            raise ValueError(f"Need at least 200 periods, got {len(ohlcv)}")
         
         high = ohlcv['high'].astype(np.float64).values
         low = ohlcv['low'].astype(np.float64).values
@@ -137,9 +137,9 @@ class TechnicalIndicators:
     
     def _rsi_signal(self, rsi: float) -> int:
         """RSI signal: -1 (oversold), 0 (neutral), 1 (overbought)"""
-        if rsi > 65:
+        if rsi > 70:
             return 1  # Overbought (potential sell)
-        elif rsi < 33:
+        elif rsi < 30:
             return -1  # Oversold (potential buy)
         else:
             return 0  # Neutral

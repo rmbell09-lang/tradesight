@@ -100,11 +100,18 @@ keychain = KeychainManager()
 # Convenience functions for trading API keys
 def get_alpaca_api_key():
     """Get Alpaca API key from keychain with ALPACA_API_KEY fallback."""
-    return keychain.get_api_key("Alpaca-Key", fallback_env="ALPACA_API_KEY")
+    # Try both account names (stored as 'luckyai', default was 'api-key')
+    key = keychain.get_api_key('Alpaca-Key', account='luckyai', fallback_env='ALPACA_API_KEY')
+    if not key:
+        key = keychain.get_api_key('Alpaca-Key', fallback_env='ALPACA_API_KEY')
+    return key
 
 def get_alpaca_secret_key():
     """Get Alpaca secret key from keychain with ALPACA_SECRET_KEY fallback."""
-    return keychain.get_api_key("Alpaca-Secret", fallback_env="ALPACA_SECRET_KEY")
+    key = keychain.get_api_key('Alpaca-Secret', account='luckyai', fallback_env='ALPACA_SECRET_KEY')
+    if not key:
+        key = keychain.get_api_key('Alpaca-Secret', fallback_env='ALPACA_SECRET_KEY')
+    return key
 
 def get_polygon_api_key():
     """Get Polygon API key from keychain with POLYGON_API_KEY fallback."""

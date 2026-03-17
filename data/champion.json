@@ -1,6 +1,6 @@
 {
   "params": {
-    "oversold": 33,
+    "oversold": 40,
     "overbought": 65,
     "position_size": 0.8,
     "stop_loss_pct": 0.05,
@@ -9,7 +9,7 @@
   },
   "backtest_score": 9.33471,
   "live_avg_pnl": 0.0,
-  "sessions": 0,
-  "promoted_at": "2026-03-13T01:02:48.433019",
-  "promotion_reason": "Challenger promoted: 618.9% better than champion (backtest 9.3347 + live 0.00% over 0 sessions)"
+  "sessions": 14,
+  "promoted_at": "2026-03-16T21:59:56.221610",
+  "promotion_reason": "Manual threshold adjustment \u2014 RSI<33 never triggered in 14 sessions, lowered to 40 for market viability"
 }

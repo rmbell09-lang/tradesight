@@ -33,15 +33,6 @@ try:
 except ImportError:
     _FEEDBACK_AVAILABLE = False
 
-
-# AlertManager — push notifications on trades
-try:
-    from alerts.alert_manager import AlertManager
-    from alerts.alert_types import AlertType
-    _ALERTS_AVAILABLE = True
-except ImportError:
-    _ALERTS_AVAILABLE = False
-
 # Champion tracker — load optimizer-winning params
 try:
     from trading.champion_tracker import ChampionTracker
@@ -71,7 +62,7 @@ class PaperTrader:
         self.active_params: Dict = {}
         if _CHAMPION_AVAILABLE:
             try:
-                _ct = ChampionTracker(base_dir=str(Path(__file__).parent.parent.parent))
+                _ct = ChampionTracker(base_dir=str(self.base_dir.parent))
                 _champ = _ct.get_champion()
                 if _champ and _champ.get('params'):
                     self.active_params = _champ['params']
@@ -87,24 +78,6 @@ class PaperTrader:
         else:
             self.feedback = None
         
-
-        # Alert manager — dispatches email/webhook notifications
-        if _ALERTS_AVAILABLE:
-            try:
-                import sys, os
-                sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-                from config import ALERTS_CONFIG
-                self.alert_manager = AlertManager(
-                    config=ALERTS_CONFIG,
-                    data_dir=str(self.data_dir)
-                )
-            except Exception as _ae:
-                import logging
-                logging.getLogger('PaperTrader').warning(f'AlertManager init failed: {_ae}')
-                self.alert_manager = None
-        else:
-            self.alert_manager = None
-
         # Initialize Alpaca client (demo mode if no API keys)
         if alpaca_api_key and alpaca_secret:
             self.alpaca = AlpacaClient(api_key=alpaca_api_key, secret_key=alpaca_secret, paper=True)
@@ -226,33 +199,34 @@ class PaperTrader:
         signal = None
         
         if strategy_name == 'MACD Crossover':
-            # Compute MACD directly from raw price data (avoids format mismatch with indicators_data)
-            try:
-                import talib as _talib
-                import numpy as _np
-                close_arr = data['close'].astype(float).values
-                if len(close_arr) >= 35:
-                    macd_line, signal_line, histogram = _talib.MACD(close_arr, fastperiod=12, slowperiod=26, signalperiod=9)
-                    valid_hist = [(i, v) for i, v in enumerate(histogram) if not _np.isnan(v)]
-                    if len(valid_hist) >= 2:
-                        prev_histogram = valid_hist[-2][1]
-                        current_histogram = valid_hist[-1][1]
-                        if current_histogram > 0 and prev_histogram <= 0:
-                            signal = {
-                                'action': 'buy',
-                                'side': 'long',
-                                'confidence': 0.75,
-                                'reason': f'MACD bullish crossover (hist: {current_histogram:.4f})'
-                            }
-                        elif current_histogram < 0 and prev_histogram >= 0:
-                            signal = {
-                                'action': 'sell',
-                                'side': 'short',
-                                'confidence': 0.70,
-                                'reason': f'MACD bearish crossover (hist: {current_histogram:.4f})'
-                            }
-            except Exception:
-                pass
+            # Get MACD data from indicators_data dict
+            indicators_dict = indicators_data.get("indicators", {})
+            macd_data = indicators_dict.get("macd", pd.DataFrame())
+            
+            # Check if we have MACD data and enough history
+            if isinstance(macd_data, pd.DataFrame) and len(macd_data) >= 2 and 'histogram' in macd_data.columns:
+                try:
+                    current_histogram = float(macd_data.iloc[-1]['histogram'])
+                    prev_histogram = float(macd_data.iloc[-2]['histogram'])
+                    
+                    # MACD bullish crossover
+                    if current_histogram > 0 and prev_histogram <= 0:
+                        signal = {
+                            'action': 'buy',
+                            'side': 'long',
+                            'confidence': 0.75,
+                            'reason': 'MACD bullish crossover'
+                        }
+                    # MACD bearish crossover
+                    elif current_histogram < 0 and prev_histogram >= 0:
+                        signal = {
+                            'action': 'sell',
+                            'side': 'short',
+                            'confidence': 0.70,
+                            'reason': 'MACD bearish crossover'
+                        }
+                except (KeyError, IndexError, ValueError):
+                    pass  # Skip if data access fails
         
         elif strategy_name == 'RSI Mean Reversion':
             # Get RSI data from indicators_data dict
@@ -326,13 +300,6 @@ class PaperTrader:
             # Calculate position size
             quantity = self.position_manager.calculate_position_size(symbol, strategy, current_price)
             
-            # Cap by real Alpaca buying power (prevents "insufficient buying power" errors)
-            if getattr(self, "_alpaca_synced", False) and hasattr(self, "_real_buying_power"):
-                max_affordable = self._real_buying_power / current_price * 0.95  # 5% safety margin
-                if quantity > max_affordable:
-                    self.logger.info(f"Capping {symbol} qty from {quantity:.4f} to {max_affordable:.4f} (real buying power: ${self._real_buying_power:.2f})")
-                    quantity = round(max_affordable, 6)
-            
             if quantity <= 0:
                 self.logger.info(f"No position size available for {symbol} {strategy}")
                 return False
@@ -343,23 +310,8 @@ class PaperTrader:
             else:  # sell/close
                 success = self._execute_sell_order(symbol, strategy, current_price)
             
-
             if success:
                 self.logger.info(f"Executed {action} order: {quantity} {symbol} @ ${current_price:.2f} (Strategy: {strategy}, Confidence: {confidence:.2f})")
-                # Fire trade alert
-                if self.alert_manager:
-                    try:
-                        self.alert_manager.fire(
-                            AlertType.TRADE_EXECUTED,
-                            symbol=symbol,
-                            action=action,
-                            quantity=quantity,
-                            price=round(current_price, 2),
-                            strategy=strategy,
-                            confidence=confidence,
-                        )
-                    except Exception as _ae:
-                        self.logger.warning(f"Alert dispatch failed (non-fatal): {_ae}")
             
             return success
             
@@ -374,7 +326,7 @@ class PaperTrader:
             # Place order with Alpaca (or simulate in demo mode)
             order_result = self.alpaca.place_paper_trade(
                 symbol=symbol,
-                quantity=round(quantity, 6),  # fractional shares supported
+                quantity=int(quantity),
                 side='buy'
             )
             
@@ -412,7 +364,7 @@ class PaperTrader:
                 ''', (symbol, strategy)).fetchone()
                 
                 if not position:
-                    self.logger.debug(f"No open position to close for {symbol} {strategy}")
+                    self.logger.info(f"No open position to close for {symbol} {strategy}")
                     return False
                 
                 quantity = position[0]
@@ -420,7 +372,7 @@ class PaperTrader:
             # Place sell order
             order_result = self.alpaca.place_paper_trade(
                 symbol=symbol,
-                quantity=round(abs(quantity), 6),  # fractional shares supported
+                quantity=int(abs(quantity)),
                 side='sell'
             )
             
@@ -595,48 +547,10 @@ class PaperTrader:
             self.logger.error(f"Failed to generate trading report: {e}")
             return "Failed to generate trading report"
     
-
-    def _sync_with_alpaca(self):
-        """Sync local state with Alpaca reality - call at start of every session."""
-        try:
-            account = self.alpaca.get_account()
-            if not account:
-                self.logger.warning("Could not fetch Alpaca account - skipping sync")
-                return
-            
-            real_equity = float(account.get("equity", 0))
-            real_cash = float(account.get("buying_power", 0))
-            real_positions_value = float(account.get("long_market_value", 0))
-            
-            self.logger.info("Alpaca account: equity=$%.2f, buying_power=$%.2f, positions=$%.2f" % (real_equity, real_cash, real_positions_value))
-            
-            # Check for orphan positions (in Alpaca but not in our DB)
-            remote_positions = self.alpaca.get_remote_positions()
-            local_state = self.position_manager.get_portfolio_state()
-            
-            if remote_positions and local_state.position_count == 0:
-                self.logger.warning(
-                    "ORPHAN POSITIONS DETECTED: Alpaca has %d positions "
-                    "but local DB has 0. Buying power is $%.2f, not "
-                    "$%.2f. Trades will use real buying power." % (len(remote_positions), real_cash, local_state.available_cash)
-                )
-            
-            # Store real buying power for position sizing
-            self._real_buying_power = real_cash
-            self._real_equity = real_equity
-            self._alpaca_synced = True
-            
-        except Exception as e:
-            self.logger.error("Alpaca sync failed: %s" % str(e))
-            self._alpaca_synced = False
-
     def run_trading_session(self):
         """Run a complete trading session"""
         try:
             self.logger.info("=== Starting TradeSight Paper Trading Session ===")
-            
-            # Sync with Alpaca before doing anything
-            self._sync_with_alpaca()
             
             # Main trading logic
             self.scan_and_trade()
