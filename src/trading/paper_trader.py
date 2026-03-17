@@ -626,6 +626,14 @@ class PaperTrader:
             self._real_equity = real_equity
             self._alpaca_synced = True
             
+            # Track which symbols Alpaca already has positions in
+            self._alpaca_positions = set()
+            for rp in remote_positions:
+                sym = rp.get("symbol", "")
+                if sym:
+                    self._alpaca_positions.add(sym)
+                    self.logger.info("Alpaca has existing position: %s (qty=%s)" % (sym, rp.get("qty", "?")))
+            
         except Exception as e:
             self.logger.error("Alpaca sync failed: %s" % str(e))
             self._alpaca_synced = False
