@@ -380,7 +380,7 @@ class PaperTrader:
             
             if order_result and order_result.get('status') in ['filled', 'accepted']:
                 # Record position
-                fill_price = order_result.get('fill_price', price)
+                fill_price = order_result.get('fill_price') or price
                 success = self.position_manager.open_position(
                     symbol=symbol,
                     strategy=strategy,
@@ -426,7 +426,7 @@ class PaperTrader:
             
             if order_result and order_result.get('status') in ['filled', 'accepted']:
                 # Close position
-                fill_price = order_result.get('fill_price', price)
+                fill_price = order_result.get('fill_price') or price
                 success = self.position_manager.close_position(
                     symbol=symbol,
                     strategy=strategy,
