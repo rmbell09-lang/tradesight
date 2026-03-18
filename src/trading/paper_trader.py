@@ -83,7 +83,8 @@ class PaperTrader:
         
         # Feedback tracker
         if _FEEDBACK_AVAILABLE:
-            self.feedback = FeedbackTracker(base_dir=str(self.base_dir))
+            # Use TradeSight root (parent of src/) so feedback DB matches overnight optimizer
+            self.feedback = FeedbackTracker(base_dir=str(Path(__file__).parent.parent.parent))
         else:
             self.feedback = None
         
@@ -267,12 +268,25 @@ class PaperTrader:
                     oversold_thresh = self.active_params.get("oversold", 33)
                     overbought_thresh = self.active_params.get("overbought", 70)
                     if current_rsi < oversold_thresh:
-                        signal = {
-                            "action": "buy",
-                            "side": "long",
-                            "confidence": min(0.80, (oversold_thresh - current_rsi) / oversold_thresh + 0.60),
-                            "reason": f"RSI oversold: {current_rsi:.1f}"
-                        }
+                        # TREND REGIME FILTER: only buy if price is near or above its 50-bar SMA
+                        # Prevents buying sustained downtrends (e.g. ADBE -41%)
+                        sma50 = indicators_dict.get("sma50") or indicators_dict.get("sma_50")
+                        in_downtrend = False
+                        if sma50 is not None:
+                            sma50_val = float(sma50) if isinstance(sma50, (int, float)) else (sma50.iloc[-1] if hasattr(sma50, "iloc") else None)
+                            current_price = indicators_dict.get("current_price") or indicators_dict.get("close")
+                            if sma50_val and current_price:
+                                price_val = float(current_price) if isinstance(current_price, (int, float)) else (current_price.iloc[-1] if hasattr(current_price, "iloc") else None)
+                                if price_val and price_val < sma50_val * 0.97:
+                                    in_downtrend = True
+                                    self.logger.info(f"[TrendFilter] Skipping RSI buy for {symbol}: price {price_val:.2f} < SMA50 {sma50_val:.2f} * 0.97 (downtrend)")
+                        if not in_downtrend:
+                            signal = {
+                                "action": "buy",
+                                "side": "long",
+                                "confidence": min(0.80, (oversold_thresh - current_rsi) / oversold_thresh + 0.60),
+                                "reason": f"RSI oversold: {current_rsi:.1f}"
+                            }
                     # Overbought condition
                     elif current_rsi > overbought_thresh:
                         signal = {

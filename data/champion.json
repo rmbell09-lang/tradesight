@@ -2,14 +2,15 @@
   "params": {
     "oversold": 40,
     "overbought": 65,
-    "position_size": 0.8,
+    "position_size": 0.2,
     "stop_loss_pct": 0.05,
     "take_profit_pct": 0.06,
     "max_holding_bars": 10
   },
   "backtest_score": 9.33471,
-  "live_avg_pnl": 0.0,
-  "sessions": 14,
+  "live_avg_pnl": -20.09,
+  "sessions": 20,
   "promoted_at": "2026-03-16T21:59:56.221610",
-  "promotion_reason": "Manual threshold adjustment \u2014 RSI<33 never triggered in 14 sessions, lowered to 40 for market viability"
+  "promotion_reason": "Auto-corrected Mar 18: position_size 0.8->0.20 (circuit breaker: live avg P&L -20.09% over 20 sessions). Trend regime filter added to strategy.",
+  "stats_refreshed_at": "2026-03-18T17:03:45.833673"
 }

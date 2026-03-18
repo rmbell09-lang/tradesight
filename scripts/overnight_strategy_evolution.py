@@ -112,7 +112,13 @@ class ParameterTuner:
             
             # --- ENTRY LOGIC ---
             if current.get('rsi', 50) < oversold and not positions:
-                entry_price = current['close']
+                # TREND REGIME FILTER: only buy if price is above 50-bar SMA
+                # Prevents buying falling knives in sustained downtrends
+                sma50 = current.get('sma_50')
+                price = current['close']
+                if sma50 is not None and not pd.isna(sma50) and price < sma50 * 0.97:
+                    return None  # In downtrend — skip RSI oversold signal
+                entry_price = price
                 return {
                     'action': 'buy',
                     'size': size,
@@ -137,7 +143,7 @@ class ParameterTuner:
         # RSI thresholds
         oversold_values  = [25, 28, 30, 33]        # 4 values
         overbought_values = [65, 68, 72, 75]         # 4 values
-        size_values       = [0.50, 0.65, 0.80]       # 3 values
+        size_values       = [0.15, 0.20, 0.25]       # 3 values — capped at 25% (was 80%)
         
         # Risk/reward parameters — TP must be reachable within max_holding_bars on 1H bars.
         # SPY/large-caps move 0.5-2% per day; 10 bars ≈ 1.5 trading days.

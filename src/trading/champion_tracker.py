@@ -21,8 +21,10 @@ from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-PROMOTION_THRESHOLD = 0.10   # challenger must be 10% better to take over
-MIN_CHALLENGE_SESSIONS = 3   # must have at least 3 live sessions before challenging
+PROMOTION_THRESHOLD = 0.10        # challenger must be 10% better to take over
+MIN_CHALLENGE_SESSIONS = 3        # must have at least 3 live sessions before challenging
+CIRCUIT_BREAKER_PNL = -10.0       # force champion replacement if live avg P&L drops below this
+CIRCUIT_BREAKER_SESSIONS = 5      # minimum sessions before circuit breaker can fire
 CHAMPION_FILE = 'data/champion.json'
 
 
@@ -69,6 +71,46 @@ class ChampionTracker:
           4. Otherwise → keep champion
         """
         champion = self.get_champion()
+
+        # Refresh champion live stats from feedback DB (always, not just when challenger wins)
+        if champion is not None and feedback_tracker:
+            champ_params = champion['params']
+            for entry in (feedback_tracker.get_top_params(n=50) or []):
+                ep = entry['params']
+                if (ep.get('oversold') == champ_params.get('oversold') and
+                        ep.get('overbought') == champ_params.get('overbought') and
+                        abs(ep.get('position_size', 0) - champ_params.get('position_size', 0)) < 0.01 and
+                        abs(ep.get('stop_loss_pct', 0) - champ_params.get('stop_loss_pct', 0)) < 0.01):
+                    if entry['times_used'] > champion.get('sessions', 0):
+                        champion['live_avg_pnl'] = entry['avg_pnl']
+                        champion['sessions'] = entry['times_used']
+                        self._save_champion(
+                            params=champ_params,
+                            backtest_score=champion.get('backtest_score', 0),
+                            live_avg_pnl=entry['avg_pnl'],
+                            sessions=entry['times_used'],
+                            reason='Live stats refreshed'
+                        )
+                        logger.info(f"Champion live stats refreshed: avg_pnl={entry['avg_pnl']:.2f}% over {entry['times_used']} sessions")
+                    break
+
+        # CIRCUIT BREAKER: if champion is consistently losing, force replacement even without challenger data
+        if champion is not None:
+            champ_live_pnl = champion.get('live_avg_pnl', 0.0)
+            champ_sessions = champion.get('sessions', 0)
+            if (champ_sessions >= CIRCUIT_BREAKER_SESSIONS and
+                    champ_live_pnl < CIRCUIT_BREAKER_PNL):
+                reason = (f"CIRCUIT BREAKER: Champion avg P&L {champ_live_pnl:.2f}% over {champ_sessions} sessions "
+                          f"below threshold {CIRCUIT_BREAKER_PNL}% — forcing replacement with challenger")
+                logger.warning(reason)
+                self._save_champion(
+                    params=challenger_params,
+                    backtest_score=challenger_backtest_score,
+                    live_avg_pnl=0.0,
+                    sessions=0,
+                    reason=reason
+                )
+                return challenger_params, reason
 
         # Case 1: No champion yet
         if champion is None:

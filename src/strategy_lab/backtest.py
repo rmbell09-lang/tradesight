@@ -105,17 +105,26 @@ class BacktestEngine:
         data = self._add_indicators(data)
         
         # Run through each bar
+        # NOTE: signal generated at bar i is executed at bar i+1 open (no lookahead bias)
+        pending_signal = None
         for i in range(50, len(data)):  # Start after enough data for indicators
             current_bar = data.iloc[i]
             
-            # Update open positions first
+            # Execute PREVIOUS bar's signal at today's OPEN (realistic entry)
+            if pending_signal is not None:
+                entry_bar = current_bar.copy()
+                entry_bar['close'] = current_bar['open']  # enter at open, not close
+                self._execute_signal(pending_signal, entry_bar, i)
+                pending_signal = None
+            
+            # Update open positions with current bar (checks SL/TP at close)
             self._update_positions(current_bar)
             
-            # Get strategy signal
+            # Get strategy signal — will be executed at NEXT bar's open
             try:
                 signal = strategy_func(data, i, self.positions)
                 if signal and isinstance(signal, dict):
-                    self._execute_signal(signal, current_bar, i)
+                    pending_signal = signal
             except Exception as e:
                 # Strategy function failed, skip this bar
                 continue
