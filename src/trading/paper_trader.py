@@ -397,49 +397,56 @@ class PaperTrader:
             return False
     
     def _execute_sell_order(self, symbol: str, strategy: str, price: float) -> bool:
-        """Execute a sell order (close position)"""
+        """
+        Execute a sell order (close position).
+        Uses DELETE /v2/positions/{symbol} (close_full_position) for reliability with fractional shares.
+        Closes ALL open local DB positions for this symbol+strategy.
+        """
         try:
-            # Get current position
-            portfolio_state = self.position_manager.get_portfolio_state()
-            
-            # Check if we have an open position
-            db_path = self.position_manager.data_dir / 'positions.db'
+            db_path = self.position_manager.data_dir / "positions.db"
             with sqlite3.connect(db_path) as conn:
-                position = conn.execute('''
-                    SELECT quantity FROM positions 
-                    WHERE symbol = ? AND strategy = ? AND status = 'open'
-                    ORDER BY entry_time DESC LIMIT 1
-                ''', (symbol, strategy)).fetchone()
-                
-                if not position:
-                    self.logger.debug(f"No open position to close for {symbol} {strategy}")
-                    return False
-                
-                quantity = position[0]
-            
-            # Place sell order
-            order_result = self.alpaca.place_paper_trade(
-                symbol=symbol,
-                quantity=round(abs(quantity), 6),  # fractional shares supported
-                side='sell'
-            )
-            
-            if order_result and order_result.get('status') in ['filled', 'accepted']:
-                # Close position
-                fill_price = order_result.get('fill_price') or price
-                success = self.position_manager.close_position(
-                    symbol=symbol,
-                    strategy=strategy,
-                    exit_price=fill_price
-                )
-                return success
-            
-            return False
-            
+                open_count = conn.execute(
+                    "SELECT COUNT(*) FROM positions WHERE symbol=? AND strategy=? AND status=?",
+                    (symbol, strategy, "open")
+                ).fetchone()[0]
+
+            if open_count == 0:
+                self.logger.debug(f"No open position to close for {symbol} {strategy}")
+                return False
+
+            # Use DELETE /v2/positions/{symbol} — closes full Alpaca position, handles fractional shares
+            order_result = self.alpaca.close_full_position(symbol)
+
+            if order_result and "error" not in order_result:
+                fill_price = order_result.get("fill_price") or price
+                self.logger.info(f"Alpaca position closed: {symbol} fill_price={fill_price}")
+
+                # Close ALL open DB positions for this symbol+strategy
+                with sqlite3.connect(db_path) as conn:
+                    open_positions = conn.execute(
+                        "SELECT id, side, quantity, entry_price FROM positions "
+                        "WHERE symbol=? AND strategy=? AND status=?",
+                        (symbol, strategy, "open")
+                    ).fetchall()
+                    for pos_id, side, qty, entry_price in open_positions:
+                        pnl = (fill_price - entry_price) * qty if side == "long" else (entry_price - fill_price) * qty
+                        conn.execute(
+                            "UPDATE positions SET exit_time=?, exit_price=?, realized_pnl=?, "
+                            "status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                            (datetime.now().isoformat(), fill_price, pnl, "closed", pos_id)
+                        )
+                    conn.commit()
+                    self.logger.info(f"Closed {len(open_positions)} local DB position(s) for {symbol} ({strategy})")
+                return True
+            else:
+                err = order_result.get("error", "unknown") if order_result else "no response"
+                status_code = order_result.get("status_code", "?") if order_result else "?"
+                self.logger.error(f"close_full_position failed for {symbol}: HTTP {status_code} - {err}")
+                return False
+
         except Exception as e:
-            self.logger.error(f"Failed to execute sell order: {e}")
+            self.logger.error(f"Failed to execute sell order for {symbol}: {e}", exc_info=True)
             return False
-    
 
     def _check_stop_loss_take_profit(self):
         """
@@ -579,9 +586,15 @@ class PaperTrader:
                     break
                     
                 for symbol in self.config['trading_symbols']:
-                    # Check if we already have a position for this strategy+symbol
+                    # Check if we already have a position for this strategy+symbol (local DB)
                     existing_positions = self._check_existing_position(symbol, strategy_name)
                     if existing_positions:
+                        continue
+
+                    # Also block if Alpaca already holds this symbol (orphan guard)
+                    alpaca_positions = getattr(self, "_alpaca_positions", set())
+                    if symbol in alpaca_positions:
+                        self.logger.debug(f"Skipping {symbol}: Alpaca already holds position (orphan guard)")
                         continue
                     
                     # Generate signal

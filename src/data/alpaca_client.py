@@ -397,13 +397,45 @@ class AlpacaClient:
                 order['fill_price'] = float(order.get('filled_avg_price') or order.get('limit_price') or 0) or None
                 return order
             else:
-                print(f"Order failed: {response.status_code} - {response.text}")
-                return {'error': response.text}
+                import logging
+                logging.getLogger("AlpacaClient").error(f"Order failed: {response.status_code} - {response.text}")
+                return {'error': response.text, 'status_code': response.status_code}
                 
         except Exception as e:
-            print(f"Error placing order: {e}")
+            import logging
+            logging.getLogger("AlpacaClient").error(f"Error placing order: {e}")
             return {'error': str(e)}
     
+
+    def close_full_position(self, symbol: str) -> dict:
+        """
+        Close the entire Alpaca position for a symbol using DELETE /v2/positions/{symbol}.
+        This is more reliable than a sell order for fractional shares.
+        Returns dict with status='closed' on success, or {'error': ...} on failure.
+        """
+        import logging
+        logger = logging.getLogger("AlpacaClient")
+
+        if self.demo_mode:
+            quote = self.get_quote(symbol)
+            fill_price = quote.last if quote else 100.0
+            return {'status': 'closed', 'fill_price': fill_price, 'symbol': symbol, 'demo_mode': True}
+
+        url = f"{self.base_url}/v2/positions/{symbol}"
+        try:
+            response = requests.delete(url, headers=self.headers, timeout=10)
+            if response.status_code in (200, 204):
+                data = response.json() if response.text else {}
+                fill_price = float(data.get('filled_avg_price') or data.get('avg_fill_price') or 0) or None
+                logger.info(f"Closed full Alpaca position: {symbol} @ fill_price={fill_price}")
+                return {'status': 'closed', 'fill_price': fill_price, 'symbol': symbol}
+            else:
+                logger.error(f"close_full_position failed: {response.status_code} - {response.text}")
+                return {'error': response.text, 'status_code': response.status_code}
+        except Exception as e:
+            logger.error(f"close_full_position exception: {e}")
+            return {'error': str(e)}
+
     def get_account(self) -> dict:
         """Get Alpaca account info (cash, buying power, equity, positions value)."""
         if self.demo_mode:
