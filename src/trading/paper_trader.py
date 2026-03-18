@@ -440,10 +440,107 @@ class PaperTrader:
             self.logger.error(f"Failed to execute sell order: {e}")
             return False
     
+
+    def _check_stop_loss_take_profit(self):
+        """
+        Check all open positions against stop loss and take profit thresholds.
+        Called at the START of every scan_and_trade() before generating new signals.
+        Uses champion params stop_loss_pct and take_profit_pct (not hardcoded).
+        """
+        # Champion params store fractions (0.05 = 5%) — use directly
+        raw_sl = self.active_params.get('stop_loss_pct', 0.05)
+        raw_tp = self.active_params.get('take_profit_pct', 0.06)
+        # Normalise: if someone passes 5.0 (percent form) convert; fractions stay as-is
+        stop_loss_pct = raw_sl / 100.0 if raw_sl > 1.0 else raw_sl
+        take_profit_pct = raw_tp / 100.0 if raw_tp > 1.0 else raw_tp
+
+        self.logger.info(
+            f"[SL/TP Check] SL={stop_loss_pct*100:.1f}% TP={take_profit_pct*100:.1f}%"
+        )
+
+        try:
+            db_path = self.position_manager.data_dir / 'positions.db'
+            with sqlite3.connect(db_path) as conn:
+                open_positions = conn.execute(
+                    "SELECT symbol, strategy, side, quantity, entry_price "
+                    "FROM positions WHERE status = 'open'"
+                ).fetchall()
+        except Exception as e:
+            self.logger.error(f"[SL/TP] Failed to fetch open positions: {e}")
+            return
+
+        if not open_positions:
+            self.logger.info("[SL/TP] No open positions to check.")
+            return
+
+        for symbol, strategy, side, quantity, entry_price in open_positions:
+            try:
+                # Get current price from Alpaca
+                quote = self.alpaca.get_quote(symbol)
+                if quote is None:
+                    self.logger.warning(f"[SL/TP] Could not get quote for {symbol} — skipping")
+                    continue
+
+                current_price = float(quote.last)
+
+                # Calculate PnL percentage
+                if side == 'long':
+                    pnl_pct = (current_price - entry_price) / entry_price
+                else:  # short
+                    pnl_pct = (entry_price - current_price) / entry_price
+
+                trigger = None
+                if pnl_pct <= -stop_loss_pct:
+                    trigger = 'STOP_LOSS'
+                elif pnl_pct >= take_profit_pct:
+                    trigger = 'TAKE_PROFIT'
+
+                if trigger:
+                    self.logger.warning(
+                        f"[SL/TP] {trigger} triggered: {symbol} ({strategy}) | "
+                        f"Entry=${entry_price:.2f} Current=${current_price:.2f} "
+                        f"PnL={pnl_pct*100:.2f}% | Closing position."
+                    )
+                    closed = self._execute_sell_order(symbol, strategy, current_price)
+                    if closed:
+                        self.logger.info(
+                            f"[SL/TP] Position closed: {symbol} ({strategy}) "
+                            f"@ ${current_price:.2f} | PnL={pnl_pct*100:.2f}% | Trigger={trigger}"
+                        )
+                        if self.alert_manager:
+                            try:
+                                from alerts.alert_types import AlertType
+                                self.alert_manager.fire(
+                                    AlertType.TRADE_EXECUTED,
+                                    symbol=symbol,
+                                    action='sell',
+                                    quantity=quantity,
+                                    price=round(current_price, 2),
+                                    strategy=strategy,
+                                    confidence=1.0,
+                                )
+                            except Exception as ae:
+                                self.logger.warning(f"[SL/TP] Alert failed (non-fatal): {ae}")
+                    else:
+                        self.logger.error(
+                            f"[SL/TP] Failed to close position: {symbol} ({strategy})"
+                        )
+                else:
+                    self.logger.debug(
+                        f"[SL/TP] {symbol} ({strategy}): price=${current_price:.2f} "
+                        f"pnl={pnl_pct*100:.2f}% — no trigger"
+                    )
+
+            except Exception as e:
+                self.logger.error(f"[SL/TP] Error checking {symbol} ({strategy}): {e}")
+
     def scan_and_trade(self):
         """Main trading loop: scan for signals and execute trades"""
         try:
             self.logger.info("Starting trading scan...")
+
+            # CHECK STOP LOSS / TAKE PROFIT FIRST — before any new signals
+            self._check_stop_loss_take_profit()
             
             # Get winning strategies
             winning_strategies = self.get_latest_tournament_winners()
