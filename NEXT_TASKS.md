@@ -1,151 +1,231 @@
-# TradeSight Phase 3 + 4 Build Queue
+# TradeSight Build Queue — March 17, 2026 (v2)
 
-**Project:** TradeSight Trading Intelligence Platform  
-**Goal:** Build AI Strategy Lab (Phase 3) + Stock Scanner (Phase 4)  
-**Network Requirements:** Stock market APIs (Ray will allowlist via LuLu)
+## Strategy Decision (Ray approved)
+**Two-track system, not four separate strategies:**
+1. **Confluence** — primary strategy. Combines all 7 indicators (RSI, MACD, Bollinger, VWAP,
+   SuperTrend, Ichimoku, Volume) into one score. Why use ingredients separately when you
+   have the recipe?
+2. **RSI Mean Reversion** — contrarian secondary. Catches reversals that Confluence misses
+   because Confluence requires indicator agreement, but the best mean reversion trades
+   happen when most indicators look bearish.
 
-## Priority 1: Phase 3 - AI Strategy Lab (Core Engine)
+Standalone MACD and Bollinger are dropped from live trading (already baked into Confluence).
+They remain in the tournament system for benchmarking.
 
-- [x] **AI Strategy Iteration Engine** - Core backtesting + AI improvement loop
-  - Files: `src/strategy_lab/ai_engine.py`, `src/strategy_lab/backtest.py`
-  - Spec: Implement Michael Automates workflow - base strategy → AI iterate → multi-asset validation
-  - Done when: Can take a simple strategy, run 5+ improvement iterations, validate across 3+ assets
+**Priority order: Exits > Entries.** Stop loss + trailing stop implementation matters more
+than any strategy improvement. A mediocre strategy with great exits beats a great strategy
+with no exits.
 
-- [x] **Strategy Tournament System** - Evolution approach from Alex Carter research
-  - Files: `src/strategy_lab/tournament.py`
-  - Spec: Run 10 strategies parallel, kill losers, evolve winners over 2-3 rounds
-  - Done when: Tournament can run with mock strategies and report winners
-
-- [x] **Multi-Asset Backtesting** - Anti-overfitting framework
-  - Files: `src/strategy_lab/backtester.py`, `src/data/historical.py`
-  - Spec: Walk-forward validation, Monte Carlo simulation, cross-asset verification
-  - Done when: Backtest results include overfitting detection and bias warnings
-
-## Priority 2: Phase 4 - Stock Scanner (Market Data)
-
-- [x] **Alpaca Integration** - Stock market data + paper trading API
-  - Files: `src/data/alpaca_client.py`, `src/scanners/stock_scanner.py`
-  - Spec: Real-time + historical stock data, technical indicators, paper trading setup
-  - Network: `api.alpaca.markets`, `data.alpaca.markets`
-  - Done when: Can fetch S&P 500 data with OHLCV + indicators, paper trading account connected
-
-- [x] **Technical Indicators Engine** - RSI, MACD, Bollinger, MAs, Volume analysis
-  - Files: `src/indicators/`, `src/scanners/technical_analysis.py`
-  - Spec: All major indicators from trading skill research (25KB knowledge base)
-  - Done when: Signal generator produces confluence scores for any stock with 3+ indicators
-
-- [x] **Stock Opportunity Scorer** - Multi-factor scoring like Polymarket scanner
-  - Files: `src/scanners/stock_opportunities.py`
-  - Spec: Volume, volatility, technical signals, earnings proximity, sector strength
-  - Done when: Produces ranked opportunity list for S&P 500 with confidence scores
-
-## Priority 3: Integration & Web Interface
-
-- [x] **Unified Dashboard** - Extend current Polymarket dashboard for all markets
-  - Files: `web/dashboard.py`, `web/templates/`
-  - Spec: Tabs for Polymarket, Stocks, Strategy Lab with live data
-  - Done when: Single dashboard shows opportunities across all market types
-
-- [x] **Strategy Lab Web UI** - Interactive backtesting and tournament management
-  - Files: `web/strategy_lab.py`, `web/templates/strategy_lab.html`
-  - Spec: Start tournaments, view AI iteration progress, export winning strategies
-  - Done when: Can start/stop tournaments and view results via web interface
-
-## Priority 4: Automation & Production
-
-- [x] **Automated Strategy Development** - Overnight AI improvement cron jobs
-  - Files: `scripts/nightly_strategy_improvement.sh`, `src/automation/`
-  - Spec: Run strategy tournaments overnight, report best performers each morning
-  - Done when: Cron job runs 8-hour improvement cycles and emails/logs results
-
-- [x] **Paper Trading Orchestrator** - Execute best strategies with fake money
-  - Files: `src/trading/paper_trader.py`, `src/trading/position_manager.py`
-  - Spec: Take tournament winners, execute with Alpaca paper trading, track P&L
-  - Done when: Top strategies automatically trade with paper money and report results
-
-## Discovered Tasks
-(Add new tasks here as they're discovered during development)
-
-## Completed Tasks
-(Move completed items here for historical tracking)
+## Current State
+- Account: ~$493 Alpaca paper (ADBE + JPM positions from orphan bug)
+- First paper trade: ADBE 0.126 shares @ $425.48 (RSI Mean Reversion)
+- Orphan guard deployed. Alpaca balance sync working.
+- Champion params: oversold=40, overbought=65, position_size=0.8, SL=5%, TP=6%
+- Confluence score engine EXISTS in technical_indicators.py but unused
 
 ---
 
-## Quick Reference
+## Phase 1: EXIT LOGIC — The Real Money [BUILDER]
+These are worth 50%+ of the difference between profit and loss.
 
-**Key Files:**
-- Phase 1: `src/scanner.py` (Polymarket - ✅ Done)
-- Phase 3: `src/strategy_lab/` (To build)
-- Phase 4: `src/scanners/stock_scanner.py` (To build)
-- Dashboard: `web/dashboard.py` (Extend existing)
+### Task 1.1: Active Stop Loss + Take Profit Execution
+**Priority:** 10 | **Complexity:** MEDIUM
+**Files:** src/trading/paper_trader.py, src/trading/position_manager.py
 
-**External APIs:**
-- Polymarket: `gamma-api.polymarket.com` (✅ Working)
-- Alpaca: `api.alpaca.markets`, `data.alpaca.markets` (Needs LuLu allowlist)
-- Alpha Vantage: `www.alphavantage.co` (Optional backup)
+Currently stop_loss_pct (5%) and take_profit_pct (6%) are in config but NEVER CHECKED.
+A stock could drop 20% and the app just watches.
 
-**Test Coverage Target:** 80%+ with integration tests for all API endpoints
-**Success Criteria:** AI can improve strategies overnight, stocks + prediction markets unified dashboard
----
+Add _check_stop_loss_take_profit() method to paper_trader.py:
+1. Called at START of every scan_and_trade() before generating new signals
+2. For each open position (from BOTH local DB AND Alpaca):
+   - Get current price via self.alpaca.get_quote(symbol)
+   - Calculate PnL pct from entry price
+   - If loss >= stop_loss_pct then close position immediately
+   - If gain >= take_profit_pct then close position immediately
+3. Log every stop/TP trigger with entry price, exit price, PnL
+4. Use champion params stop_loss_pct and take_profit_pct (not hardcoded)
 
-## Phase 5 — Next Shippable Features (Ranked by Impact)
+**Verify:** Open a position, manually check that SL/TP thresholds trigger closes.
 
-*Audit by Lucky — March 9, 2026*
+### Task 1.2: Trailing Stop Implementation
+**Priority:** 10 | **Complexity:** MEDIUM
+**Files:** src/trading/position_manager.py, src/trading/paper_trader.py
 
-### 1. 🔔 Push Alerts / Notifications (HIGH IMPACT — Est. 4-6 hrs)
+Fixed take profit (6%) caps winners. Trailing stop lets winners run.
+1. Add trailing_stop_pct to champion params (default 3%)
+2. Track high_water_mark for each position in positions DB (new column)
+3. On each price update, if current_price > high_water_mark then update HWM
+4. If current_price drops trailing_stop_pct below HWM then close position
+5. Trailing stop only activates AFTER position is up >= 2% (dont trail from entry)
+6. When trailing stop is active, it REPLACES the fixed take profit
+   (let the winner run, trail protects the gain)
 
-**Why:** Strategy results go to log files. You have to actively check the dashboard or hunt through logs. Making TradeSight *pull you* instead of you pulling it is a massive quality-of-life upgrade.
+**Verify:** Simulate a position that goes up 8% then drops 3% — should close at +5%.
 
-**What to build:**
-- `src/alerts/notifier.py` — notification dispatcher
-- Alert triggers: overnight optimization complete (with improvement delta), paper trade hits target/stop, high-confidence signal detected (>80% score)
-- Delivery: Write to `/tmp/tradesight-alert.json` → hook into Luckys heartbeat check → Lucky forwards to WhatsApp
----
+### Task 1.3: Order Fill Verification
+**Priority:** 9 | **Complexity:** LOW
+**File:** src/trading/paper_trader.py
 
-## Phase 5 — Next Shippable Features (Ranked by Impact)
+_execute_buy_order accepts status "accepted" but that doesnt mean filled.
+1. After placing order, if status is "accepted" (not "filled"):
+   - Wait 5 seconds, poll GET /v2/orders/order_id for actual fill status
+   - Only record position if status becomes "filled"
+   - If still not filled after 30s, cancel the order
+2. Ensure fill_price is NEVER None when recording position
+3. Log order lifecycle: placed then accepted then filled/cancelled
 
-*Audit by Lucky — March 9, 2026*
+**Verify:** Check that positions are only recorded after confirmed fill.
 
-### 1. Push Alerts / Notifications (HIGH IMPACT — Est. 4-6 hrs)
+### Task 1.4: Circuit Breaker / Kill Switch
+**Priority:** 9 | **Complexity:** MEDIUM
+**Files:** src/trading/paper_trader.py (new method _check_circuit_breaker)
 
-**Why:** Strategy results go to log files. You have to actively check the dashboard or hunt through logs. Making TradeSight pull you instead of you pulling it is a massive quality-of-life upgrade.
+Hard safety limits:
+1. Daily loss > 2% of equity then stop trading for the day
+2. Weekly loss > 5% then stop trading for the week
+3. 3 consecutive losses then reduce position size by 50% until a win
+4. Single trade loss > 3% then log WARNING (review signal quality)
+5. Store circuit breaker state in SQLite (survives restarts)
+6. Log all breaker trips with timestamp and reason
 
-**What to build:**
-- `src/alerts/notifier.py` — notification dispatcher
-- Alert triggers: overnight optimization complete (with improvement delta), paper trade hits target/stop, high-confidence signal detected (>80% score)
-- Delivery: Write to `/tmp/tradesight-alert.json` → hook into Lucky's heartbeat check → Lucky forwards to WhatsApp
-- Stretch: Webhook support for any endpoint
-
-**Done when:** Overnight cron fires and Ray gets a WhatsApp message with the optimization result by morning.
-
----
-
-### 2. Crypto Market Scanner (HIGH IMPACT — Est. 6-8 hrs)
-
-**Why:** Currently covers prediction markets (Polymarket) + equities (Alpaca). Crypto is a massive, 24/7 market with free public APIs — no LuLu allowlist needed for read-only data.
-
-**What to build:**
-- `src/scanners/crypto_scanner.py` — uses CoinGecko API (free, no auth required)
-- Scan top 100 coins by volume for RSI extremes, breakout patterns, volume spikes
-- Add Crypto tab to web dashboard
-- Apply same opportunity scoring framework already used for stocks
-
-**Done when:** Dashboard shows crypto opportunities alongside stocks and Polymarket, auto-scanned every hour.
-
----
-
-### 3. Morning Report / Daily Digest (MEDIUM-HIGH IMPACT — Est. 3-4 hrs)
-
-**Why:** Overnight optimization produces JSON reports that nobody reads. A formatted morning summary that auto-generates at 8 AM (or on demand) turns raw data into actionable intelligence.
-
-**What to build:**
-- `scripts/morning_report.py` — reads last 24h of reports, paper trading P&L, best opportunities found
-- Output: clean text summary (not JSON) saved to `reports/daily_YYYYMMDD.txt`
-- Add to existing overnight cron to run after optimization finishes
-- Hook into Lucky's heartbeat: if daily report exists and unseen, deliver it
-
-**Done when:** Ray gets a clean daily summary each morning without logging into the dashboard.
+**Verify:** Simulate losses exceeding thresholds, confirm trading halts.
 
 ---
 
-*Next: Build in order above. Each feature is self-contained and shippable independently.*
+## Phase 2: ENTRY LOGIC — Better Signals [BUILDER]
+
+### Task 2.1: Dynamic Balance Sync (not hardcoded $500)
+**Priority:** 9 | **Complexity:** MEDIUM
+**File:** src/trading/position_manager.py
+
+Instead of initial_balance: 500.0 hardcoded, the position manager should:
+1. Accept initial_balance as a constructor parameter
+2. PaperTrader.__init__ should pass the real Alpaca equity from _sync_with_alpaca
+3. All position sizing math uses real balance, not hardcoded
+4. Strategy allocation adjusts to account size (bigger account = more diversification)
+5. If Alpaca sync fails, fall back to config value with WARNING log
+
+**Verify:** Change Alpaca paper balance, confirm position sizing adjusts automatically.
+
+### Task 2.2: Confluence Strategy (PRIMARY — the big one)
+**Priority:** 9 | **Complexity:** HIGH
+**Files:** src/trading/paper_trader.py, src/strategy_lab/tournament.py
+
+The technical indicators engine already computes a confluence score (-1.0 to +1.0) combining
+RSI + MACD + Bollinger + VWAP + SuperTrend + Ichimoku + Volume. This becomes our primary
+strategy.
+
+Build Confluence Score strategy:
+1. Add to _apply_strategy_logic:
+   - Buy when confluence_score > +0.5 AND volume relative > 1.2 (confirms conviction)
+   - Sell/close when confluence_score < -0.3 OR stop loss/trailing stop hit
+   - Confidence = abs(confluence_score) (natural 0-1 range)
+2. Register in get_builtin_strategies() for tournament use
+3. Runs alongside RSI Mean Reversion (2-track system)
+
+Two-track allocation:
+- Confluence: up to 50% of portfolio (primary)
+- RSI Mean Reversion: up to 30% of portfolio (contrarian)
+- Max 3 concurrent positions total
+- Same stock cant be held by both strategies
+
+**Verify:**
+- Run tournament: Confluence vs RSI vs MACD vs Bollinger
+- Confirm Confluence generates different signals than individual indicators
+- Check that two-track positions dont exceed limits
+
+### Task 2.3: Remove Short Selling
+**Priority:** 8 | **Complexity:** LOW
+**File:** src/trading/paper_trader.py
+
+On a small account, shorting is reckless (unlimited loss, margin).
+1. In execute_signal(): if action == sell and no existing position then skip
+2. Only allow sells that CLOSE existing long positions
+3. Log skipped short signals for analysis
+4. Add config flag allow_shorting: False (enable later for larger accounts)
+
+**Verify:** Confirm bearish signals are logged but not executed as shorts.
+
+### Task 2.4: Time-of-Day Filter
+**Priority:** 7 | **Complexity:** LOW
+**File:** src/trading/paper_trader.py
+
+Add time awareness to signal generation:
+1. Skip signals during first 30 min (9:30-10:00 ET) — too much noise
+2. Skip signals during lunch (11:30-1:00 ET) — choppy
+3. Best windows: 10:00-11:30 and 2:00-3:30 ET
+4. Make configurable via trading_windows in config
+5. Log skipped signals with "outside trading window" reason
+
+**Verify:** Confirm signals only fire during approved windows.
+
+### Task 2.5: Regime Detection
+**Priority:** 7 | **Complexity:** MEDIUM
+**Files:** src/indicators/technical_indicators.py, src/trading/paper_trader.py
+
+Add market regime classification:
+1. Calculate ADX (trend strength) — already have talib
+2. Classify regime:
+   - ADX > 25 + price > SMA50 = TRENDING_UP: favor Confluence
+   - ADX > 25 + price < SMA50 = TRENDING_DOWN: favor cash (no shorts)
+   - ADX < 20 = RANGING: favor RSI Mean Reversion
+3. Active strategy selection adjusts based on regime
+4. Log regime at start of each scan
+
+**Verify:** Check regime classification across different market conditions in backtest.
+
+---
+
+## Phase 3: DATA QUALITY
+
+### Task 3.1: Fix Monte Carlo Simulation
+**Priority:** 6 | **Complexity:** MEDIUM
+**File:** src/strategy_lab/backtester.py
+
+Current Monte Carlo shuffles OHLCV bars randomly — destroys temporal structure.
+Fix: shuffle TRADE OUTCOMES, not price bars.
+1. Run strategy normally to get trade list
+2. Randomly resample trade PnL values (with replacement)
+3. Build equity curves from resampled trades
+4. Calculate distribution of outcomes
+
+### Task 3.2: Skip 0-Trade Feedback Logging
+**Priority:** 6 | **Complexity:** LOW
+**File:** src/trading/paper_trader.py
+
+Sessions with 0 trades should NOT log 0% PnL to feedback DB.
+Check trades_opened > 0 before logging.
+
+### Task 3.3: Sector Correlation Guard
+**Priority:** 5 | **Complexity:** MEDIUM
+**File:** src/trading/paper_trader.py
+
+Prevent double-exposure: define sector map, block same-sector positions.
+
+### Task 3.4: Slippage + Spread Modeling
+**Priority:** 5 | **Complexity:** MEDIUM
+**File:** src/strategy_lab/backtest.py
+Add configurable slippage (0.05%) and bid-ask spread (0.02%) to backtests.
+
+---
+
+## Phase 4: LIVE-READINESS
+
+### Task 4.1: Paper-to-Live Transition Checklist
+**Priority:** 5 | **Complexity:** LOW
+Create docs/LIVE_READINESS.md:
+- 30 days profitable paper trading
+- Circuit breaker tested
+- Stop loss verified with real fills
+- Max drawdown < 10% over 30 days
+- Win rate > 45%, profit factor > 1.2
+- Ray reviewed and approved
+
+---
+
+## Execution Notes
+- Phase 1 (exits) is worth more than everything else combined — do first
+- Phase 2 Task 2.2 (Confluence) is the highest-value strategy change
+- Nightly builder picks up [BUILDER] tasks
+- Every task: code change + test + git commit + log to MC
+- MACD and Bollinger remain in tournament for benchmarking but not live trading

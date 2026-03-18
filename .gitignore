@@ -41,3 +41,18 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Database files (runtime data)
+*.db
+*.db-shm
+*.db-wal
+*.db.archived*
+data/*.db
+data/*.log
+
+# Runtime files
+positions.db
+dashboard.log
+dashboard_new.log
+data/
+!data/.gitkeep
