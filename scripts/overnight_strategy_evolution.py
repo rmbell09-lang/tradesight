@@ -142,8 +142,8 @@ class ParameterTuner:
         # Risk/reward parameters — TP must be reachable within max_holding_bars on 1H bars.
         # SPY/large-caps move 0.5-2% per day; 10 bars ≈ 1.5 trading days.
         # Old values (6/9/12%) never triggered → dead parameter. Fixed.
-        stop_loss_values     = [0.02, 0.05, 0.08]    # 2%, 5%, 8% stop loss
-        take_profit_values   = [0.015, 0.03, 0.05]   # 1.5%, 3%, 5% take profit (intraday-realistic)
+        stop_loss_values     = [0.03, 0.05, 0.08]    # 2% removed — too tight for 1H bars, always stops out    # 2%, 5%, 8% stop loss
+        take_profit_values   = [0.05, 0.08, 0.12]   # realistic targets: 5%, 8%, 12%   # 1.5%, 3%, 5% take profit (intraday-realistic)
         
         # NEW: max holding period (0 = unlimited)
         holding_bars_values  = [0, 10, 20]            # unlimited, 10 bars, 20 bars
@@ -160,6 +160,11 @@ class ParameterTuner:
                         for tp_pct in take_profit_values:
                             for hold_bars in holding_bars_values:
                                 test_count += 1
+                                
+                                # FILTER 1: TP must be >= 1.5x SL (minimum positive expectancy)
+                                # Prevents negative-expectancy setups even with high win rates
+                                if tp_pct < sl_pct * 1.5:
+                                    continue
                                 
                                 variant = self.create_rsi_variant(
                                     oversold, overbought, size,
@@ -178,13 +183,18 @@ class ParameterTuner:
                                 
                                 metrics = backtest_results['metrics']
                                 
+                                # FILTER 2: Hard reject negative PnL strategies
+                                # No negative-return strategy can ever be "optimized" — period
+                                if metrics['total_pnl_pct'] < 0:
+                                    continue
+                                
                                 # Composite score: balanced across PnL, Sharpe, win rate, and trade count.
-                                # PnL is normalized and capped to prevent one lucky outlier dominating.
+                                # PnL is normalized more sensitively now (div 20 vs 50) to reward real gains.
                                 # Sharpe ratio is the primary signal — it measures risk-adjusted returns.
                                 # Trade count bonus rewards param sets that generate actual signals
                                 # (a strategy with 0 trades scores 0 regardless of metrics).
                                 trades = max(metrics['total_trades'], 0)
-                                pnl_normalized = min(metrics['total_pnl_pct'] / 50.0, 3.0)  # cap at 3x (150% real PnL)
+                                pnl_normalized = min(metrics['total_pnl_pct'] / 20.0, 3.0)  # more sensitive — 5% PnL = 0.25 score
                                 sharpe_score   = metrics['sharpe_ratio'] / 3.0              # normalize to ~1 at Sharpe=3
                                 win_rate_score = metrics['win_rate'] / 100.0
                                 trade_bonus    = min(trades / 20.0, 1.0)                    # bonus for 20+ trades
