@@ -610,5 +610,123 @@ def alerts_test():
         return jsonify({'error': str(e)}), 500
 
 
+
+@app.route('/api/emergency/close-all-positions', methods=['POST'])
+def emergency_close_all_positions():
+    """Close all open Alpaca positions and sync local DB. Emergency use only."""
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/src')
+        from data.alpaca_client import AlpacaClient
+        from trading.position_manager import PositionManager
+        from datetime import datetime
+        import sqlite3
+
+        api_key = os.environ.get("ALPACA_API_KEY", "")
+        secret_key = os.environ.get("ALPACA_SECRET_KEY", "") or os.environ.get("ALPACA_SECRET", "")
+        if not api_key or not secret_key:
+            return jsonify({"error": "Alpaca keys not in env"}), 500
+        client = AlpacaClient(api_key=api_key, secret_key=secret_key, paper=True)
+        if client.demo_mode:
+            return jsonify({'error': 'Alpaca not authenticated (demo mode)'}), 500
+
+        # Get all open Alpaca positions
+        import requests
+        r = requests.get(f"{client.base_url}/v2/positions", headers=client.headers, timeout=10)
+        if r.status_code != 200:
+            return jsonify({'error': f'Failed to fetch Alpaca positions: {r.text}'}), 500
+
+        alpaca_positions = r.json()
+        closed = []
+        errors = []
+
+        for pos in alpaca_positions:
+            symbol = pos.get('symbol')
+            qty = float(pos.get('qty', 0))
+            avg_price = float(pos.get('avg_entry_price', 0))
+            current_price = float(pos.get('current_price', 0) or avg_price)
+
+            result = client.close_full_position(symbol)
+            if 'error' not in result:
+                fill_price = result.get('fill_price') or current_price
+                closed.append({'symbol': symbol, 'qty': qty, 'fill_price': fill_price})
+            else:
+                errors.append({'symbol': symbol, 'error': result.get('error')})
+
+        # Clear all open local DB positions
+        pm = PositionManager()
+        db_path = pm.data_dir / 'positions.db'
+        with sqlite3.connect(db_path) as conn:
+            open_rows = conn.execute(
+                "SELECT COUNT(*) FROM positions WHERE status='open'"
+            ).fetchone()[0]
+            conn.execute(
+                "UPDATE positions SET status='closed', exit_time=?, exit_price=0, realized_pnl=0, "
+                "updated_at=CURRENT_TIMESTAMP WHERE status='open'",
+                (datetime.now().isoformat(),)
+            )
+            conn.commit()
+
+        return jsonify({
+            'closed_alpaca': closed,
+            'errors': errors,
+            'db_positions_cleared': open_rows
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
+@app.route('/api/emergency/restore-positions', methods=['POST'])
+def emergency_restore_positions():
+    """Fetch open Alpaca positions and restore them to local DB for SL/TP tracking."""
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/src')
+        from trading.position_manager import PositionManager
+        from datetime import datetime
+        import sqlite3, requests
+
+        api_key = os.environ.get('ALPACA_API_KEY', '')
+        secret_key = os.environ.get('ALPACA_SECRET_KEY', '') or os.environ.get('ALPACA_SECRET', '')
+        if not api_key or not secret_key:
+            return jsonify({'error': 'Alpaca keys not in env'}), 500
+
+        headers = {'APCA-API-KEY-ID': api_key, 'APCA-API-SECRET-KEY': secret_key}
+        r = requests.get('https://paper-api.alpaca.markets/v2/positions', headers=headers, timeout=10)
+        if r.status_code != 200:
+            return jsonify({'error': f'Alpaca fetch failed: {r.text}'}), 500
+
+        alpaca_positions = r.json()
+        pm = PositionManager()
+        db_path = pm.data_dir / 'positions.db'
+        restored = []
+
+        with sqlite3.connect(db_path) as conn:
+            for pos in alpaca_positions:
+                symbol = pos.get('symbol')
+                qty = float(pos.get('qty', 0))
+                entry_price = float(pos.get('avg_entry_price', 0))
+                side = 'long' if float(pos.get('qty', 0)) > 0 else 'short'
+
+                # Check if already in DB
+                existing = conn.execute(
+                    "SELECT id FROM positions WHERE symbol=? AND strategy=? AND status=?",
+                    (symbol, 'RSI Mean Reversion', 'open')
+                ).fetchone()
+
+                if not existing:
+                    conn.execute(
+                        "INSERT INTO positions (symbol, strategy, side, quantity, entry_price, current_price, status, entry_time, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, 'open', ?, CURRENT_TIMESTAMP)",
+                        (symbol, 'RSI Mean Reversion', side, qty, entry_price, entry_price, datetime.now().isoformat())
+                    )
+                    restored.append({'symbol': symbol, 'qty': qty, 'entry_price': entry_price})
+                    conn.commit()
+
+        return jsonify({'restored': restored, 'alpaca_positions': len(alpaca_positions)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=False, host="127.0.0.1", port=5001)
