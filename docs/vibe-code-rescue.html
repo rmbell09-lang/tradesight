@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vibe Code Rescue — Fix Your Broken AI-Generated App</title>
+  <meta name="description" content="Your AI built it. You can't ship it. I'll make it work. Code audit, fixes, and full rescue for broken AI-generated apps. From $49.">
+  <meta name="keywords" content="vibe coding, AI code fix, cursor repair, broken app fix, AI generated code, copilot code review, code rescue, freelance debugging, python fix, react fix, nextjs fix">
+  <meta property="og:title" content="Vibe Code Rescue — Fix Your Broken AI-Generated App">
+  <meta property="og:description" content="Your AI built it. You can't ship it. I'll make it work. Code audit & fixes from $49.">
+  <meta property="og:type" content="website">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d0f14;
+      --surface: #151820;
+      --border: #1e2330;
+      --accent: #6c63ff;
+      --accent2: #ff6b6b;
+      --green: #00d084;
+      --text: #e8eaf0;
+      --muted: #8b90a0;
+      --code: #1a1d28;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* HERO */
+    .hero {
+      background: linear-gradient(135deg, #0d0f14 0%, #151828 50%, #0d1420 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 80px 24px 60px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(ellipse at 60% 40%, rgba(108,99,255,0.08) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(255,107,107,0.12);
+      color: var(--accent2);
+      border: 1px solid rgba(255,107,107,0.3);
+      border-radius: 20px;
+      padding: 4px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 800;
+      line-height: 1.15;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #fff 0%, #c8caff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero .tagline {
+      font-size: clamp(1.1rem, 2.5vw, 1.4rem);
+      color: var(--muted);
+      font-style: italic;
+      margin-bottom: 32px;
+    }
+    .hero .hook {
+      max-width: 680px;
+      margin: 0 auto 40px;
+      font-size: 1.05rem;
+      color: #b0b5c8;
+    }
+    .hero .hook strong { color: var(--text); }
+    .cta-group {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      padding: 14px 32px;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      transition: opacity 0.2s, transform 0.1s;
+      display: inline-block;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); text-decoration: none; }
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      padding: 14px 32px;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      transition: border-color 0.2s;
+      display: inline-block;
+    }
+    .btn-secondary:hover { border-color: var(--accent); text-decoration: none; }
+    .price-hint { font-size: 0.85rem; color: var(--muted); margin-top: 12px; }
+
+    /* SOCIAL PROOF BAR */
+    .proof-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      text-align: center;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    .proof-bar span { color: var(--green); font-weight: 700; margin: 0 4px; }
+
+    /* SECTIONS */
+    .section { padding: 80px 24px; max-width: 900px; margin: 0 auto; }
+    .section-title {
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      font-weight: 800;
+      margin-bottom: 48px;
+      text-align: center;
+    }
+    .section-title small {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 400;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    /* PAIN POINTS */
+    .pain-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+    .pain-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+    }
+    .pain-card .icon { font-size: 1.5rem; margin-bottom: 10px; }
+    .pain-card p { color: var(--muted); font-size: 0.95rem; }
+
+    /* TIERS */
+    .tier-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 24px;
+    }
+    .tier-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+      position: relative;
+      transition: border-color 0.2s;
+    }
+    .tier-card:hover { border-color: var(--accent); }
+    .tier-card.featured {
+      border-color: var(--accent);
+      background: linear-gradient(135deg, #151820 0%, #1a1d30 100%);
+    }
+    .featured-badge {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 14px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .tier-name {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+    .tier-price {
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .tier-subtitle {
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-style: italic;
+      margin-bottom: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .tier-features { list-style: none; margin-bottom: 24px; }
+    .tier-features li {
+      padding: 6px 0;
+      font-size: 0.95rem;
+      color: #c0c5d8;
+      display: flex;
+      gap: 10px;
+    }
+    .tier-features li::before { content: '✓'; color: var(--green); flex-shrink: 0; font-weight: 700; }
+    .tier-cta {
+      display: block;
+      text-align: center;
+      padding: 12px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      background: var(--accent);
+      color: #fff;
+      transition: opacity 0.2s;
+    }
+    .tier-cta:hover { opacity: 0.85; text-decoration: none; }
+
+    /* WHO IT'S FOR */
+    .who-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+    }
+    @media (max-width: 600px) { .who-grid { grid-template-columns: 1fr; } }
+    .who-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+    }
+    .who-box h3 { font-size: 1rem; font-weight: 700; margin-bottom: 16px; }
+    .who-box.yes h3 { color: var(--green); }
+    .who-box.no h3 { color: var(--accent2); }
+    .who-box ul { list-style: none; }
+    .who-box ul li {
+      padding: 5px 0;
+      font-size: 0.93rem;
+      color: var(--muted);
+      display: flex;
+      gap: 8px;
+    }
+    .who-box.yes ul li::before { content: '✓'; color: var(--green); font-weight: 700; }
+    .who-box.no ul li::before { content: '✗'; color: var(--accent2); font-weight: 700; }
+
+    /* FAQ */
+    .faq-list { max-width: 720px; margin: 0 auto; }
+    .faq-item {
+      border-bottom: 1px solid var(--border);
+      padding: 20px 0;
+    }
+    .faq-item:last-child { border-bottom: none; }
+    .faq-q {
+      font-weight: 700;
+      font-size: 1rem;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+    .faq-a { font-size: 0.95rem; color: var(--muted); }
+
+    /* TECH STACK */
+    .stack-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+    }
+    .pill {
+      background: var(--code);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 0.88rem;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: #a8b0cc;
+    }
+
+    /* FINAL CTA */
+    .final-cta {
+      background: linear-gradient(135deg, #151828 0%, #0d1420 100%);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 80px 24px;
+      text-align: center;
+    }
+    .final-cta h2 {
+      font-size: clamp(1.6rem, 4vw, 2.4rem);
+      font-weight: 800;
+      margin-bottom: 16px;
+    }
+    .final-cta p { color: var(--muted); margin-bottom: 32px; font-size: 1.05rem; }
+
+    /* FOOTER */
+    footer {
+      padding: 32px 24px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+    footer a { color: var(--muted); }
+
+    /* DIVIDER */
+    .divider { border: none; border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-badge">🚨 AI Code Rescue Service</div>
+  <h1>AI Built It.<br>I'll Fix It.</h1>
+  <p class="tagline">Your AI built it. You can't ship it. I'll make it work.</p>
+  <p class="hook">
+    You used Cursor / Copilot / Claude to build something. It almost works. Then it broke. 
+    Now you've got 47 error messages, a GitHub repo that won't run, and zero idea where it went wrong.<br><br>
+    <strong>That's exactly what I fix.</strong>
+  </p>
+  <div class="cta-group">
+    <a href="https://raybellai.gumroad.com/l/vibe-code-rescue" class="btn-primary">Get Your Code Fixed →</a>
+    <a href="#tiers" class="btn-secondary">See Pricing</a>
+  </div>
+  <p class="price-hint">From $49 · 48-hour turnaround · Python, JS, React, Next.js &amp; more</p>
+</section>
+
+<!-- PROOF BAR -->
+<div class="proof-bar">
+  <span>48h</span> audit turnaround &nbsp;·&nbsp;
+  <span>72h</span> fixes delivered &nbsp;·&nbsp;
+  <span>5 days</span> full rescue &nbsp;·&nbsp;
+  Supports <span>Python · JS · TypeScript · React · Next.js · FastAPI · Flask</span>
+</div>
+
+<!-- PAIN SECTION -->
+<section class="section">
+  <h2 class="section-title">Sound familiar?<small>Vibe coding is fast — until it isn't.</small></h2>
+  <div class="pain-grid">
+    <div class="pain-card">
+      <div class="icon">💥</div>
+      <p>App worked in preview. Totally broken in production. No idea why.</p>
+    </div>
+    <div class="pain-card">
+      <div class="icon">🤯</div>
+      <p>AI keeps "fixing" the same bug in circles. You've lost 3 days.</p>
+    </div>
+    <div class="pain-card">
+      <div class="icon">🚫</div>
+      <p>Hallucinated APIs, missing error handling, logic gaps — but it looked fine.</p>
+    </div>
+    <div class="pain-card">
+      <div class="icon">😩</div>
+      <p>You can't read the code well enough to know what's actually wrong.</p>
+    </div>
+    <div class="pain-card">
+      <div class="icon">💸</div>
+      <p>Paid a freelancer who just ran it through ChatGPT and called it done.</p>
+    </div>
+    <div class="pain-card">
+      <div class="icon">⏳</div>
+      <p>Launch date is tomorrow. The app doesn't run. You're out of options.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- TIERS -->
+<section class="section" id="tiers">
+  <h2 class="section-title">Pick Your Rescue Plan</h2>
+  <div class="tier-grid">
+
+    <!-- Tier 1 -->
+    <div class="tier-card">
+      <div class="tier-name">Code Audit</div>
+      <div class="tier-price">$49</div>
+      <div class="tier-subtitle">Best for: "I need to know what's wrong before I spend more time."</div>
+      <ul class="tier-features">
+        <li>Full code review (up to 3,000 lines)</li>
+        <li>Written diagnosis — what's broken &amp; why</li>
+        <li>Priority-ranked fix list</li>
+        <li>AI coding mistakes flagged (hallucinated APIs, logic gaps, missing error handling)</li>
+        <li>Markdown report delivered in 48 hours</li>
+      </ul>
+      <a href="https://raybellai.gumroad.com/l/vibe-code-rescue" class="tier-cta">Get Audit — $49</a>
+    </div>
+
+    <!-- Tier 2 — FEATURED -->
+    <div class="tier-card featured">
+      <div class="featured-badge">Most Popular</div>
+      <div class="tier-name">Audit + Fix</div>
+      <div class="tier-price">$149</div>
+      <div class="tier-subtitle">Best for: "I need it working, not just diagnosed."</div>
+      <ul class="tier-features">
+        <li>Everything in Code Audit</li>
+        <li>I fix up to 5 identified issues hands-on</li>
+        <li>Working code returned (GitHub PR or zip)</li>
+        <li>1 round of follow-up questions answered</li>
+        <li>Delivered within 72 hours</li>
+      </ul>
+      <a href="https://raybellai.gumroad.com/l/vibe-code-rescue" class="tier-cta">Get Fixed — $149</a>
+    </div>
+
+    <!-- Tier 3 -->
+    <div class="tier-card">
+      <div class="tier-name">Full Rescue</div>
+      <div class="tier-price">$299</div>
+      <div class="tier-subtitle">Best for: "This is actually important and I need it done right."</div>
+      <ul class="tier-features">
+        <li>Everything in Audit + Fix</li>
+        <li>Unlimited fixes within scope (~8 hrs)</li>
+        <li>Refactor of the messiest parts</li>
+        <li>Basic test coverage added</li>
+        <li>Loom walkthrough of what changed &amp; why</li>
+        <li>2 rounds of follow-up answers</li>
+        <li>Delivered within 5 business days</li>
+      </ul>
+      <a href="https://raybellai.gumroad.com/l/vibe-code-rescue" class="tier-cta">Full Rescue — $299</a>
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- SUPPORTED STACK -->
+<section class="section">
+  <h2 class="section-title">Supported Stacks<small>If it's not here, ask — I'll be straight with you.</small></h2>
+  <div class="stack-pills">
+    <span class="pill">Python</span>
+    <span class="pill">JavaScript</span>
+    <span class="pill">TypeScript</span>
+    <span class="pill">Node.js</span>
+    <span class="pill">React</span>
+    <span class="pill">Next.js</span>
+    <span class="pill">FastAPI</span>
+    <span class="pill">Flask</span>
+    <span class="pill">SQL / SQLite</span>
+    <span class="pill">PostgreSQL</span>
+    <span class="pill">REST APIs</span>
+    <span class="pill">Docker basics</span>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- WHO IT'S FOR -->
+<section class="section">
+  <h2 class="section-title">Is This For You?</h2>
+  <div class="who-grid">
+    <div class="who-box yes">
+      <h3>✓ Yes, this is for you if...</h3>
+      <ul>
+        <li>You used AI to prototype something and can't ship it</li>
+        <li>You got in over your head with AI-assisted code</li>
+        <li>Your vibe-coded app suddenly stopped working</li>
+        <li>You paid for AI-slop and got burned</li>
+        <li>You need a real diagnosis before investing more time</li>
+      </ul>
+    </div>
+    <div class="who-box no">
+      <h3>✗ Not the right fit if...</h3>
+      <ul>
+        <li>You need greenfield builds (I fix, not build from scratch)</li>
+        <li>You have no existing code at all</li>
+        <li>Your codebase is 10k+ lines (enterprise scope)</li>
+        <li>You need on-call support or ongoing maintenance</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- FAQ -->
+<section class="section">
+  <h2 class="section-title">FAQ</h2>
+  <div class="faq-list">
+    <div class="faq-item">
+      <div class="faq-q">How do I send you my code?</div>
+      <div class="faq-a">After purchase, you'll get a short intake form. Share a GitHub link or zip file, plus a quick description of what's broken. Takes 3 minutes.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">What if my project is a total mess?</div>
+      <div class="faq-a">Good. That's what this is for. The messier it is, the more value you get from the audit.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">What if you can't fix it?</div>
+      <div class="faq-a">Tier 1 is always deliverable — you get a diagnosis no matter what. For Tiers 2 and 3, if I hit something truly unfixable, I'll tell you upfront and we'll figure out a fair resolution.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Do you use AI to do the work?</div>
+      <div class="faq-a">I use whatever tools get the job done right — including AI, but with human judgment on every decision. You're paying for someone who actually understands the code, not just more AI output.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">How fast is delivery?</div>
+      <div class="faq-a">Tier 1: 48 hours. Tier 2: 72 hours. Tier 3: 5 business days. Rush options available — message before purchase.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">What languages and frameworks do you support?</div>
+      <div class="faq-a">Python, JavaScript/TypeScript, Node.js, React, Next.js, FastAPI, Flask, basic SQL/databases. If it's something else, ask — I'll tell you honestly if I can help.</div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final-cta">
+  <h2>Stop debugging in circles.</h2>
+  <p>Pick a tier, fill out the intake form, and get back to building.</p>
+  <div class="cta-group">
+    <a href="https://raybellai.gumroad.com/l/vibe-code-rescue" class="btn-primary">Get Your Code Fixed →</a>
+  </div>
+  <p class="price-hint" style="margin-top: 16px;">$49 Audit · $149 Audit + Fix · $299 Full Rescue</p>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>Vibe Code Rescue is a service by <a href="https://github.com/rmbell09-lang/tradesight">Ray Bell</a> &nbsp;·&nbsp; 
+  Questions? <a href="https://raybellai.gumroad.com/l/vibe-code-rescue">Message on Gumroad</a></p>
+</footer>
+
+</body>
+</html>
