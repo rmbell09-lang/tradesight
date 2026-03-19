@@ -66,3 +66,26 @@ Add Alpaca API keys to config/api_keys.json for real market data.
 **Status**: 100% Complete - Ready to Launch  
 
 **🎉 TradeSight is FULLY OPERATIONAL!**
+
+## 📈 Live Paper Trading — March 2026
+
+> Real system activity on paper money. Updated 2026-03-18.
+
+### Trade Performance
+| Metric | Value |
+|--------|-------|
+| Total Trades (March) | 3 |
+| Win Rate | 0% (early RSI strategy, pre-confluence upgrade) |
+| Avg P&L per Trade | -$37.99 |
+| Total Realized P&L | -$113.96 |
+| Open Positions | 2 (ADBE, JPM — RSI Mean Reversion) |
+
+> ⚠️ Note: These results are from the initial RSI Mean Reversion strategy before confluence-based signal filtering was implemented. The Phase 1 Confluence Strategy (multi-indicator confirmation) is in active development and expected to significantly improve win rate by requiring MACD + RSI + Bollinger alignment before entry.
+
+### Strategy Tournament Results
+| Tournament | Winner | Score | Strategies Tested |
+|------------|--------|-------|-------------------|
+| Mar 16, 2026 | MACD Crossover | 0.72 | 4 |
+| Mar 12, 2026 | RSI Mean Reversion | 0.62 | 4 |
+
+*Tournaments run automatically overnight to evolve and rank strategies.*

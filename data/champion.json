@@ -1,16 +1,15 @@
 {
   "params": {
-    "oversold": 40,
-    "overbought": 65,
-    "position_size": 0.2,
-    "stop_loss_pct": 0.05,
-    "take_profit_pct": 0.06,
-    "max_holding_bars": 10
+    "oversold": 25,
+    "overbought": 75,
+    "position_size": 0.25,
+    "stop_loss_pct": 0.03,
+    "take_profit_pct": 0.05,
+    "max_holding_bars": 0
   },
-  "backtest_score": 9.33471,
-  "live_avg_pnl": -20.09,
-  "sessions": 20,
-  "promoted_at": "2026-03-16T21:59:56.221610",
-  "promotion_reason": "Auto-corrected Mar 18: position_size 0.8->0.20 (circuit breaker: live avg P&L -20.09% over 20 sessions). Trend regime filter added to strategy.",
-  "stats_refreshed_at": "2026-03-18T17:03:45.833673"
+  "backtest_score": -0.079284,
+  "live_avg_pnl": 0.0,
+  "sessions": 0,
+  "promoted_at": "2026-03-18T20:00:30.073007",
+  "promotion_reason": "CIRCUIT BREAKER: Champion avg P&L -20.09% over 20 sessions below threshold -10.0% \u2014 forcing replacement with challenger"
 }
