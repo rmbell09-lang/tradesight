@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TradeSight — AI Trading Intelligence Platform</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; }
+    .hero { background: linear-gradient(135deg, #1a2332 0%, #0d1117 100%); padding: 80px 0 60px; border-bottom: 1px solid #21262d; }
+    .hero h1 { font-size: 3rem; font-weight: 700; color: #58a6ff; }
+    .hero .tagline { font-size: 1.3rem; color: #8b949e; max-width: 600px; margin: 0 auto; }
+    .badge-pill { background: #161b22; border: 1px solid #30363d; color: #58a6ff; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; display: inline-block; margin: 4px; }
+    .feature-card { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 24px; height: 100%; transition: border-color 0.2s; }
+    .feature-card:hover { border-color: #58a6ff; }
+    .feature-icon { font-size: 2rem; margin-bottom: 12px; }
+    .stat-box { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 20px; text-align: center; }
+    .stat-num { font-size: 2.5rem; font-weight: 700; color: #3fb950; }
+    .stat-label { color: #8b949e; font-size: 0.9rem; }
+    .price-card { background: #161b22; border: 2px solid #58a6ff; border-radius: 16px; padding: 40px; max-width: 440px; margin: 0 auto; }
+    .price-amount { font-size: 3.5rem; font-weight: 700; color: #58a6ff; }
+    .price-old { font-size: 1.2rem; color: #8b949e; text-decoration: line-through; }
+    .cta-btn { background: #238636; border: none; padding: 16px 48px; font-size: 1.1rem; font-weight: 600; border-radius: 8px; color: white; text-decoration: none; display: inline-block; transition: background 0.2s; }
+    .cta-btn:hover { background: #2ea043; color: white; }
+    .check { color: #3fb950; }
+    section { padding: 60px 0; }
+    .section-title { font-size: 1.8rem; font-weight: 600; color: #e6edf3; margin-bottom: 40px; }
+    footer { border-top: 1px solid #21262d; padding: 30px 0; color: #8b949e; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero text-center">
+  <div class="container">
+    <div class="mb-3">
+      <span class="badge-pill">🐍 Python 3.11+</span>
+      <span class="badge-pill">🖥️ Self-Hosted</span>
+      <span class="badge-pill">⚡ MIT License</span>
+      <span class="badge-pill">🚫 No Monthly Fees</span>
+    </div>
+    <h1>TradeSight</h1>
+    <p class="tagline mt-3">Self-hosted AI that evolves winning trading strategies overnight, scans markets, and paper trades while you sleep.</p>
+    <a href="https://qcautonomous.gumroad.com/l/tradesight" class="cta-btn mt-4">Get TradeSight — $49</a>
+    <p class="mt-3" style="color:#8b949e; font-size:0.9rem;">One-time payment • Lifetime updates • v2 free for early buyers</p>
+  </div>
+</div>
+
+<!-- Stats -->
+<section>
+  <div class="container">
+    <div class="row g-4 text-center">
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-num">89.4%</div>
+          <div class="stat-label">P&L in backtesting (RSI Mean Reversion)</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-num">2.53</div>
+          <div class="stat-label">Sharpe Ratio (tournament-evolved strategy)</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-num">15+</div>
+          <div class="stat-label">Technical indicators (MACD, RSI, Bollinger…)</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box">
+          <div class="stat-num">94</div>
+          <div class="stat-label">Tests passing (98% success rate)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section style="background:#0d1117;">
+  <div class="container">
+    <h2 class="section-title text-center">What TradeSight Does</h2>
+    <div class="row g-4">
+      <div class="col-md-4">
+        <div class="feature-card">
+          <div class="feature-icon">🧠</div>
+          <h5>AI Strategy Lab</h5>
+          <p style="color:#8b949e;">Overnight tournaments evolve trading strategies automatically. Hundreds of variations tested, losers killed, winners promoted. Wake up to results.</p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="feature-card">
+          <div class="feature-icon">📡</div>
+          <h5>Multi-Market Scanner</h5>
+          <p style="color:#8b949e;">Scans Polymarket prediction markets + US equities. Every asset scored by confidence. Know where to look before you open your brokerage.</p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="feature-card">
+          <div class="feature-icon">💸</div>
+          <h5>Paper Trading Engine</h5>
+          <p style="color:#8b949e;">Top strategies execute with fake money via Alpaca's API. Real P&L, zero risk. Flip to live when you're ready and confident.</p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="feature-card">
+          <div class="feature-icon">🖥️</div>
+          <h5>Local Dashboard</h5>
+          <p style="color:#8b949e;">Everything at localhost:5001 — Markets, Tournaments, Trading, Settings. No SaaS login. No cloud. Your machine, your data.</p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="feature-card">
+          <div class="feature-icon">⚙️</div>
+          <h5>Set and Forget</h5>
+          <p style="color:#8b949e;">Cron jobs handle overnight runs. Check dashboard in the morning. That's it. No babysitting, no manual runs.</p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="feature-card">
+          <div class="feature-icon">🚀</div>
+          <h5>Demo Mode</h5>
+          <p style="color:#8b949e;">Fully functional with simulated data — no API keys needed to explore. Install Python, launch, explore. Zero setup friction.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- What's in the Box -->
+<section>
+  <div class="container">
+    <div class="row align-items-center">
+      <div class="col-md-6">
+        <h2 class="section-title">What's in the Box</h2>
+        <ul class="list-unstyled" style="font-size:1.05rem; line-height:2;">
+          <li><span class="check">✅</span> Full Python source code (MIT license)</li>
+          <li><span class="check">✅</span> Web dashboard (Flask, no framework bloat)</li>
+          <li><span class="check">✅</span> AI Strategy Lab — tournament + backtesting engine</li>
+          <li><span class="check">✅</span> Polymarket scanner with confidence scoring</li>
+          <li><span class="check">✅</span> Stock scanner with 15+ technical indicators</li>
+          <li><span class="check">✅</span> Paper trading orchestrator (Alpaca integration)</li>
+          <li><span class="check">✅</span> Overnight automation cron scripts</li>
+          <li><span class="check">✅</span> 94 tests passing</li>
+          <li><span class="check">✅</span> Mac + Linux setup guide</li>
+          <li><span class="check">✅</span> Demo mode — works immediately, no API keys needed</li>
+        </ul>
+      </div>
+      <div class="col-md-6">
+        <h2 class="section-title">Tech Stack</h2>
+        <ul class="list-unstyled" style="color:#8b949e; line-height:2;">
+          <li>🐍 <strong style="color:#e6edf3;">Python 3.11+</strong> — clean, readable, hackable</li>
+          <li>🌐 <strong style="color:#e6edf3;">Flask dashboard</strong> — localhost:5001, zero external dependencies</li>
+          <li>📊 <strong style="color:#e6edf3;">Data:</strong> Polymarket API + Alpaca (both free)</li>
+          <li>🗄️ <strong style="color:#e6edf3;">SQLite</strong> — no Postgres, no Redis, no Docker</li>
+          <li>💻 <strong style="color:#e6edf3;">Runs on:</strong> Mac, Linux (tested on M4 Mac Mini)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Pricing -->
+<section style="background:#0d1117;">
+  <div class="container text-center">
+    <h2 class="section-title">Simple Pricing</h2>
+    <div class="price-card">
+      <div class="price-old">$79 after v2 ships</div>
+      <div class="price-amount">$49</div>
+      <p style="color:#8b949e;">One-time payment. No subscriptions. Ever.</p>
+      <ul class="list-unstyled my-4" style="text-align:left; color:#8b949e; line-height:2.2;">
+        <li><span class="check">✅</span> Full source code, MIT license</li>
+        <li><span class="check">✅</span> Lifetime updates</li>
+        <li><span class="check">✅</span> v2 free for early buyers (crypto scanner + push alerts)</li>
+        <li><span class="check">✅</span> Works on Mac and Linux</li>
+        <li><span class="check">✅</span> Demo mode — no API keys needed to start</li>
+      </ul>
+      <a href="https://qcautonomous.gumroad.com/l/tradesight" class="cta-btn">Get TradeSight — $49 →</a>
+      <p class="mt-3" style="color:#8b949e; font-size:0.85rem;">Price increases to $79 when v2 ships. Early buyers locked in at $49 + get v2 free.</p>
+    </div>
+  </div>
+</section>
+
+<!-- v2 Roadmap -->
+<section>
+  <div class="container text-center">
+    <h2 class="section-title">v2 Roadmap (free for early buyers)</h2>
+    <div class="row justify-content-center g-3">
+      <div class="col-md-3"><div class="feature-card text-center">🪙<br><strong>Crypto Scanner</strong><br><small style="color:#8b949e;">CoinGecko, no API key needed</small></div></div>
+      <div class="col-md-3"><div class="feature-card text-center">🔔<br><strong>Push Alerts</strong><br><small style="color:#8b949e;">WhatsApp/Telegram when strategies fire</small></div></div>
+      <div class="col-md-3"><div class="feature-card text-center">📊<br><strong>Morning Digest</strong><br><small style="color:#8b949e;">Email with overnight results</small></div></div>
+      <div class="col-md-3"><div class="feature-card text-center">📱<br><strong>Mobile Dashboard</strong><br><small style="color:#8b949e;">Check from your phone</small></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA Footer -->
+<section style="background:#0d1117; padding:60px 0;">
+  <div class="container text-center">
+    <h2 style="color:#e6edf3; font-size:2rem;">Ready to stop guessing and start evolving?</h2>
+    <p style="color:#8b949e; font-size:1.1rem; margin: 16px 0 32px;">Your overnight AI research team. Zero monthly fees. You own the code.</p>
+    <a href="https://qcautonomous.gumroad.com/l/tradesight" class="cta-btn">Get TradeSight — $49 →</a>
+  </div>
+</section>
+
+<footer>
+  <div class="container text-center">
+    <p>TradeSight is a tool for educational and paper trading purposes. Past backtesting results don't guarantee future performance. Not financial advice.</p>
+    <p class="mt-2"><a href="https://qcautonomous.gumroad.com" style="color:#58a6ff;">More tools at qcautonomous.gumroad.com</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
