@@ -89,3 +89,9 @@ Add Alpaca API keys to config/api_keys.json for real market data.
 | Mar 12, 2026 | RSI Mean Reversion | 0.62 | 4 |
 
 *Tournaments run automatically overnight to evolve and rank strategies.*
+
+## 🔗 Resources
+
+| Resource | Description |
+|----------|-------------|
+| [Vibe Code Rescue](https://rmbell09-lang.github.io/tradesight/vibe-code-rescue.html) | Broken AI-generated code? Get it fixed → |
