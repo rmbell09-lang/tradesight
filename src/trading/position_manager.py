@@ -129,6 +129,14 @@ class PositionManager:
                     )
                 ''')
                 
+                # Migration: add trailing stop columns if they don't exist yet
+                existing_cols = [row[1] for row in conn.execute("PRAGMA table_info(positions)").fetchall()]
+                if 'high_water_mark' not in existing_cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN high_water_mark REAL")
+                    self.logger.info("Migration: added high_water_mark column to positions")
+                if 'trailing_stop_active' not in existing_cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN trailing_stop_active INTEGER DEFAULT 0")
+                    self.logger.info("Migration: added trailing_stop_active column to positions")
                 conn.commit()
                 self.logger.info(f"Position database initialized at {db_path}")
                 
@@ -154,10 +162,11 @@ class PositionManager:
             with sqlite3.connect(db_path) as conn:
                 conn.execute('''
                     INSERT INTO positions 
-                    (symbol, strategy, side, quantity, entry_price, current_price, entry_time)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (symbol, strategy, side, quantity, entry_price, current_price, entry_time,
+                     high_water_mark, trailing_stop_active)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (symbol, strategy, side, quantity, entry_price, entry_price, 
-                     position.entry_time.isoformat()))
+                     position.entry_time.isoformat(), entry_price, 0))
                 
                 conn.commit()
                 
@@ -236,6 +245,15 @@ class PositionManager:
                         else:  # short
                             unrealized_pnl = (entry_price - current_price) * quantity
                         
+                        # Update high water mark if price is higher
+                        conn.execute('''
+                            UPDATE positions
+                            SET high_water_mark = CASE 
+                                WHEN high_water_mark IS NULL OR ? > high_water_mark 
+                                THEN ? ELSE high_water_mark END
+                            WHERE id = ?
+                        ''', (current_price, current_price, position_id))
+
                         # Update position
                         conn.execute('''
                             UPDATE positions 

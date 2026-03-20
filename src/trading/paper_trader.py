@@ -464,26 +464,36 @@ class PaperTrader:
 
     def _check_stop_loss_take_profit(self):
         """
-        Check all open positions against stop loss and take profit thresholds.
+        Check all open positions against stop loss, take profit, and trailing stop.
         Called at the START of every scan_and_trade() before generating new signals.
-        Uses champion params stop_loss_pct and take_profit_pct (not hardcoded).
+
+        Trailing stop logic (Task 887):
+        - trailing_stop_pct (default 3%) tracks from high water mark (HWM)
+        - Activates AFTER position is up >= 2% (trailing_activation_pct)
+        - When active, REPLACES fixed take profit (let winners run)
+        - HWM also updated in position_manager.update_positions()
         """
-        # Champion params store fractions (0.05 = 5%) — use directly
-        raw_sl = self.active_params.get('stop_loss_pct', 0.05)
-        raw_tp = self.active_params.get('take_profit_pct', 0.06)
-        # Normalise: if someone passes 5.0 (percent form) convert; fractions stay as-is
-        stop_loss_pct = raw_sl / 100.0 if raw_sl > 1.0 else raw_sl
-        take_profit_pct = raw_tp / 100.0 if raw_tp > 1.0 else raw_tp
+        raw_sl    = self.active_params.get('stop_loss_pct',     0.05)
+        raw_tp    = self.active_params.get('take_profit_pct',   0.06)
+        raw_trail = self.active_params.get('trailing_stop_pct', 0.03)
+        # Normalise: 5.0 -> 0.05, 0.05 -> 0.05
+        stop_loss_pct      = raw_sl    / 100.0 if raw_sl    > 1.0 else raw_sl
+        take_profit_pct    = raw_tp    / 100.0 if raw_tp    > 1.0 else raw_tp
+        trailing_stop_pct  = raw_trail / 100.0 if raw_trail > 1.0 else raw_trail
+        trailing_activation_pct = 0.02  # 2% gain to activate trailing stop
 
         self.logger.info(
-            f"[SL/TP Check] SL={stop_loss_pct*100:.1f}% TP={take_profit_pct*100:.1f}%"
+            f"[SL/TP/Trail] SL={stop_loss_pct*100:.1f}% TP={take_profit_pct*100:.1f}% "
+            f"Trail={trailing_stop_pct*100:.1f}% (activates at +{trailing_activation_pct*100:.0f}%)"
         )
 
         try:
             db_path = self.position_manager.data_dir / 'positions.db'
             with sqlite3.connect(db_path) as conn:
                 open_positions = conn.execute(
-                    "SELECT symbol, strategy, side, quantity, entry_price "
+                    "SELECT symbol, strategy, side, quantity, entry_price, "
+                    "COALESCE(high_water_mark, entry_price), "
+                    "COALESCE(trailing_stop_active, 0) "
                     "FROM positions WHERE status = 'open'"
                 ).fetchall()
         except Exception as e:
@@ -494,67 +504,113 @@ class PaperTrader:
             self.logger.info("[SL/TP] No open positions to check.")
             return
 
-        for symbol, strategy, side, quantity, entry_price in open_positions:
+        for symbol, strategy, side, quantity, entry_price, high_water_mark, trailing_active in open_positions:
             try:
-                # Get current price from Alpaca
                 quote = self.alpaca.get_quote(symbol)
                 if quote is None:
-                    self.logger.warning(f"[SL/TP] Could not get quote for {symbol} — skipping")
+                    self.logger.warning(f"[SL/TP] No quote for {symbol} - skipping")
                     continue
 
                 current_price = float(quote.last)
 
-                # Calculate PnL percentage
                 if side == 'long':
                     pnl_pct = (current_price - entry_price) / entry_price
-                else:  # short
+                else:
                     pnl_pct = (entry_price - current_price) / entry_price
 
+                # --- Update high water mark if price rose (long only) ---
+                if side == 'long' and current_price > (high_water_mark or 0):
+                    try:
+                        with sqlite3.connect(self.position_manager.data_dir / 'positions.db') as c2:
+                            c2.execute(
+                                "UPDATE positions SET high_water_mark=? "
+                                "WHERE symbol=? AND strategy=? AND status='open'",
+                                (current_price, symbol, strategy)
+                            )
+                            c2.commit()
+                        self.logger.debug(f"[Trail] HWM {symbol}: ${high_water_mark:.2f} -> ${current_price:.2f}")
+                        high_water_mark = current_price
+                    except Exception as he:
+                        self.logger.warning(f"[Trail] HWM update failed {symbol}: {he}")
+
+                # --- Activate trailing stop when gain >= 2% (long only) ---
+                if side == 'long' and not trailing_active and pnl_pct >= trailing_activation_pct:
+                    try:
+                        with sqlite3.connect(self.position_manager.data_dir / 'positions.db') as c3:
+                            c3.execute(
+                                "UPDATE positions SET trailing_stop_active=1 "
+                                "WHERE symbol=? AND strategy=? AND status='open'",
+                                (symbol, strategy)
+                            )
+                            c3.commit()
+                        trailing_active = 1
+                        self.logger.info(
+                            f"[Trail] ACTIVATED {symbol} ({strategy}) | "
+                            f"PnL={pnl_pct*100:.2f}% >= {trailing_activation_pct*100:.0f}% | "
+                            f"HWM=${high_water_mark:.2f} Trail={trailing_stop_pct*100:.1f}%"
+                        )
+                    except Exception as ae:
+                        self.logger.warning(f"[Trail] Activation failed {symbol}: {ae}")
+
+                # --- Determine trigger ---
                 trigger = None
+
                 if pnl_pct <= -stop_loss_pct:
                     trigger = 'STOP_LOSS'
+                elif trailing_active and side == 'long':
+                    # Trailing stop replaces fixed TP
+                    hwm = high_water_mark or entry_price
+                    trail_floor = hwm * (1.0 - trailing_stop_pct)
+                    if current_price <= trail_floor:
+                        locked_pct = (hwm - entry_price) / entry_price
+                        trigger = 'TRAILING_STOP'
+                        self.logger.info(
+                            f"[Trail] TRAILING_STOP {symbol} | "
+                            f"HWM=${hwm:.2f} Floor=${trail_floor:.2f} "
+                            f"Current=${current_price:.2f} | "
+                            f"Locked={locked_pct*100:.2f}% PnL={pnl_pct*100:.2f}%"
+                        )
+                    else:
+                        self.logger.debug(
+                            f"[Trail] {symbol} trailing - "
+                            f"price=${current_price:.2f} floor=${trail_floor:.2f} pnl={pnl_pct*100:.2f}%"
+                        )
                 elif pnl_pct >= take_profit_pct:
                     trigger = 'TAKE_PROFIT'
 
                 if trigger:
                     self.logger.warning(
-                        f"[SL/TP] {trigger} triggered: {symbol} ({strategy}) | "
+                        f"[SL/TP] {trigger}: {symbol} ({strategy}) | "
                         f"Entry=${entry_price:.2f} Current=${current_price:.2f} "
-                        f"PnL={pnl_pct*100:.2f}% | Closing position."
+                        f"PnL={pnl_pct*100:.2f}% | Closing."
                     )
                     closed = self._execute_sell_order(symbol, strategy, current_price)
                     if closed:
                         self.logger.info(
-                            f"[SL/TP] Position closed: {symbol} ({strategy}) "
-                            f"@ ${current_price:.2f} | PnL={pnl_pct*100:.2f}% | Trigger={trigger}"
+                            f"[SL/TP] Closed {symbol} ({strategy}) @ ${current_price:.2f} "
+                            f"| PnL={pnl_pct*100:.2f}% | Trigger={trigger}"
                         )
                         if self.alert_manager:
                             try:
                                 from alerts.alert_types import AlertType
                                 self.alert_manager.fire(
                                     AlertType.TRADE_EXECUTED,
-                                    symbol=symbol,
-                                    action='sell',
-                                    quantity=quantity,
-                                    price=round(current_price, 2),
-                                    strategy=strategy,
-                                    confidence=1.0,
+                                    symbol=symbol, action='sell',
+                                    quantity=quantity, price=round(current_price, 2),
+                                    strategy=strategy, confidence=1.0,
                                 )
-                            except Exception as ae:
-                                self.logger.warning(f"[SL/TP] Alert failed (non-fatal): {ae}")
+                            except Exception as ale:
+                                self.logger.warning(f"[SL/TP] Alert failed: {ale}")
                     else:
-                        self.logger.error(
-                            f"[SL/TP] Failed to close position: {symbol} ({strategy})"
-                        )
+                        self.logger.error(f"[SL/TP] Close failed: {symbol} ({strategy})")
                 else:
                     self.logger.debug(
-                        f"[SL/TP] {symbol} ({strategy}): price=${current_price:.2f} "
-                        f"pnl={pnl_pct*100:.2f}% — no trigger"
+                        f"[SL/TP] {symbol} ({strategy}): ${current_price:.2f} "
+                        f"pnl={pnl_pct*100:.2f}% - no trigger"
                     )
 
             except Exception as e:
-                self.logger.error(f"[SL/TP] Error checking {symbol} ({strategy}): {e}")
-
+                self.logger.error(f"[SL/TP] Error {symbol} ({strategy}): {e}")
     def scan_and_trade(self):
         """Main trading loop: scan for signals and execute trades"""
         try:

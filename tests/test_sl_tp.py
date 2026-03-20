@@ -70,28 +70,43 @@ def test_stop_loss_triggers():
 
 
 def test_take_profit_triggers():
-    """Position up 7% should trigger take profit (TP=6%)."""
+    """Position up 7%: trailing stop activates and replaces fixed TP.
+    
+    Updated for Task 887: when trailing stop activates (>= +2%), it replaces
+    the fixed take profit. At +7% with no pullback, position stays open
+    (trailing stop lets winners run until they drop trail_pct from HWM).
+    """
     base_dir = tempfile.mkdtemp()
     try:
         trader = make_trader_with_positions(base_dir, [
             {'symbol': 'MSFT', 'strategy': 'MACD Crossover',
              'side': 'long', 'quantity': 0.5, 'entry_price': 200.0}
         ])
-        trader.active_params = {'stop_loss_pct': 0.05, 'take_profit_pct': 0.06}
+        trader.active_params = {
+            'stop_loss_pct': 0.05, 'take_profit_pct': 0.06, 'trailing_stop_pct': 0.03
+        }
 
         mock_quote = MagicMock()
-        mock_quote.last = 214.0  # +7%
+        mock_quote.last = 214.0  # +7% — trailing stop activates; no pullback yet
         trader.alpaca.get_quote = MagicMock(return_value=mock_quote)
         trader._execute_sell_order = MagicMock(return_value=True)
 
         trader._check_stop_loss_take_profit()
 
-        trader._execute_sell_order.assert_called_once_with('MSFT', 'MACD Crossover', 214.0)
-        print('PASS: take_profit_triggers')
+        # Trailing stop is active; fixed TP bypassed.
+        # Floor = 214 * 0.97 = 207.58; current (214) > floor -> no close yet.
+        trader._execute_sell_order.assert_not_called()
+
+        # Verify trailing_stop_active=1
+        db_path = Path(base_dir) / 'data' / 'positions.db'
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT trailing_stop_active FROM positions WHERE symbol='MSFT'"
+            ).fetchone()
+        assert row[0] == 1, f"Expected trailing_stop_active=1, got {row[0]}"
+        print('PASS: take_profit_triggers_replaced_by_trailing_stop')
     finally:
         shutil.rmtree(base_dir)
-
-
 def test_no_trigger_within_thresholds():
     """Position at +3% should NOT trigger (SL=5%, TP=6%)."""
     base_dir = tempfile.mkdtemp()
