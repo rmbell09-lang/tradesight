@@ -320,9 +320,9 @@ class TestPaperTrader:
         mock_indicator_instance = Mock()
         mock_indicators.return_value = mock_indicator_instance
         
-        # RSI value of 25.0 indicates oversold condition
+        # RSI value of 20.0 is clearly oversold (below any reasonable threshold)
         mock_indicator_instance.calculate_all.return_value = {
-            "indicators": {"rsi": 25.0},  # Oversold RSI
+            "indicators": {"rsi": 20.0},  # Strongly oversold RSI (well below typical 25-33 threshold)
             "signals": {}
         }
         

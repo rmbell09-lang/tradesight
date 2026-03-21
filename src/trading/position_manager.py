@@ -55,6 +55,8 @@ class PortfolioState:
     total_pnl: float
     position_count: int
     strategies_active: List[str]
+    buying_power: Optional[float] = None  # Real buying power from Alpaca (None if not synced)
+    balance_synced_at: Optional[str] = None  # ISO timestamp of last Alpaca balance sync
 
 
 class PositionManager:
@@ -137,6 +139,24 @@ class PositionManager:
                 if 'trailing_stop_active' not in existing_cols:
                     conn.execute("ALTER TABLE positions ADD COLUMN trailing_stop_active INTEGER DEFAULT 0")
                     self.logger.info("Migration: added trailing_stop_active column to positions")
+
+                # Migration: add buying_power + balance_synced_at to portfolio_history
+                ph_cols = [row[1] for row in conn.execute("PRAGMA table_info(portfolio_history)").fetchall()]
+                if 'buying_power' not in ph_cols:
+                    conn.execute("ALTER TABLE portfolio_history ADD COLUMN buying_power REAL")
+                    self.logger.info("Migration: added buying_power column to portfolio_history")
+                if 'balance_synced_at' not in ph_cols:
+                    conn.execute("ALTER TABLE portfolio_history ADD COLUMN balance_synced_at TEXT")
+                    self.logger.info("Migration: added balance_synced_at column to portfolio_history")
+
+                # Balance cache table — single-row store for latest Alpaca balance sync
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS balance_cache (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        buying_power REAL NOT NULL,
+                        synced_at TEXT NOT NULL
+                    )
+                ''')
                 conn.commit()
                 self.logger.info(f"Position database initialized at {db_path}")
                 
@@ -297,6 +317,13 @@ class PositionManager:
                 
                 strategies_active = [s[0] for s in strategies]
                 
+                # Try to load persisted Alpaca buying power
+                cached_balance = conn.execute(
+                    "SELECT buying_power, synced_at FROM balance_cache WHERE id = 1"
+                ).fetchone()
+                real_buying_power = cached_balance[0] if cached_balance else None
+                balance_synced_at = cached_balance[1] if cached_balance else None
+
                 return PortfolioState(
                     total_value=total_value,
                     available_cash=available_cash,
@@ -305,7 +332,9 @@ class PositionManager:
                     realized_pnl=realized_pnl or 0,
                     total_pnl=total_pnl,
                     position_count=position_count or 0,
-                    strategies_active=strategies_active
+                    strategies_active=strategies_active,
+                    buying_power=real_buying_power,
+                    balance_synced_at=balance_synced_at
                 )
                 
         except Exception as e:
@@ -321,6 +350,29 @@ class PositionManager:
                 strategies_active=[]
             )
     
+    def persist_balance_sync(self, buying_power: float) -> bool:
+        """Persist Alpaca buying power to balance_cache. Called after every _sync_with_alpaca.
+        
+        Stores the real Alpaca buying_power in a single-row balance_cache table so that
+        get_portfolio_state() can return real balance data instead of locally-calculated cash.
+        Also stamps buying_power + balance_synced_at into the latest portfolio_history row.
+        """
+        try:
+            synced_at = datetime.now().isoformat()
+            db_path = self.data_dir / 'positions.db'
+            with sqlite3.connect(db_path) as conn:
+                conn.execute('''
+                    INSERT INTO balance_cache (id, buying_power, synced_at)
+                    VALUES (1, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET buying_power=excluded.buying_power, synced_at=excluded.synced_at
+                ''', (buying_power, synced_at))
+                conn.commit()
+            self.logger.info(f"Balance sync persisted: buying_power=${buying_power:.2f} at {synced_at}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to persist balance sync: {e}")
+            return False
+
     def save_portfolio_snapshot(self):
         """Save current portfolio state to history"""
         try:

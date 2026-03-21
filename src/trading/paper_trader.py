@@ -71,7 +71,8 @@ class PaperTrader:
         self.active_params: Dict = {}
         if _CHAMPION_AVAILABLE:
             try:
-                _ct = ChampionTracker(base_dir=str(Path(__file__).parent.parent.parent))
+                # .resolve() ensures correct project root regardless of how the module was imported
+                _ct = ChampionTracker(base_dir=str(Path(__file__).resolve().parent.parent.parent))
                 _champ = _ct.get_champion()
                 if _champ and _champ.get('params'):
                     self.active_params = _champ['params']
@@ -84,7 +85,7 @@ class PaperTrader:
         # Feedback tracker
         if _FEEDBACK_AVAILABLE:
             # Use TradeSight root (parent of src/) so feedback DB matches overnight optimizer
-            self.feedback = FeedbackTracker(base_dir=str(Path(__file__).parent.parent.parent))
+            self.feedback = FeedbackTracker(base_dir=str(Path(__file__).resolve().parent.parent.parent))
         else:
             self.feedback = None
         
@@ -805,6 +806,9 @@ class PaperTrader:
             self._real_buying_power = real_cash
             self._real_equity = real_equity
             self._alpaca_synced = True
+
+            # Persist buying power to DB so get_portfolio_state() can use real balance
+            self.position_manager.persist_balance_sync(real_cash)
             
             # Track which symbols Alpaca already has positions in
             self._alpaca_positions = set()
