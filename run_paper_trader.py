@@ -20,6 +20,11 @@ from utils.keychain import get_alpaca_api_key, get_alpaca_secret_key
 from trading.paper_trader import PaperTrader
 from datetime import datetime
 
+# Weekday guard (defense-in-depth): exit immediately on weekends (markets closed)
+if datetime.now().weekday() >= 5:
+    print(f'Weekday guard: skipping run on {datetime.now().strftime("%A")} (market closed)')
+    sys.exit(0)
+
 def main():
     # Get Alpaca keys
     api_key = get_alpaca_api_key()

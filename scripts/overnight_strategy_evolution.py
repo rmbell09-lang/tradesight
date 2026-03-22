@@ -143,7 +143,7 @@ class ParameterTuner:
         # RSI thresholds
         oversold_values  = [25, 28, 30, 33]        # 4 values
         overbought_values = [65, 68, 72, 75]         # 4 values
-        size_values       = [0.15, 0.20, 0.25]       # 3 values — capped at 25% (was 80%)
+        size_values       = [0.25, 0.30, 0.35]       # 3 positions max, so 25-35% each is reasonable
         
         # Risk/reward parameters — TP must be reachable within max_holding_bars on 1H bars.
         # SPY/large-caps move 0.5-2% per day; 10 bars ≈ 1.5 trading days.
@@ -387,14 +387,11 @@ def optimize_winner_strategy(winner: Dict) -> Dict:
             client = AlpacaClient(api_key=alpaca_key, secret_key=alpaca_secret, paper=True)
             # Test against multiple real stocks for robustness
             symbols = [
-                # Large-cap diversified across sectors for robust backtesting
-                'SPY', 'QQQ', 'IWM',                          # ETFs (broad market)
-                'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA',     # Tech
-                'JPM', 'BAC', 'V', 'MA',                       # Financials
-                'JNJ', 'PFE', 'UNH',                           # Healthcare
-                'XOM', 'CVX',                                  # Energy
-                'HD', 'WMT', 'COST',                           # Consumer
-                'TSLA', 'BA',                                  # High-beta
+                # SWING TRADE WATCHLIST - matches paper trader's focused list
+                # Optimizer must test the SAME stocks the trader actually trades
+                'SPY', 'QQQ',              # Broad market ETFs
+                'AAPL', 'MSFT', 'GOOGL',   # Tech mega-cap
+                'JPM', 'V', 'XOM',         # Financials + Energy
             ]
             for sym in symbols:
                 try:
@@ -484,7 +481,7 @@ def optimize_winner_strategy(winner: Dict) -> Dict:
                 avg_trades = sum(r.get("trades",0) for r in cv_results.values()) / len(cv_results)
                 logger.info(f"OOS avg: PnL={avg_pnl:.2f}% Sharpe={avg_sharpe:.4f} Trades/symbol={avg_trades:.1f}")
                 logger.info("NOTE: OOS PnL is the honest number. Lower than training = overfit.")
-            cv_results = None
+            # cv_results kept for report (was set to None - bug fixed)
         
         return {
             'winner': winner['name'],

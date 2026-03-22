@@ -118,19 +118,20 @@ class PaperTrader:
         
         # Trading parameters
         self.config = {
-            # Stocks affordable at $500 account (Alpaca fractional shares)
-            # Removed: UNH, AVGO, NFLX, LLY, TMO, BRK.B (too expensive for realistic testing)
+            # SWING TRADE WATCHLIST - 8 mega-cap, high-liquidity stocks
+            # Focused list = better signals. Avoids PDT by holding 1-5 days.
+            # No high-beta names (removed TSLA, ADBE, AMD - too volatile for mean reversion)
             'trading_symbols': [
-                'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'TSLA', 'AMD', 'QCOM', 'ADBE',
-                'JPM', 'BAC', 'V', 'MA', 'KO', 'PEP', 'WMT', 'COST',
-                'PFE', 'BMY', 'JNJ', 'MRK', 'ABT', 'VZ', 'T', 'IBM',
-                'NKE', 'DIS', 'HD', 'XOM', 'CVX', 'BA', 'GE', 'ORCL',
-                'GOOG', 'META', 'PYPL', 'INTC', 'MU', 'CSCO', 'TXN', 'HON'
+                'SPY', 'QQQ',          # Broad market ETFs (most liquid, lowest spread)
+                'AAPL', 'MSFT',        # Tech mega-cap (stable, mean-reverts well)
+                'GOOGL', 'JPM',        # Cross-sector diversification
+                'V', 'XOM',            # Financials + Energy
             ],
-            'min_strategy_confidence': 0.50,  # Minimum score to trade
-            'max_concurrent_trades': 2,       # Max 2 positions ($250 each on $500)
+            'min_strategy_confidence': 0.55,  # Slightly higher bar for fewer, better trades
+            'max_concurrent_trades': 3,       # 3 positions (~$165 each on $500)
             'trade_frequency_hours': 4,       # Check for signals every 4 hours
-            'position_hold_days': 5,          # Hold positions for 5 days max
+            'position_hold_days': 5,          # Hold positions 1-5 days (swing trade)
+            'min_hold_hours': 24,             # MINIMUM 24hr hold - prevents day trades (PDT)
             'rebalance_frequency_days': 7     # Rebalance weekly
         }
     
@@ -203,7 +204,7 @@ class PaperTrader:
             indicators_data = indicators.calculate_all(data)
             
             # Apply strategy-specific logic
-            signal = self._apply_strategy_logic(strategy_name, data, indicators_data)
+            signal = self._apply_strategy_logic(strategy_name, data, indicators_data, symbol=symbol)
             
             if signal:
                 signal['symbol'] = symbol
@@ -218,7 +219,7 @@ class PaperTrader:
             return None
     
     def _apply_strategy_logic(self, strategy_name: str, data: pd.DataFrame, 
-                            indicators_data: Dict) -> Optional[Dict]:
+                            indicators_data: Dict, symbol: str = '') -> Optional[Dict]:
         """Apply specific strategy logic to generate buy/sell signals"""
         
         # Get the latest values
@@ -411,14 +412,38 @@ class PaperTrader:
             self.logger.error(f"Failed to execute buy order: {e}")
             return False
     
-    def _execute_sell_order(self, symbol: str, strategy: str, price: float) -> bool:
+    def _execute_sell_order(self, symbol: str, strategy: str, price: float,
+                          force: bool = False) -> bool:
         """
-        Execute a sell order (close position).
+        Execute a sell order (close position). Respects min_hold_hours to avoid PDT.
         Uses DELETE /v2/positions/{symbol} (close_full_position) for reliability with fractional shares.
         Closes ALL open local DB positions for this symbol+strategy.
         """
         try:
             db_path = self.position_manager.data_dir / "positions.db"
+
+            # PDT GUARD: check minimum hold time before closing
+            min_hold = self.config.get('min_hold_hours', 24)
+            if not force:
+                try:
+                    with sqlite3.connect(db_path) as conn:
+                        recent_entry = conn.execute(
+                            "SELECT entry_time FROM positions WHERE symbol=? AND strategy=? AND status='open' "
+                            "ORDER BY entry_time DESC LIMIT 1",
+                            (symbol, strategy)
+                        ).fetchone()
+                        if recent_entry and recent_entry[0] and isinstance(recent_entry[0], str):
+                            entry_dt = datetime.fromisoformat(recent_entry[0])
+                            hours_held = (datetime.now() - entry_dt).total_seconds() / 3600
+                            if hours_held < min_hold:
+                                self.logger.info(
+                                    f"[PDT-GUARD] Skipping close {symbol} ({strategy}) - "
+                                    f"held {hours_held:.1f}h < {min_hold}h minimum"
+                                )
+                                return False
+                except (TypeError, ValueError) as e:
+                    self.logger.debug(f"[PDT-GUARD] Could not check hold time: {e}")
+
             with sqlite3.connect(db_path) as conn:
                 open_count = conn.execute(
                     "SELECT COUNT(*) FROM positions WHERE symbol=? AND strategy=? AND status=?",
