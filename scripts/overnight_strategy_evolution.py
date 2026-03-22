@@ -387,11 +387,16 @@ def optimize_winner_strategy(winner: Dict) -> Dict:
             client = AlpacaClient(api_key=alpaca_key, secret_key=alpaca_secret, paper=True)
             # Test against multiple real stocks for robustness
             symbols = [
-                # SWING TRADE WATCHLIST - matches paper trader's focused list
-                # Optimizer must test the SAME stocks the trader actually trades
-                'SPY', 'QQQ',              # Broad market ETFs
-                'AAPL', 'MSFT', 'GOOGL',   # Tech mega-cap
-                'JPM', 'V', 'XOM',         # Financials + Energy
+                # SWING TRADE WATCHLIST - matches paper trader's 20-stock list
+                # Broad enough for robust cross-validation, no volatile outliers
+                'SPY', 'QQQ',                       # Broad market ETFs
+                'AAPL', 'MSFT', 'GOOGL', 'AMZN',   # Tech mega-cap
+                'META',                              # Tech
+                'JPM', 'BAC', 'V', 'MA',            # Financials
+                'JNJ', 'PFE',                        # Healthcare
+                'XOM', 'CVX',                        # Energy
+                'WMT', 'COST', 'HD',                # Consumer/Retail
+                'KO', 'DIS',                         # Consumer staples + media
             ]
             for sym in symbols:
                 try:

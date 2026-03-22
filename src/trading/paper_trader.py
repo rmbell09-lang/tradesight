@@ -118,14 +118,19 @@ class PaperTrader:
         
         # Trading parameters
         self.config = {
-            # SWING TRADE WATCHLIST - 8 mega-cap, high-liquidity stocks
-            # Focused list = better signals. Avoids PDT by holding 1-5 days.
-            # No high-beta names (removed TSLA, ADBE, AMD - too volatile for mean reversion)
+            # SWING TRADE WATCHLIST - 20 mega/large-cap, high-liquidity stocks
+            # Broad enough for good data collection, no high-beta names that
+            # destroy mean reversion (removed TSLA, ADBE, AMD, BA - too volatile)
+            # PDT avoided via min_hold_hours, not small watchlist
             'trading_symbols': [
-                'SPY', 'QQQ',          # Broad market ETFs (most liquid, lowest spread)
-                'AAPL', 'MSFT',        # Tech mega-cap (stable, mean-reverts well)
-                'GOOGL', 'JPM',        # Cross-sector diversification
-                'V', 'XOM',            # Financials + Energy
+                'SPY', 'QQQ',                      # Broad market ETFs
+                'AAPL', 'MSFT', 'GOOGL', 'AMZN',  # Tech mega-cap
+                'META',                             # Tech (stable post-2024)
+                'JPM', 'BAC', 'V', 'MA',           # Financials
+                'JNJ', 'PFE',                       # Healthcare
+                'XOM', 'CVX',                       # Energy
+                'WMT', 'COST', 'HD',               # Consumer/Retail
+                'KO', 'DIS',                        # Consumer staples + media
             ],
             'min_strategy_confidence': 0.55,  # Slightly higher bar for fewer, better trades
             'max_concurrent_trades': 3,       # 3 positions (~$165 each on $500)
