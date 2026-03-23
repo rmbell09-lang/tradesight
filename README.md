@@ -95,3 +95,4 @@ Add Alpaca API keys to config/api_keys.json for real market data.
 | Resource | Description |
 |----------|-------------|
 | [Vibe Code Rescue](https://rmbell09-lang.github.io/tradesight/vibe-code-rescue.html) | Broken AI-generated code? Get it fixed → |
+| [BillingWatch](https://github.com/rmbell09-lang/BillingWatch) | Self-hosted billing anomaly detection — catch Stripe issues before they cost you |
