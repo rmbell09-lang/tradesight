@@ -3,7 +3,7 @@
 ## 🚀 Quick Start
 
 ### Desktop Launcher (Easiest)
-**Double-click:** Desktop/TradeSight.command  
+**Double-click:** Desktop/TradeSight.app  
 → Auto-opens dashboard at http://localhost:5000
 
 ### Terminal Launch
@@ -36,15 +36,15 @@ cd "/Volumes/Crucial X10/TradeSight"
 
 ## 🧪 Verification Results
 
-**✅ 94/96 Tests Passing (98% Success Rate)**
-- Core components: All working
+**✅ 169/169 Tests Passing (100% Success Rate)**
+- Core components: All working (169 tests)
 - Web dashboard: Functional  
 - Database systems: Operational
 - Demo mode: Fully functional without API keys
 
 ## 🎮 How to Use
 
-1. **Launch**: Double-click Desktop/TradeSight.command
+1. **Launch**: Double-click Desktop/TradeSight.app
 2. **Dashboard**: Opens at http://localhost:5000
 3. **Markets Tab**: View opportunities across all markets
 4. **Tournaments Tab**: Start AI strategy development
