@@ -23,6 +23,11 @@ from pathlib import Path
 from typing import Dict, Optional, Callable, List
 import pandas as pd
 import numpy as np
+try:
+    import yfinance as yf
+    _YFINANCE_AVAILABLE = True
+except ImportError:
+    _YFINANCE_AVAILABLE = False
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -317,6 +322,36 @@ class ParameterTuner:
         return cv_results
 
 
+
+def fetch_yfinance_1h(symbol: str) -> Optional[pd.DataFrame]:
+    """
+    Fetch 2 years of 1H bars from Yahoo Finance (free, no API key needed).
+    Returns DataFrame with columns: open, high, low, close, volume
+    yfinance supports up to 730 days of 1H history.
+    """
+    if not _YFINANCE_AVAILABLE:
+        return None
+    try:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            df = yf.download(symbol, period='2y', interval='1h',
+                             progress=False, auto_adjust=True)
+        if df is None or len(df) < 50:
+            return None
+        # Flatten MultiIndex columns if present
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0].lower() for c in df.columns]
+        else:
+            df.columns = [c.lower() for c in df.columns]
+        df = df[['open', 'high', 'low', 'close', 'volume']].dropna()
+        df.index = pd.to_datetime(df.index)
+        return df
+    except Exception as e:
+        logger.warning(f"  yfinance fetch failed for {symbol}: {e}")
+        return None
+
+
 def get_latest_tournament_winner() -> Optional[Dict]:
     """Get the most recently won strategy from tournament history DB, with hardcoded fallback."""
     db_path = Path(__file__).parent.parent / "src" / "data" / "tournament_history.db"
@@ -382,43 +417,51 @@ def optimize_winner_strategy(winner: Dict) -> Dict:
     training_datasets = {}
     data_source = 'synthetic'
     
-    if alpaca_key and alpaca_secret:
+    # SYMBOLS: matches paper trader watchlist for cross-validation
+    symbols = [
+        'SPY', 'QQQ',                       # Broad market ETFs
+        'AAPL', 'MSFT', 'GOOGL', 'AMZN',   # Tech mega-cap
+        'META',                              # Tech
+        'JPM', 'BAC', 'V', 'MA',            # Financials
+        'JNJ', 'PFE',                        # Healthcare
+        'XOM', 'CVX',                        # Energy
+        'WMT', 'COST', 'HD',                 # Consumer/Retail
+        'KO', 'DIS',                         # Consumer staples + media
+    ]
+
+    # PRIMARY: yfinance — free, 2 years of 1H history, no API key needed.
+    # Strategy is designed for 1H bars; daily bars suppress signal frequency.
+    if _YFINANCE_AVAILABLE:
+        logger.info("Fetching 2yr 1H bars from Yahoo Finance (primary)...")
+        for sym in symbols:
+            df = fetch_yfinance_1h(sym)
+            if df is not None and len(df) >= 50:
+                training_datasets[sym] = df
+                logger.info(f"  yfinance {sym}: {len(df)} 1H bars")
+        if training_datasets:
+            data_source = 'yfinance_1h'
+            logger.info(f"Using yfinance 1H data ({len(training_datasets)} symbols, strategy designed for 1H)")
+
+    # FALLBACK: Alpaca 1Day if yfinance unavailable or failed
+    if not training_datasets and alpaca_key and alpaca_secret:
+        logger.warning("yfinance unavailable — falling back to Alpaca 1Day bars")
         try:
             client = AlpacaClient(api_key=alpaca_key, secret_key=alpaca_secret, paper=True)
-            # Test against multiple real stocks for robustness
-            symbols = [
-                # SWING TRADE WATCHLIST - matches paper trader's 20-stock list
-                # Broad enough for robust cross-validation, no volatile outliers
-                'SPY', 'QQQ',                       # Broad market ETFs
-                'AAPL', 'MSFT', 'GOOGL', 'AMZN',   # Tech mega-cap
-                'META',                              # Tech
-                'JPM', 'BAC', 'V', 'MA',            # Financials
-                'JNJ', 'PFE',                        # Healthcare
-                'XOM', 'CVX',                        # Energy
-                'WMT', 'COST', 'HD',                # Consumer/Retail
-                'KO', 'DIS',                         # Consumer staples + media
-            ]
             for sym in symbols:
                 try:
-                    # Use 1Day bars for optimizer: IEX free tier only returns ~30 days
-                    # of 1H history, making training windows too short for RSI to trigger.
-                    # Daily bars give 500 data points (2 years) — deep enough for reliable stats.
                     df = client.get_historical_data(sym, days=500, timeframe='1Day')
                     if df is not None and len(df) >= 50:
                         training_datasets[sym] = df
-                        logger.info(f"  Loaded {len(df)} bars of real data for {sym}")
+                        logger.info(f"  Alpaca {sym}: {len(df)} daily bars")
                 except Exception as e:
-                    logger.warning(f"  Failed to fetch {sym}: {e}")
-            
+                    logger.warning(f"  Alpaca {sym} failed: {e}")
             if training_datasets:
-                data_source = 'alpaca'
-                logger.info(f"Using REAL market data from Alpaca ({len(training_datasets)} symbols)")
-            else:
-                logger.warning("Alpaca returned no data — falling back to synthetic")
+                data_source = 'alpaca_1day'
         except Exception as e:
-            logger.warning(f"Alpaca connection failed: {e} — falling back to synthetic")
-    else:
-        logger.warning("No Alpaca API keys found — using synthetic data")
+            logger.warning(f"Alpaca connection failed: {e}")
+
+    if not training_datasets:
+        logger.warning("No market data from any source — using synthetic")
     
     # Fallback to synthetic if no real data
     if not training_datasets:
