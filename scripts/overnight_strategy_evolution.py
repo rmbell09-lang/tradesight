@@ -400,7 +400,10 @@ def optimize_winner_strategy(winner: Dict) -> Dict:
             ]
             for sym in symbols:
                 try:
-                    df = client.get_historical_data(sym, days=500, timeframe='1Hour')
+                    # Use 1Day bars for optimizer: IEX free tier only returns ~30 days
+                    # of 1H history, making training windows too short for RSI to trigger.
+                    # Daily bars give 500 data points (2 years) — deep enough for reliable stats.
+                    df = client.get_historical_data(sym, days=500, timeframe='1Day')
                     if df is not None and len(df) >= 50:
                         training_datasets[sym] = df
                         logger.info(f"  Loaded {len(df)} bars of real data for {sym}")
