@@ -344,6 +344,24 @@ class PaperTrader:
             current_price = signal['current_price']
             confidence = signal['confidence']
             
+            # Per-symbol position limit: skip buy if symbol already has an open position
+            # (prevents buying the same stock repeatedly after losses, e.g. ADBE x3)
+            if action == 'buy':
+                try:
+                    db_path = self.position_manager.data_dir / "positions.db"
+                    with sqlite3.connect(db_path) as _pc:
+                        existing = _pc.execute(
+                            "SELECT COUNT(*) FROM positions WHERE symbol=? AND status='open'",
+                            (symbol,)
+                        ).fetchone()[0]
+                    if existing > 0:
+                        self.logger.info(
+                            f"[PositionLimit] Skipping buy for {symbol}: already has {existing} open position(s)"
+                        )
+                        return False
+                except Exception as _ple:
+                    self.logger.warning(f"[PositionLimit] Could not check positions for {symbol}: {_ple}")
+
             # Calculate position size
             quantity = self.position_manager.calculate_position_size(symbol, strategy, current_price)
             
@@ -464,6 +482,36 @@ class PaperTrader:
 
             if order_result and "error" not in order_result:
                 fill_price = order_result.get("fill_price") or price
+
+                # GUARD 1: zero/null price — Alpaca occasionally returns 0 (data error)
+                if not fill_price or fill_price <= 0:
+                    self.logger.error(
+                        f"[PriceGuard] Rejecting close for {symbol}: fill_price={fill_price} is zero/null. "
+                        f"Position stays open. Check Alpaca data feed."
+                    )
+                    return False
+
+                # GUARD 2: sanity check — reject if fill deviates >25% from any open entry price.
+                # This catches stale/cached prices from Alpaca paper trading (e.g. ADBE $425→$262).
+                try:
+                    with sqlite3.connect(db_path) as _g:
+                        entry_prices = [r[0] for r in _g.execute(
+                            "SELECT entry_price FROM positions WHERE symbol=? AND strategy=? AND status='open'",
+                            (symbol, strategy)
+                        ).fetchall()]
+                    if entry_prices:
+                        avg_entry = sum(entry_prices) / len(entry_prices)
+                        deviation = abs(fill_price - avg_entry) / avg_entry
+                        if deviation > 0.25:
+                            self.logger.error(
+                                f"[PriceGuard] Rejecting close for {symbol}: fill_price=${fill_price:.2f} "
+                                f"deviates {deviation*100:.1f}% from avg entry ${avg_entry:.2f} (>25% threshold). "
+                                f"Likely stale Alpaca price. Position stays open."
+                            )
+                            return False
+                except Exception as _ge:
+                    self.logger.warning(f"[PriceGuard] Could not validate price for {symbol}: {_ge}")
+
                 self.logger.info(f"Alpaca position closed: {symbol} fill_price={fill_price}")
 
                 # Close ALL open DB positions for this symbol+strategy

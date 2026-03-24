@@ -203,6 +203,14 @@ class PositionManager:
     def close_position(self, symbol: str, strategy: str, exit_price: float) -> bool:
         """Close an existing position"""
         try:
+            # Guard: never record an exit at zero or negative price (data error)
+            if not exit_price or exit_price <= 0:
+                self.logger.error(
+                    f"[PriceGuard] close_position rejected for {symbol}: "
+                    f"exit_price={exit_price} is invalid (zero/null). Position stays open."
+                )
+                return False
+
             db_path = self.data_dir / 'positions.db'
             with sqlite3.connect(db_path) as conn:
                 # Find open position
