@@ -420,6 +420,10 @@ class PaperTrader:
             if order_result and order_result.get('status') in ['filled', 'accepted']:
                 # Record position
                 fill_price = order_result.get('fill_price') or price
+                self.logger.info(
+                    f"[BuyOrder] Order accepted: {symbol} qty={quantity:.4f} "
+                    f"@ ${fill_price:.2f} status={order_result.get('status')}"
+                )
                 success = self.position_manager.open_position(
                     symbol=symbol,
                     strategy=strategy,
@@ -427,8 +431,21 @@ class PaperTrader:
                     quantity=quantity,
                     entry_price=fill_price
                 )
+                if not success:
+                    self.logger.error(f"[BuyOrder] position_manager.open_position FAILED for {symbol}")
                 return success
             
+            # Log WHY the order failed
+            if order_result:
+                err = order_result.get('error', 'unknown')
+                status = order_result.get('status', 'no_status')
+                status_code = order_result.get('status_code', '?')
+                self.logger.error(
+                    f"[BuyOrder] FAILED {symbol}: status={status}, "
+                    f"http={status_code}, error={err}"
+                )
+            else:
+                self.logger.error(f"[BuyOrder] FAILED {symbol}: no order_result returned")
             return False
             
         except Exception as e:
@@ -932,13 +949,14 @@ class PaperTrader:
                             f"[OrphanSync] Importing {sym}: qty={qty}, "
                             f"entry=${avg_entry:.2f}, side={side}"
                         )
+                        current_val = float(rp.get('current_price', 0)) or avg_entry
                         conn.execute(
                             "INSERT INTO positions "
                             "(symbol, strategy, side, quantity, entry_price, "
-                            "entry_time, status, high_water_mark) "
-                            "VALUES (?, ?, ?, ?, ?, ?, 'open', ?)",
+                            "current_price, entry_time, status, high_water_mark) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)",
                             (sym, 'RSI Mean Reversion', side, qty, avg_entry,
-                             datetime.now().isoformat(), avg_entry)
+                             current_val, datetime.now().isoformat(), avg_entry)
                         )
                         local_symbols.add(sym)
                 conn.commit()
