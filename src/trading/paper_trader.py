@@ -185,7 +185,7 @@ class PaperTrader:
                         qualified_winners.append((winner, score))
                         seen_strategies.add(winner)
                 
-                self.logger.info(f"Found {len(qualified_winners)} qualified strategies from recent tournaments")
+                self.logger.info(f"Found {len(qualified_winners)} qualified strategies from recent tournaments (tournament-sourced)")
                 return qualified_winners
                 
         except Exception as e:
@@ -702,8 +702,13 @@ class PaperTrader:
             winning_strategies = self.get_latest_tournament_winners()
             
             if not winning_strategies:
-                self.logger.info("No winning strategies found")
-                return
+                # FALLBACK: Use built-in strategies with champion params when no tournament winners
+                self.logger.info("No recent tournament winners — using fallback strategies with champion params")
+                winning_strategies = [
+                    ('RSI Mean Reversion', 0.60),
+                    ('MACD Crossover', 0.60),
+                    ('Bollinger Bounce', 0.55),
+                ]
             
             # Check portfolio state
             portfolio_state = self.position_manager.get_portfolio_state()
@@ -888,6 +893,10 @@ class PaperTrader:
             # Persist buying power to DB so get_portfolio_state() can use real balance
             self.position_manager.persist_balance_sync(real_cash)
             
+            # Sync orphan positions into local DB for SL/TP monitoring
+            if remote_positions and local_state.position_count == 0:
+                self._sync_orphan_positions(remote_positions)
+
             # Track which symbols Alpaca already has positions in
             self._alpaca_positions = set()
             for rp in remote_positions:
@@ -899,6 +908,42 @@ class PaperTrader:
         except Exception as e:
             self.logger.error("Alpaca sync failed: %s" % str(e))
             self._alpaca_synced = False
+
+    def _sync_orphan_positions(self, remote_positions):
+        """Import orphan Alpaca positions into local DB so SL/TP monitoring works."""
+        if not remote_positions:
+            return
+        try:
+            db_path = self.position_manager.data_dir / 'positions.db'
+            with sqlite3.connect(db_path) as conn:
+                local_symbols = set(
+                    row[0] for row in conn.execute(
+                        "SELECT DISTINCT symbol FROM positions WHERE status='open'"
+                    ).fetchall()
+                )
+                for rp in remote_positions:
+                    sym = rp.get('symbol', '')
+                    if sym and sym not in local_symbols:
+                        qty = float(rp.get('qty', 0))
+                        avg_entry = float(rp.get('avg_entry_price', 0))
+                        market_value = float(rp.get('market_value', 0))
+                        side = rp.get('side', 'long')
+                        self.logger.info(
+                            f"[OrphanSync] Importing {sym}: qty={qty}, "
+                            f"entry=${avg_entry:.2f}, side={side}"
+                        )
+                        conn.execute(
+                            "INSERT INTO positions "
+                            "(symbol, strategy, side, quantity, entry_price, "
+                            "entry_time, status, high_water_mark) "
+                            "VALUES (?, ?, ?, ?, ?, ?, 'open', ?)",
+                            (sym, 'RSI Mean Reversion', side, qty, avg_entry,
+                             datetime.now().isoformat(), avg_entry)
+                        )
+                        local_symbols.add(sym)
+                conn.commit()
+        except Exception as e:
+            self.logger.error(f"[OrphanSync] Failed: {e}")
 
     def run_trading_session(self):
         """Run a complete trading session"""
