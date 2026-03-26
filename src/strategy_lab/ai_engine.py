@@ -277,7 +277,7 @@ class AIStrategyEngine:
         metrics = backtest_result['metrics']
         
         if metrics['total_trades'] == 0:
-            return 0.0
+            return -1.0
         
         # Base score from PnL percentage
         pnl_score = metrics['total_pnl_pct'] / 100.0
