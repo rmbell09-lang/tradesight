@@ -11,6 +11,7 @@ import sys
 import json
 import sqlite3
 import logging
+import random
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -36,6 +37,12 @@ try:
 except Exception:
     _AUTOMATION_ALERTS_AVAILABLE = False
 
+# Symbols used for tournament data — liquid, well-behaved for mean reversion
+TOURNAMENT_SYMBOLS = [
+    'SPY', 'QQQ', 'AAPL', 'MSFT', 'GOOGL',
+    'JPM', 'BAC', 'JNJ', 'XOM', 'WMT',
+]
+
 class StrategyAutomation:
     """Automated strategy development and tournament runner"""
     
@@ -58,7 +65,11 @@ class StrategyAutomation:
             'elimination_rate': 0.3,
             'min_survivors': 2,
             'rounds': 3,
-            'data_days_per_round': [100, 150, 200]  # Different data sizes per round
+            'data_days_per_round': [100, 150, 200],  # Different data sizes per round
+            # Walk-forward split: train on first 70%, validate on next 15%, test on last 15%
+            'train_ratio': 0.70,
+            'val_ratio': 0.15,
+            # test_ratio = 1.0 - train_ratio - val_ratio = 0.15 (implicit)
         }
         
         self.logger.info(f"StrategyAutomation initialized at {self.base_dir}")
@@ -87,16 +98,114 @@ class StrategyAutomation:
         )
         
         self.logger = logging.getLogger('StrategyAutomation')
-    
+
+    # ------------------------------------------------------------------
+    # Real historical data fetch with walk-forward splits
+    # ------------------------------------------------------------------
+
+    def _fetch_real_data(self, symbol: str, days: int) -> Optional[pd.DataFrame]:
+        """
+        Fetch real historical daily bars from Alpaca for a given symbol.
+        Returns None if fetch fails (caller falls back to synthetic data).
+        """
+        try:
+            client = AlpacaClient()
+            data = client.get_historical_data(symbol, days=days, timeframe='1Day')
+            if data is not None and len(data) >= 50:
+                self.logger.info(f"Fetched {len(data)} bars for {symbol}")
+                return data
+            else:
+                self.logger.warning(f"Insufficient data for {symbol}: {len(data) if data is not None else 0} bars")
+                return None
+        except Exception as e:
+            self.logger.warning(f"Failed to fetch real data for {symbol}: {e}")
+            return None
+
+    def _walk_forward_split(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        Split data into train / validation / test slices using strict chronological order.
+        No data from the future leaks into earlier slices.
+
+        Returns: (train_df, val_df, test_df)
+        """
+        n = len(data)
+        train_end = int(n * self.tournament_config['train_ratio'])
+        val_end = int(n * (self.tournament_config['train_ratio'] + self.tournament_config['val_ratio']))
+
+        train = data.iloc[:train_end].copy()
+        val   = data.iloc[train_end:val_end].copy()
+        test  = data.iloc[val_end:].copy()
+
+        self.logger.info(
+            f"Walk-forward split: train={len(train)} bars, "
+            f"val={len(val)} bars, test={len(test)} bars"
+        )
+        return train, val, test
+
     def create_tournament_datasets(self) -> List[Tuple[str, pd.DataFrame]]:
-        """Create multiple datasets for multi-round tournaments"""
-        datasets = []
-        
-        for i, days in enumerate(self.tournament_config['data_days_per_round'], 1):
-            data = create_test_data(days=days)  # Different seed per round
-            datasets.append((f'Round_{i}_Data_{days}d', data))
-            self.logger.info(f"Created dataset for round {i}: {days} days")
-        
+        """
+        Create three tournament rounds using REAL historical data with walk-forward splits.
+
+        Round structure (no lookahead bias):
+          Round 1 — training slice of symbol A  (strategy selection)
+          Round 2 — validation slice of symbol B  (out-of-sample check)
+          Round 3 — test slice of symbol C  (final holdout, never seen before)
+
+        Falls back to synthetic data only when Alpaca is unreachable.
+        """
+        datasets: List[Tuple[str, pd.DataFrame]] = []
+
+        # Pick 3 different symbols so each round sees a different market regime
+        # Shuffle so we don't always use the same trio
+        pool = TOURNAMENT_SYMBOLS.copy()
+        random.shuffle(pool)
+        round_symbols = pool[:3]
+
+        # Total days to fetch: enough for a full walk-forward split
+        # We need at least `data_days_per_round[-1]` bars in the TEST slice alone,
+        # so fetch 2× the largest round size to be safe.
+        max_days = self.tournament_config['data_days_per_round'][-1]
+        fetch_days = int(max_days / (1.0 - self.tournament_config['train_ratio'] - self.tournament_config['val_ratio']) * 1.1)
+
+        split_labels = ['train', 'val', 'test']
+
+        for i, (symbol, days, split_label) in enumerate(
+            zip(round_symbols,
+                self.tournament_config['data_days_per_round'],
+                split_labels),
+            start=1
+        ):
+            real_data = self._fetch_real_data(symbol, days=fetch_days)
+
+            if real_data is not None and len(real_data) >= 150:
+                train_df, val_df, test_df = self._walk_forward_split(real_data)
+                slices = {'train': train_df, 'val': val_df, 'test': test_df}
+                data_slice = slices[split_label]
+
+                # Make sure the slice has at least 50 bars for backtesting
+                if len(data_slice) < 50:
+                    self.logger.warning(
+                        f"Round {i} {split_label} slice for {symbol} too small "
+                        f"({len(data_slice)} bars) — using full real data instead"
+                    )
+                    data_slice = real_data
+
+                label = f'Round_{i}_{symbol}_{split_label}_{len(data_slice)}bars'
+                self.logger.info(
+                    f"Round {i}: {symbol} [{split_label}] — {len(data_slice)} bars "
+                    f"(real historical data, NO synthetic, NO lookahead)"
+                )
+            else:
+                # Fallback: synthetic data (logs a clear warning)
+                self.logger.warning(
+                    f"Round {i}: Alpaca unavailable for {symbol}. "
+                    f"Falling back to synthetic data — tournament results will be unreliable."
+                )
+                data_slice = create_test_data(days=days)
+                label = f'Round_{i}_SYNTHETIC_{days}d_UNRELIABLE'
+
+            datasets.append((label, data_slice))
+
         return datasets
     
     def run_tournament_session(self, session_id: str) -> Dict:
@@ -119,6 +228,9 @@ class StrategyAutomation:
             
             # Create datasets for multi-round tournament
             datasets = self.create_tournament_datasets()
+
+            # Flag whether any round fell back to synthetic data
+            used_synthetic = any('SYNTHETIC' in name for name, _ in datasets)
             
             # Run tournament
             start_time = datetime.now()
@@ -139,6 +251,7 @@ class StrategyAutomation:
                 'final_survivors': results.final_survivors,
                 'top_3': results.top_3,
                 'elimination_log': results.elimination_log,
+                'data_source': 'SYNTHETIC_FALLBACK' if used_synthetic else 'real_historical_walkforward',
                 'participants': []
             }
             
@@ -154,6 +267,17 @@ class StrategyAutomation:
                     'eliminated': entry.eliminated
                 })
             
+            if used_synthetic:
+                self.logger.warning(
+                    "Tournament used synthetic data for one or more rounds — "
+                    "champion params may not reflect real market behaviour."
+                )
+            else:
+                self.logger.info(
+                    "Tournament used real historical data with walk-forward splits — "
+                    "champion params are valid."
+                )
+
             self.logger.info(f"Tournament completed in {duration:.1f}s - Winner: {results.winner}")
             # Fire strategy evolved alert
             if self._alert_manager:
@@ -278,12 +402,22 @@ class StrategyAutomation:
                 
                 # Session summaries
                 for session in sessions:
-                    session_id, start_time, end_time, duration, winner, winner_score, rounds, strategies, survivors, status, _ = session
+                    session_id, start_time, end_time, duration, winner, winner_score, rounds, strategies, survivors, status, results_json = session
                     
                     if status == 'completed':
                         report_lines.append(f"\n📊 Session: {session_id}")
                         report_lines.append(f"   Winner: {winner} (Score: {winner_score:.3f})")
                         report_lines.append(f"   Duration: {duration:.1f}s | Rounds: {rounds} | Strategies: {strategies}")
+                        # Show data source if available
+                        try:
+                            session_data = json.loads(results_json or '{}')
+                            data_source = session_data.get('data_source', 'unknown')
+                            if 'SYNTHETIC' in data_source:
+                                report_lines.append(f"   ⚠️  Data: SYNTHETIC FALLBACK — results may not reflect real markets")
+                            else:
+                                report_lines.append(f"   ✅ Data: real historical walk-forward (no lookahead bias)")
+                        except Exception:
+                            pass
                     else:
                         report_lines.append(f"\n❌ Session: {session_id} - FAILED")
                 
@@ -344,7 +478,10 @@ class StrategyAutomation:
         if results.get('error'):
             print(f"❌ Overnight session FAILED: {results['error']}")
         else:
+            data_src = results.get('data_source', 'unknown')
+            src_label = "✅ real historical walk-forward" if 'real' in data_src else "⚠️  SYNTHETIC FALLBACK"
             print(f"✅ Overnight session completed - Winner: {results['winner']} (Score: {results['winner_avg_score']:.3f})")
+            print(f"   Data source: {src_label}")
         
         print("\n" + report)
         
