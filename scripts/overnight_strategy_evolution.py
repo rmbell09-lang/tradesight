@@ -356,6 +356,28 @@ def get_latest_tournament_winner() -> Optional[Dict]:
     """Get the most recently won strategy from tournament history DB, with hardcoded fallback."""
     db_path = Path(__file__).parent.parent / "src" / "data" / "tournament_history.db"
     
+    # Load champion params as seed — optimizer searches AROUND current champion
+    # so we converge rather than always restarting from hardcoded defaults
+    champion_base = {
+        'oversold': 30,
+        'overbought': 70,
+        'position_size': 0.60,
+        'stop_loss_pct': 0.07,
+        'take_profit_pct': 0.08,
+        'max_holding_bars': 0
+    }
+    champion_path = Path(__file__).parent.parent / 'data' / 'champion.json'
+    if champion_path.exists():
+        try:
+            import json as _json
+            with open(champion_path) as _f:
+                _champ = _json.load(_f)
+            if _champ.get('params'):
+                champion_base = _champ['params']
+                logger.info(f"Seeding optimizer from champion params: {champion_base}")
+        except Exception as _ce:
+            logger.warning(f"Could not load champion params for seeding: {_ce}")
+
     # Try to read from actual tournament results
     if db_path.exists():
         try:
@@ -372,30 +394,16 @@ def get_latest_tournament_winner() -> Optional[Dict]:
                 return {
                     'name': row[0],
                     'score': row[1],
-                    'base_params': {
-                        'oversold': 30,
-                        'overbought': 70,
-                        'position_size': 0.60,
-                        'stop_loss_pct': 0.07,
-                        'take_profit_pct': 0.08,
-                        'max_holding_bars': 0
-                    }
+                    'base_params': champion_base  # seed from champion, not hardcoded defaults
                 }
         except Exception as e:
             logger.warning(f"Could not read tournament DB: {e}")
     
-    # Fallback to hardcoded default
+    # Fallback to champion-seeded defaults
     winner = {
         'name': 'RSI Mean Reversion',
         'score': 0.3655,
-        'base_params': {
-            'oversold': 30,
-            'overbought': 70,
-            'position_size': 0.60,
-            'stop_loss_pct': 0.07,
-            'take_profit_pct': 0.08,
-            'max_holding_bars': 0
-        }
+        'base_params': champion_base  # always seed from champion, never hardcoded
     }
     
     logger.info(f"Using default tournament winner: {winner['name']} (no DB history found)")

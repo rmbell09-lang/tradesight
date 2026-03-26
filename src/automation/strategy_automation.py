@@ -21,6 +21,7 @@ import pandas as pd
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from strategy_lab.tournament import StrategyTournament, get_builtin_strategies
+from strategy_lab.backtest import make_rsi_strategy
 from strategy_lab.ai_engine import AIStrategyEngine, create_test_data
 from data.alpaca_client import AlpacaClient
 
@@ -225,6 +226,30 @@ class StrategyAutomation:
             for name, strategy_func in builtin_strategies.items():
                 tournament.register_strategy(name, strategy_func)
                 self.logger.info(f"Registered strategy: {name}")
+            
+            # Also register a champion-params RSI variant so tournament evaluates
+            # the actual thresholds the paper trader is using (not just 30/70 defaults)
+            try:
+                import json as _json
+                from pathlib import Path as _Path
+                _champ_path = _Path(__file__).resolve().parent.parent.parent / 'data' / 'champion.json'
+                if _champ_path.exists():
+                    with open(_champ_path) as _cf:
+                        _champ = _json.load(_cf)
+                    _p = _champ.get('params', {})
+                    if _p.get('oversold') and _p.get('overbought'):
+                        _champ_rsi = make_rsi_strategy(
+                            oversold=_p['oversold'],
+                            overbought=_p['overbought'],
+                            position_size=_p.get('position_size', 0.6),
+                            stop_loss_pct=_p.get('stop_loss_pct', 0.07),
+                            take_profit_pct=_p.get('take_profit_pct', 0.08),
+                        )
+                        _variant_name = f"RSI_Champion_os{_p['oversold']}_ob{_p['overbought']}"
+                        tournament.register_strategy(_variant_name, _champ_rsi)
+                        self.logger.info(f"Registered champion RSI variant: {_variant_name}")
+            except Exception as _ce:
+                self.logger.warning(f"Could not register champion RSI variant: {_ce}")
             
             # Create datasets for multi-round tournament
             datasets = self.create_tournament_datasets()

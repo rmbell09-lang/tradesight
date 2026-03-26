@@ -360,7 +360,14 @@ class BacktestEngine:
                 returns.append((curr_equity - prev_equity) / prev_equity if prev_equity > 0 else 0)
             
             if returns and np.std(returns) > 0:
-                sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(252)  # Annualized
+                # Infer bar frequency from DatetimeIndex for correct annualization
+                if not data.empty and len(data.index) > 1 and hasattr(data.index, 'to_series'):
+                    avg_delta = (data.index[-1] - data.index[0]) / (len(data.index) - 1)
+                    bars_per_day = pd.Timedelta('1D') / avg_delta if avg_delta.total_seconds() > 0 else 1.0
+                    annualize_factor = np.sqrt(bars_per_day * 252)
+                else:
+                    annualize_factor = np.sqrt(252)
+                sharpe_ratio = np.mean(returns) / np.std(returns) * annualize_factor  # Annualized
             else:
                 sharpe_ratio = 0.0
         else:
@@ -430,23 +437,53 @@ def simple_ma_crossover(data: pd.DataFrame, index: int, positions: List) -> Opti
 
 
 def rsi_mean_reversion(data: pd.DataFrame, index: int, positions: List) -> Optional[Dict]:
-    """RSI mean reversion strategy"""
+    """RSI mean reversion strategy — default thresholds 30/70"""
+    return _rsi_mean_reversion_impl(data, index, positions, oversold=30, overbought=70)
+
+
+def make_rsi_strategy(oversold: int = 30, overbought: int = 70,
+                      position_size: float = 0.6,
+                      stop_loss_pct: float = 0.07,
+                      take_profit_pct: float = 0.08):
+    """
+    Factory: create an RSI strategy with specific params.
+    Used by tournament so champion params are evaluated consistently
+    with the same thresholds the paper trader actually uses.
+    """
+    def _strategy(data: pd.DataFrame, index: int, positions: List) -> Optional[Dict]:
+        return _rsi_mean_reversion_impl(
+            data, index, positions,
+            oversold=oversold, overbought=overbought,
+            position_size=position_size,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct
+        )
+    _strategy.__name__ = f'rsi_mean_reversion_os{oversold}_ob{overbought}'
+    return _strategy
+
+
+def _rsi_mean_reversion_impl(data: pd.DataFrame, index: int, positions: List,
+                              oversold: int = 30, overbought: int = 70,
+                              position_size: float = 0.6,
+                              stop_loss_pct: float = 0.07,
+                              take_profit_pct: float = 0.08) -> Optional[Dict]:
+    """Core RSI mean reversion logic — parameterised"""
     if index < 50:
         return None
     
     current = data.iloc[index]
     
     # Buy signal: RSI oversold
-    if current['rsi'] < 30 and not positions:
+    if current['rsi'] < oversold and not positions:
         return {
             'action': 'buy',
-            'size': 0.6,
-            'stop_loss': current['close'] * 0.93,
-            'take_profit': current['close'] * 1.08
+            'size': position_size,
+            'stop_loss': current['close'] * (1.0 - stop_loss_pct),
+            'take_profit': current['close'] * (1.0 + take_profit_pct)
         }
     
     # Sell signal: RSI overbought
-    if current['rsi'] > 70 and positions:
+    if current['rsi'] > overbought and positions:
         return {'action': 'close'}
     
     return None

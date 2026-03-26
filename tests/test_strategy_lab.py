@@ -137,11 +137,11 @@ class TestAIStrategyEngine:
             assert len(data) == 100
     
     def test_performance_score_zero_trades(self):
-        """Performance score should be 0 for no trades"""
+        """Zero trades returns -1.0 (strategy useless on this data — intentional penalty)"""
         mock_result = {'metrics': {'total_trades': 0, 'total_pnl_pct': 0, 'win_rate': 0,
                                     'max_drawdown': 0, 'profit_factor': 0}}
         score = self.ai_engine._calculate_performance_score(mock_result)
-        assert score == 0.0
+        assert score == -1.0  # -1.0 signals zero trades; tournament eliminates these
 
 
 # --- Tournament System Tests ---
