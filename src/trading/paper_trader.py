@@ -894,14 +894,29 @@ class PaperTrader:
             # Check for orphan positions (in Alpaca but not in our DB)
             remote_positions = self.alpaca.get_remote_positions()
             local_state = self.position_manager.get_portfolio_state()
-            
-            if remote_positions and local_state.position_count == 0:
-                self.logger.warning(
-                    "ORPHAN POSITIONS DETECTED: Alpaca has %d positions "
-                    "but local DB has 0. Buying power is $%.2f, not "
-                    "$%.2f. Trades will use real buying power." % (len(remote_positions), real_cash, local_state.available_cash)
-                )
-            
+
+            # Build set of symbols Alpaca currently holds
+            remote_symbols = {rp.get("symbol", "") for rp in remote_positions if rp.get("symbol")}
+
+            # Detect orphan positions regardless of local DB count.
+            # Bug fix: previously only triggered when local DB had 0 positions,
+            # meaning stale local positions blocked orphan detection for new symbols.
+            if remote_positions:
+                with sqlite3.connect(self.position_manager.data_dir / 'positions.db') as _conn:
+                    local_open = set(
+                        row[0] for row in _conn.execute(
+                            "SELECT DISTINCT symbol FROM positions WHERE status=\'open\'"
+                        ).fetchall()
+                    )
+                orphan_symbols = remote_symbols - local_open
+                if orphan_symbols:
+                    self.logger.warning(
+                        "ORPHAN POSITIONS DETECTED: Alpaca has %d position(s) not in local DB: %s. "
+                        "Buying power is $%.2f. Syncing now." % (
+                            len(orphan_symbols), sorted(orphan_symbols), real_cash
+                        )
+                    )
+
             # Store real buying power for position sizing
             self._real_buying_power = real_cash
             self._real_equity = real_equity
@@ -909,17 +924,20 @@ class PaperTrader:
 
             # Persist buying power to DB so get_portfolio_state() can use real balance
             self.position_manager.persist_balance_sync(real_cash)
-            
-            # Sync orphan positions into local DB for SL/TP monitoring
-            if remote_positions and local_state.position_count == 0:
+
+            # Always run orphan sync (not just when local DB is empty).
+            # _sync_orphan_positions handles per-symbol dedup internally.
+            if remote_positions:
                 self._sync_orphan_positions(remote_positions)
 
+            # Close stale local positions that Alpaca has already exited.
+            self._close_stale_positions(remote_symbols)
+
             # Track which symbols Alpaca already has positions in
-            self._alpaca_positions = set()
+            self._alpaca_positions = remote_symbols
             for rp in remote_positions:
                 sym = rp.get("symbol", "")
                 if sym:
-                    self._alpaca_positions.add(sym)
                     self.logger.info("Alpaca has existing position: %s (qty=%s)" % (sym, rp.get("qty", "?")))
             
         except Exception as e:
@@ -962,6 +980,37 @@ class PaperTrader:
                 conn.commit()
         except Exception as e:
             self.logger.error(f"[OrphanSync] Failed: {e}")
+
+    def _close_stale_positions(self, remote_symbols: set):
+        """Mark local 'open' positions as closed if Alpaca no longer holds them.
+
+        This handles the case where Alpaca closes a position externally
+        (stop-loss triggered, manual close, etc.) but local DB still shows open.
+        Stale open positions block orphan detection and skew portfolio reporting.
+        """
+        try:
+            db_path = self.position_manager.data_dir / 'positions.db'
+            with sqlite3.connect(db_path) as conn:
+                local_open = conn.execute(
+                    "SELECT id, symbol FROM positions WHERE status='open'"
+                ).fetchall()
+                stale = [(row[0], row[1]) for row in local_open if row[1] not in remote_symbols]
+                if stale:
+                    for pos_id, sym in stale:
+                        self.logger.warning(
+                            "[StaleSync] Closing local position %s (id=%d) — no longer in Alpaca." % (sym, pos_id)
+                        )
+                        conn.execute(
+                            "UPDATE positions SET status='closed', exit_time=?, "
+                            "updated_at=? WHERE id=?",
+                            (datetime.now().isoformat(), datetime.now().isoformat(), pos_id)
+                        )
+                    conn.commit()
+                    self.logger.info("[StaleSync] Closed %d stale position(s): %s" % (
+                        len(stale), [s[1] for s in stale]
+                    ))
+        except Exception as e:
+            self.logger.error("[StaleSync] Failed: %s" % str(e))
 
     def run_trading_session(self):
         """Run a complete trading session"""
