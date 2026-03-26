@@ -354,7 +354,7 @@ def fetch_yfinance_1h(symbol: str) -> Optional[pd.DataFrame]:
 
 def get_latest_tournament_winner() -> Optional[Dict]:
     """Get the most recently won strategy from tournament history DB, with hardcoded fallback."""
-    db_path = Path(__file__).parent.parent / "src" / "data" / "tournament_history.db"
+    db_path = Path(__file__).parent.parent / "data" / "tournament_history.db"
     
     # Load champion params as seed — optimizer searches AROUND current champion
     # so we converge rather than always restarting from hardcoded defaults
@@ -690,6 +690,31 @@ def main():
     logger.info("="*75)
     
     try:
+        # --- Step 0: Run nightly strategy tournament ---
+        # Populates data/tournament_history.db so get_latest_tournament_winner() has fresh results.
+        logger.info("Step 0: Running nightly strategy tournament on real historical data...")
+        try:
+            import sys as _sys, datetime as _dt
+            _sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+            from automation.strategy_automation import StrategyAutomation
+            _auto = StrategyAutomation()
+            _tsid = "nightly_" + _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+            _tres = _auto.run_tournament_session(_tsid)
+            _auto.store_session_results(_tres)
+            if not _tres.get("error"):
+                _src = _tres.get("data_source", "unknown")
+                logger.info(
+                    f"Tournament done: winner={_tres.get('winner')} "
+                    f"score={_tres.get('winner_avg_score', 0):.4f} "
+                    f"data={_src}"
+                )
+                if "SYNTHETIC" in _src:
+                    logger.warning("Tournament used synthetic fallback data — results may be unreliable")
+            else:
+                logger.warning(f"Tournament failed (non-fatal): {_tres.get('error')}")
+        except Exception as _te:
+            logger.warning(f"Tournament step failed (non-fatal): {_te} — using last known winner")
+
         winner = get_latest_tournament_winner()
         if not winner:
             logger.error("No tournament winner found")

@@ -63,7 +63,7 @@ class PositionManager:
     """Manages trading positions and portfolio state"""
     
     def __init__(self, base_dir: str = None):
-        self.base_dir = Path(base_dir) if base_dir else Path(__file__).parent.parent
+        self.base_dir = Path(base_dir) if base_dir else Path(__file__).resolve().parent.parent.parent
         self.data_dir = self.base_dir / 'data'
         self.data_dir.mkdir(exist_ok=True)
         

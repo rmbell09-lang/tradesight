@@ -55,7 +55,7 @@ class PaperTrader:
     
     def __init__(self, base_dir: str = None, alpaca_api_key: str = None, 
                  alpaca_secret: str = None):
-        self.base_dir = Path(base_dir) if base_dir else Path(__file__).parent.parent
+        self.base_dir = Path(base_dir) if base_dir else Path(__file__).resolve().parent.parent.parent
         self.data_dir = self.base_dir / 'data'
         self.logs_dir = self.base_dir / 'logs'
         

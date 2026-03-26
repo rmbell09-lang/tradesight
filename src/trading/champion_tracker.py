@@ -32,7 +32,7 @@ class ChampionTracker:
     """Manages the champion strategy and challenger promotion logic."""
 
     def __init__(self, base_dir: str = None):
-        self.base_dir = Path(base_dir) if base_dir else Path(__file__).parent.parent
+        self.base_dir = Path(base_dir) if base_dir else Path(__file__).resolve().parent.parent.parent
         self.champion_path = self.base_dir / CHAMPION_FILE
         self.champion_path.parent.mkdir(exist_ok=True)
 

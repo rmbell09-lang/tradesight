@@ -48,7 +48,7 @@ class StrategyAutomation:
     """Automated strategy development and tournament runner"""
     
     def __init__(self, base_dir: str = None):
-        self.base_dir = Path(base_dir) if base_dir else Path(__file__).parent.parent
+        self.base_dir = Path(base_dir) if base_dir else Path(__file__).resolve().parent.parent.parent
         self.data_dir = self.base_dir / 'data'
         self.logs_dir = self.base_dir / 'logs'
         self.reports_dir = self.base_dir / 'reports'
