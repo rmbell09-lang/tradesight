@@ -133,11 +133,10 @@ class PaperTrader:
                 'KO', 'DIS',                        # Consumer staples + media
             ],
             'min_strategy_confidence': 0.55,  # Slightly higher bar for fewer, better trades
-            'max_concurrent_trades': 5,       # 5 positions for more data (fractional shares)
+            'max_concurrent_trades': 3,       # 3 positions (~$165 each on $500)
             'trade_frequency_hours': 4,       # Check for signals every 4 hours
             'position_hold_days': 5,          # Hold positions 1-5 days (swing trade)
             'min_hold_hours': 24,             # MINIMUM 24hr hold - prevents day trades (PDT)
-            'max_unrealized_gain_pct': 0.20,  # Auto-close at +20% unrealized gain
             'rebalance_frequency_days': 7     # Rebalance weekly
         }
     
@@ -674,14 +673,6 @@ class PaperTrader:
                         )
                 elif pnl_pct >= take_profit_pct:
                     trigger = 'TAKE_PROFIT'
-
-                # MAX UNREALIZED GAIN — hard cap to prevent giving back huge gains
-                if not trigger and pnl_pct >= self.config.get('max_unrealized_gain_pct', 0.20):
-                    trigger = 'MAX_GAIN'
-                    self.logger.info(
-                        f"[MaxGain] {symbol} ({strategy}) hit +{pnl_pct*100:.1f}% "
-                        f"(cap={self.config.get('max_unrealized_gain_pct', 0.20)*100:.0f}%) — forcing close"
-                    )
 
                 if trigger:
                     self.logger.warning(
