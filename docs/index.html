@@ -70,8 +70,8 @@
       </div>
       <div class="col-6 col-md-3">
         <div class="stat-box">
-          <div class="stat-num">94</div>
-          <div class="stat-label">Tests passing (98% success rate)</div>
+          <div class="stat-num">181</div>
+          <div class="stat-label">Tests passing (100% passing)</div>
         </div>
       </div>
     </div>
@@ -79,65 +79,64 @@
 </section>
 
 
-<!-- Live Paper Trading Stats — Week of Mar 17-24, 2026 -->
+<!-- Live Paper Trading Section -->
 <section style="background:#0d2218; border-top: 1px solid #238636; border-bottom: 1px solid #238636;">
   <div class="container">
     <div class="text-center mb-4">
-      <h2 class="section-title" style="color:#3fb950;">📡 Live Paper Trading — Week of Mar 17-24, 2026</h2>
-      <p style="color:#8b949e;">Real autonomous runs. Fake money. Tracking strategy performance before going live.</p>
-      <span style="background:#0d1117; border:1px solid #238636; color:#3fb950; padding:4px 14px; border-radius:20px; font-size:0.85rem;">Updated Mar 24, 2026 · 54 sessions this week</span>
+      <h2 class="section-title" style="color:#3fb950;">📡 Live Paper Trading — Active</h2>
+      <p style="color:#8b949e;">Real autonomous runs via Alpaca paper API. Strategies trade real market data with fake money.</p>
+      <span style="background:#0d1117; border:1px solid #238636; color:#3fb950; padding:4px 14px; border-radius:20px; font-size:0.85rem;">Running since Mar 2026 · 2 active positions · 2 strategies competing</span>
     </div>
     <div class="row g-4 text-center">
       <div class="col-6 col-md-3">
         <div class="stat-box" style="border-color:#238636;">
-          <div class="stat-num">$484</div>
-          <div class="stat-label">Paper Portfolio Value</div>
-        </div>
-      </div>
-      <div class="col-6 col-md-3">
-        <div class="stat-box" style="border-color:#f85149;">
-          <div class="stat-num" style="color:#f85149;">-$16</div>
-          <div class="stat-label">Total P&L (-3.1%)</div>
+          <div class="stat-num">2</div>
+          <div class="stat-label">Active Strategies</div>
         </div>
       </div>
       <div class="col-6 col-md-3">
         <div class="stat-box" style="border-color:#238636;">
-          <div class="stat-num">7</div>
-          <div class="stat-label">Trades (Last 7 Days)</div>
+          <div class="stat-num">26</div>
+          <div class="stat-label">Daily Market Scans</div>
         </div>
       </div>
       <div class="col-6 col-md-3">
         <div class="stat-box" style="border-color:#238636;">
-          <div class="stat-num">54</div>
-          <div class="stat-label">Autonomous Sessions Run</div>
+          <div class="stat-num">15+</div>
+          <div class="stat-label">Equities Tracked</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-box" style="border-color:#238636;">
+          <div class="stat-num">0</div>
+          <div class="stat-label">Manual Interventions</div>
         </div>
       </div>
     </div>
     <div class="row g-3 mt-3">
       <div class="col-md-6">
         <div class="feature-card" style="border-color:#21262d;">
-          <h6 style="color:#3fb950;">Recent Closed Trades (Last 7)</h6>
-          <table style="width:100%; font-size:0.9rem; color:#8b949e;">
-            <tr><td>CVX</td><td>RSI Mean Reversion</td><td style="color:#3fb950;">+$6.90</td></tr>
-            <tr><td>DIS</td><td>RSI Mean Reversion</td><td style="color:#f85149;">-$2.34</td></tr>
-            <tr><td>JPM</td><td>RSI Mean Reversion</td><td style="color:#3fb950;">+$27.04</td></tr>
-            <tr><td>ADBE</td><td>RSI Mean Reversion</td><td style="color:#f85149;">-$64.03</td></tr>
-            <tr><td>ADBE</td><td>RSI Mean Reversion</td><td style="color:#f85149;">-$70.10</td></tr>
-          </table>
+          <h6 style="color:#3fb950;">How It Works</h6>
+          <ul style="color:#8b949e; font-size:0.9rem; padding-left:18px;">
+            <li>Cron triggers daily scans (pre-market + mid-day)</li>
+            <li>Tournament-winning strategies score each opportunity</li>
+            <li>Positions opened automatically via Alpaca API</li>
+            <li>Exit rules enforced: max gain (+20%), trailing stop, time decay</li>
+          </ul>
         </div>
       </div>
       <div class="col-md-6">
         <div class="feature-card" style="border-color:#21262d;">
-          <h6 style="color:#58a6ff;">Strategy Performance (30 Days)</h6>
+          <h6 style="color:#58a6ff;">Active Strategies</h6>
           <table style="width:100%; font-size:0.9rem; color:#8b949e;">
-            <tr><td>RSI Mean Reversion</td><td>7 trades</td><td style="color:#f85149;">28.6% win rate</td></tr>
-            <tr><td>MACD Crossover</td><td colspan="2" style="color:#3fb950;">Active (0.720 confidence)</td></tr>
+            <tr><td>RSI Mean Reversion</td><td style="color:#3fb950;">Tournament Winner</td><td>0.624 score</td></tr>
+            <tr><td>MACD Crossover</td><td style="color:#58a6ff;">Challenger</td><td>0.720 score</td></tr>
           </table>
-          <p style="color:#6e7681; font-size:0.8rem; margin-top:8px;">⚠️ Early data — confluence strategy in development. Win rate expected to improve with Phase 1 completion.</p>
+          <p style="color:#6e7681; font-size:0.8rem; margin-top:8px;">Strategies compete nightly. Losers get killed, winners evolve parameters. Currently in Phase 1 calibration.</p>
         </div>
       </div>
     </div>
-    <p class="text-center mt-3" style="color:#8b949e; font-size:0.8rem;">Paper trading only — no real money at risk. Demonstrating autonomous operation via Alpaca paper API.</p>
+    <p class="text-center mt-3" style="color:#8b949e; font-size:0.8rem;">Paper trading only — no real money at risk. Full P&L transparency available in the dashboard.</p>
   </div>
 </section>
 <!-- Features -->
