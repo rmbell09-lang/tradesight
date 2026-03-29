@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TradeSight — Self-Hosted AI Trading Strategy Lab</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <meta name="description" content="Build, test, and evolve trading strategies with AI — entirely on your own machine. No cloud subscription. No data leaks. No monthly fees.">
+  <style>
+    body { font-family: system-ui, sans-serif; }
+    .hero { background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1a3a2e 100%); color: white; padding: 80px 0; }
+    .feature-card { border: none; box-shadow: 0 2px 15px rgba(0,0,0,0.08); border-radius: 12px; transition: transform 0.2s; }
+    .feature-card:hover { transform: translateY(-4px); }
+    .install-box { background: #1e1e1e; color: #00ff88; padding: 20px; border-radius: 10px; font-family: monospace; font-size: 0.9rem; }
+    .cta-btn { background: #238636; color: white; padding: 14px 36px; border-radius: 8px; font-size: 1.1rem; font-weight: 600; text-decoration: none; display: inline-block; margin: 8px; }
+    .cta-btn:hover { background: #2ea043; color: white; }
+    .cta-btn-outline { background: transparent; border: 2px solid white; color: white; padding: 12px 34px; border-radius: 8px; font-size: 1.1rem; font-weight: 600; text-decoration: none; display: inline-block; margin: 8px; }
+    .cta-btn-outline:hover { background: white; color: #0d1117; }
+    footer { background: #0d1117; color: #aaa; padding: 40px 0; }
+  </style>
+</head>
+<body>
+<div class="hero text-center">
+  <div class="container">
+    <h1 class="display-4 fw-bold mb-3">&#127919; TradeSight</h1>
+    <p class="lead mb-4">Self-Hosted AI Trading Strategy Lab</p>
+    <p class="fs-5 mb-4 text-white-50">Build, test, and evolve trading strategies with AI &mdash; entirely on your own machine. No cloud subscription. No data leaks. No monthly fees.</p>
+    <div class="mb-4">
+      <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+" class="me-2">
+      <img src="https://img.shields.io/badge/flask-2.3+-green.svg" alt="Flask" class="me-2">
+      <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT" class="me-2">
+      <img src="https://img.shields.io/badge/tests-169%2F169%20passing-brightgreen.svg" alt="Tests" class="me-2">
+      <img src="https://img.shields.io/badge/mode-paper%20trading-orange.svg" alt="Paper Trading" class="me-2">
+    </div>
+    <a href="https://github.com/rmbell09-lang/tradesight" class="cta-btn">&#11088; View on GitHub</a>
+    <a href="https://github.com/rmbell09-lang/tradesight#quick-start" class="cta-btn-outline">Quick Start</a>
+  </div>
+</div>
+
+<div class="container py-5">
+  <h2 class="text-center fw-bold mb-2">Who Is This For?</h2>
+  <p class="text-center text-muted mb-5">Built for traders who want to experiment without risking real money</p>
+  <div class="row g-4">
+    <div class="col-md-3"><div class="feature-card card h-100 p-4 text-center"><div class="fs-2 mb-3">&#129504;</div><h5 class="fw-bold">Algo Trading Hobbyists</h5><p class="text-muted">Test strategies without risking real money</p></div></div>
+    <div class="col-md-3"><div class="feature-card card h-100 p-4 text-center"><div class="fs-2 mb-3">&#128013;</div><h5 class="fw-bold">Python Developers</h5><p class="text-muted">Exploring quantitative finance and AI decision systems</p></div></div>
+    <div class="col-md-3"><div class="feature-card card h-100 p-4 text-center"><div class="fs-2 mb-3">&#128274;</div><h5 class="fw-bold">Privacy-First Traders</h5><p class="text-muted">Your strategies stay on YOUR machine</p></div></div>
+    <div class="col-md-3"><div class="feature-card card h-100 p-4 text-center"><div class="fs-2 mb-3">&#127959;&#65039;</div><h5 class="fw-bold">Makers</h5><p class="text-muted">Building autonomous financial agents</p></div></div>
+  </div>
+</div>
+
+<div class="bg-light py-5">
+  <div class="container">
+    <h2 class="text-center fw-bold mb-5">&#10024; Features</h2>
+    <div class="row g-4">
+      <div class="col-md-4"><div class="feature-card card h-100 p-4"><h5 class="fw-bold">&#129516; AI Strategy Tournaments</h5><p class="text-muted">Automated overnight evolution &mdash; the best strategy wins, the rest are retired. Runs while you sleep.</p></div></div>
+      <div class="col-md-4"><div class="feature-card card h-100 p-4"><h5 class="fw-bold">&#128202; 15+ Technical Indicators</h5><p class="text-muted">MACD, RSI, Bollinger Bands, EMA crossovers, ATR, volume analysis, and more. All built-in.</p></div></div>
+      <div class="col-md-4"><div class="feature-card card h-100 p-4"><h5 class="fw-bold">&#128184; Paper Trading</h5><p class="text-muted">Connect Alpaca paper account &mdash; trade with fake money, track real P&amp;L. Risk-free strategy validation.</p></div></div>
+      <div class="col-md-4"><div class="feature-card card h-100 p-4"><h5 class="fw-bold">&#128200; Backtest Engine</h5><p class="text-muted">Test any strategy against historical data before risking a single dollar.</p></div></div>
+      <div class="col-md-4"><div class="feature-card card h-100 p-4"><h5 class="fw-bold">&#127760; Web Dashboard</h5><p class="text-muted">Local Flask dashboard with real-time P&amp;L, active positions, and strategy leaderboards.</p></div></div>
+      <div class="col-md-4"><div class="feature-card card h-100 p-4"><h5 class="fw-bold">&#128274; Self-Hosted</h5><p class="text-muted">Zero cloud. Zero subscriptions. No API keys leaving your machine. Fully yours.</p></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="container py-5">
+  <h2 class="text-center fw-bold mb-5">Quick Start</h2>
+  <div class="row justify-content-center">
+    <div class="col-md-8">
+      <div class="install-box mb-3">
+        $ git clone https://github.com/rmbell09-lang/tradesight<br>
+        $ cd tradesight<br>
+        $ pip install -r requirements.txt<br>
+        $ cp .env.example .env &nbsp;# add your Alpaca key<br>
+        $ python web/dashboard.py
+      </div>
+      <p class="text-muted text-center">Runs on Python 3.11+. No Docker required. Overnight AI tournaments run automatically.</p>
+    </div>
+  </div>
+</div>
+
+<div class="bg-dark text-white py-5 text-center">
+  <div class="container">
+    <h2 class="fw-bold mb-3">169 tests passing. MIT licensed. Runs overnight.</h2>
+    <p class="lead text-white-50 mb-4">Your strategies. Your machine. Your edge.</p>
+    <a href="https://github.com/rmbell09-lang/tradesight" class="cta-btn">Get TradeSight on GitHub</a>
+  </div>
+</div>
+
+<footer class="text-center">
+  <div class="container">
+    <p>TradeSight is MIT licensed open-source software. <a href="https://github.com/rmbell09-lang/tradesight" class="text-white-50">GitHub</a></p>
+    <p class="small">Not financial advice. Paper trading only by default.</p>
+  </div>
+</footer>
+</body>
+</html>
