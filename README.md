@@ -150,6 +150,17 @@ Real system activity on paper money (transparent dev journal):
 
 ---
 
+
+---
+
+## 💰 Support Development
+
+TradeSight is MIT-licensed and free to use. If it saved you time or you want the packaged strategy lab with setup guide and pre-tuned parameters:
+
+**[Get TradeSight Strategy Lab on Gumroad →](https://qcautonomous.gumroad.com/l/tradesight)** — $49 one-time
+
+Includes: packaged download, setup walkthrough, pre-configured Alpaca integration, and strategy parameter reference.
+
 ## 🔗 Related Projects
 
 | Project | Description |
