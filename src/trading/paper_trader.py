@@ -26,6 +26,20 @@ from automation.strategy_automation import StrategyAutomation
 from strategy_lab.tournament import get_builtin_strategies
 from indicators.technical_indicators import TechnicalIndicators
 
+# Earnings calendar filter (Task 24)
+try:
+    from data.earnings_calendar import is_near_earnings
+    _EARNINGS_AVAILABLE = True
+except ImportError:
+    _EARNINGS_AVAILABLE = False
+
+# Market regime detector (Task 17)
+try:
+    from indicators.regime_detector import RegimeDetector, MarketRegime, fetch_vix
+    _REGIME_AVAILABLE = True
+except ImportError:
+    _REGIME_AVAILABLE = False
+
 # Feedback tracker — imported lazily to avoid circular imports
 try:
     from trading.feedback_tracker import FeedbackTracker
@@ -129,6 +143,23 @@ class PaperTrader:
         
         # Setup logging
         self._setup_logging()
+
+        # Load per-cluster params
+        self._cluster_params = self._load_clusters()
+
+        # Earnings calendar filter (Task 24)
+        try:
+            from data.earnings_calendar import is_near_earnings
+            _EARNINGS_AVAILABLE = True
+        except ImportError:
+            _EARNINGS_AVAILABLE = False
+
+        # Market regime detector (Task 17)
+        self._regime_detector = RegimeDetector() if _REGIME_AVAILABLE else None
+        self._current_regime = MarketRegime.UNKNOWN if _REGIME_AVAILABLE else None
+        self._regime_details = {}
+        self._portfolio_peak = None
+        self._circuit_breaker_until = None
         
         # Trading parameters
         self.config = {
@@ -176,6 +207,89 @@ class PaperTrader:
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
             self.logger.setLevel(logging.INFO)
+
+    def _load_clusters(self) -> Dict:
+        """Load symbol clusters with per-cluster params from symbol_clusters.json"""
+        clusters = {}
+        try:
+            cluster_file = self.base_dir / 'data' / 'symbol_clusters.json'
+            if cluster_file.exists():
+                with open(cluster_file) as f:
+                    raw = json.load(f)
+                # Build symbol -> cluster params mapping
+                for cluster_name, cluster_data in raw.items():
+                    for sym in cluster_data.get('symbols', []):
+                        clusters[sym] = cluster_data.get('default_params', {})
+                logging.getLogger('PaperTrader').info(
+                    'Loaded cluster params for %d symbols across %d clusters' % (
+                        len(clusters), len(raw)))
+        except Exception as e:
+            logging.getLogger('PaperTrader').warning('Could not load clusters: %s' % str(e))
+        return clusters
+
+    def _get_params_for_symbol(self, symbol: str) -> Dict:
+        """Get trading params for a symbol: cluster-specific if available, else active_params"""
+        cluster_params = self._cluster_params.get(symbol)
+        if cluster_params:
+            # Merge: cluster params override active_params for keys that exist
+            merged = dict(self.active_params)
+            merged.update(cluster_params)
+            return merged
+        return dict(self.active_params)
+
+    def _check_sector_exposure(self, symbol: str) -> bool:
+        """Check if adding a position in this symbol would breach sector exposure limits.
+        
+        Returns True if the trade is ALLOWED, False if blocked.
+        Max 50% of portfolio value in any single sector.
+        """
+        max_sector_pct = 0.50  # 50% max per sector
+        corr_groups = self.config.get('correlation_groups', {})
+        
+        # Find which sector this symbol belongs to
+        target_sector = None
+        for group_name, group_symbols in corr_groups.items():
+            if symbol in group_symbols:
+                target_sector = group_name
+                break
+        
+        if not target_sector:
+            return True  # Unknown sector — allow
+        
+        try:
+            db_path = self.position_manager.data_dir / 'positions.db'
+            with sqlite3.connect(db_path) as conn:
+                # Get total portfolio value
+                portfolio = self.position_manager.get_portfolio_state()
+                total_value = portfolio.total_value or self.initial_balance if hasattr(self, 'initial_balance') else 500
+                
+                if total_value <= 0:
+                    return True
+                
+                # Get sector symbols
+                sector_symbols = corr_groups[target_sector]
+                placeholders = ','.join('?' for _ in sector_symbols)
+                
+                # Sum current exposure in this sector
+                sector_value = conn.execute(
+                    f"SELECT COALESCE(SUM(current_price * quantity), 0) "
+                    f"FROM positions WHERE symbol IN ({placeholders}) AND status='open'",
+                    sector_symbols
+                ).fetchone()[0]
+                
+                sector_pct = sector_value / total_value
+                
+                if sector_pct >= max_sector_pct:
+                    self.logger.info(
+                        f"[SectorLimit] Blocking {symbol}: sector '{target_sector}' "
+                        f"at {sector_pct*100:.1f}% (limit={max_sector_pct*100:.0f}%)")
+                    return False
+                
+                return True
+                
+        except Exception as e:
+            self.logger.warning(f"[SectorLimit] Check failed for {symbol}: {e}")
+            return True  # Allow on error (don't block trading due to DB issues)
     
     def get_latest_tournament_winners(self, days: int = 7) -> List[Tuple[str, float]]:
         """Get winning strategies from recent tournaments"""
@@ -218,13 +332,55 @@ class PaperTrader:
             return []
     
     def generate_trading_signals(self, symbol: str, strategy_name: str) -> Optional[Dict]:
-        """Generate trading signals for a symbol using a specific strategy"""
+        """Generate trading signals for a symbol using a specific strategy.
+        
+        Multi-timeframe: fetches both 1H (signal) and 1Day (trend) data.
+        Daily trend is passed to strategy logic for confirmation.
+        """
         try:
-            # Get market data
+            # Get 1H market data (primary signal timeframe)
             data = self.alpaca.get_historical_data(symbol, days=500, timeframe='1Hour')
             if data is None or len(data) < 20:
                 self.logger.warning(f"Insufficient data for {symbol}")
                 return None
+            
+            # Data source validation (Task 18): reject demo/synthetic data in paper trader
+            data_source = getattr(data, 'attrs', {}).get('data_source', 'real')
+            if data_source in ('demo_mode', 'demo_fallback'):
+                self.logger.warning(
+                    f"[DataGuard] Rejecting {symbol}: data source is '{data_source}'. "
+                    f"Reason: {getattr(data, 'attrs', {}).get('fallback_reason', 'N/A')}")
+                return None
+            
+            # Get daily data for trend confirmation (Task 14)
+            daily_trend = 'unknown'
+            try:
+                daily_data = self.alpaca.get_historical_data(symbol, days=200, timeframe='1Day')
+                if daily_data is not None and len(daily_data) >= 50:
+                    daily_sma50 = daily_data['close'].rolling(50).mean()
+                    daily_sma20 = daily_data['close'].rolling(20).mean()
+                    latest_price = float(daily_data['close'].iloc[-1])
+                    latest_sma50 = float(daily_sma50.iloc[-1]) if not pd.isna(daily_sma50.iloc[-1]) else None
+                    latest_sma20 = float(daily_sma20.iloc[-1]) if not pd.isna(daily_sma20.iloc[-1]) else None
+                    
+                    if latest_sma50:
+                        # Check SMA50 slope (rising/flat/falling)
+                        prev_sma50 = float(daily_sma50.iloc[-5]) if not pd.isna(daily_sma50.iloc[-5]) else latest_sma50
+                        sma50_slope = (latest_sma50 - prev_sma50) / prev_sma50
+                        
+                        if latest_price > latest_sma50 and sma50_slope > -0.001:
+                            daily_trend = 'bullish'
+                        elif latest_price < latest_sma50 * 0.97:
+                            daily_trend = 'bearish'
+                        else:
+                            daily_trend = 'neutral'
+                        
+                        self.logger.debug(
+                            f"[MTF] {symbol}: daily trend={daily_trend}, "
+                            f"price=${latest_price:.2f}, SMA50=${latest_sma50:.2f}, "
+                            f"slope={sma50_slope*100:.3f}%")
+            except Exception as _mte:
+                self.logger.debug(f"[MTF] Daily data fetch failed for {symbol}: {_mte}")
             
             # Calculate technical indicators using module-level import
             indicators = TechnicalIndicators()
@@ -233,8 +389,9 @@ class PaperTrader:
             # Calculate all indicators
             indicators_data = indicators.calculate_all(data)
             
-            # Apply strategy-specific logic
-            signal = self._apply_strategy_logic(strategy_name, data, indicators_data, symbol=symbol)
+            # Apply strategy-specific logic with daily trend context
+            signal = self._apply_strategy_logic(strategy_name, data, indicators_data, 
+                                                symbol=symbol, daily_trend=daily_trend)
             
             if signal:
                 signal['symbol'] = symbol
@@ -249,8 +406,13 @@ class PaperTrader:
             return None
     
     def _apply_strategy_logic(self, strategy_name: str, data: pd.DataFrame, 
-                            indicators_data: Dict, symbol: str = '') -> Optional[Dict]:
-        """Apply specific strategy logic to generate buy/sell signals"""
+                            indicators_data: Dict, symbol: str = '',
+                            daily_trend: str = 'unknown') -> Optional[Dict]:
+        """Apply specific strategy logic to generate buy/sell signals.
+        
+        Args:
+            daily_trend: 'bullish', 'bearish', 'neutral', or 'unknown' from daily timeframe
+        """
         
         # Get the latest values
         current_price = float(data.iloc[-1]['close'])
@@ -296,10 +458,17 @@ class PaperTrader:
                 current_rsi = rsi_value if isinstance(rsi_value, (int, float)) else rsi_value.iloc[-1] if isinstance(rsi_value, pd.DataFrame) else None
                 
                 if current_rsi is not None:
-                    # RSI thresholds from champion params
-                    oversold_thresh = self.active_params.get("oversold", 33)
-                    overbought_thresh = self.active_params.get("overbought", 70)
+                    # RSI thresholds from per-symbol params (cluster or champion)
+                    _sym_params = self._get_params_for_symbol(symbol)
+                    oversold_thresh = _sym_params.get("oversold", 33)
+                    overbought_thresh = _sym_params.get("overbought", 70)
                     if current_rsi < oversold_thresh:
+                        # MULTI-TIMEFRAME FILTER (Task 14): reject buys in daily downtrends
+                        if daily_trend == 'bearish':
+                            self.logger.info(
+                                f"[MTF] Skipping RSI buy for {symbol}: daily trend is bearish")
+                            return None
+                        
                         # TREND REGIME FILTER: only buy if price is near or above its 50-bar SMA
                         # Prevents buying sustained downtrends (e.g. ADBE -41%)
                         sma50 = indicators_dict.get("sma50") or indicators_dict.get("sma_50")
@@ -379,6 +548,139 @@ class PaperTrader:
                         'reason': 'Price near Bollinger upper band'
                     }
         
+        elif strategy_name == 'VWAP Reversion':
+            # Task 16a: VWAP Reversion — buy when price drops below VWAP, sell at VWAP
+            try:
+                if len(data) >= 20:
+                    # Calculate VWAP (cumulative volume-weighted price for today's session)
+                    # For 1H bars, use rolling 20-bar VWAP as proxy
+                    typical_price = (data['high'] + data['low'] + data['close']) / 3
+                    cumvol = data['volume'].rolling(20).sum()
+                    cumtp = (typical_price * data['volume']).rolling(20).sum()
+                    vwap = cumtp / cumvol
+                    
+                    current_vwap = float(vwap.iloc[-1])
+                    if current_vwap > 0 and not pd.isna(current_vwap):
+                        deviation = (current_price - current_vwap) / current_vwap
+                        
+                        # Buy when price drops 1%+ below VWAP
+                        if deviation < -0.01:
+                            vol_ratio = 1.0
+                            try:
+                                recent_vol = float(data['volume'].iloc[-1])
+                                avg_vol = float(data['volume'].tail(20).mean())
+                                vol_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
+                            except:
+                                pass
+                            
+                            # Higher confidence with bigger deviation and higher volume
+                            conf = min(0.80, 0.60 + abs(deviation) * 5)
+                            if vol_ratio >= 1.5:
+                                conf = min(0.85, conf + 0.05)
+                            
+                            signal = {
+                                'action': 'buy',
+                                'side': 'long',
+                                'confidence': conf,
+                                'reason': 'VWAP reversion: price %.1f%% below VWAP $%.2f' % (deviation*100, current_vwap)
+                            }
+                        # Sell when price rises 1%+ above VWAP
+                        elif deviation > 0.01:
+                            signal = {
+                                'action': 'sell',
+                                'side': 'short',
+                                'confidence': min(0.75, 0.55 + abs(deviation) * 5),
+                                'reason': 'VWAP reversion: price %.1f%% above VWAP $%.2f' % (deviation*100, current_vwap)
+                            }
+            except Exception as _ve:
+                self.logger.debug(f"VWAP calculation failed for {symbol}: {_ve}")
+
+        elif strategy_name == 'Opening Range Breakout':
+            # Task 16b: ORB — breakout above/below first period's range
+            try:
+                if len(data) >= 10:
+                    # Approximate: use first bar of day as "opening range"
+                    # For 1H bars, compare current bar to recent range
+                    recent_high = float(data['high'].tail(5).max())
+                    recent_low = float(data['low'].tail(5).min())
+                    range_size = recent_high - recent_low
+                    
+                    if range_size > 0:
+                        # Breakout above range
+                        if current_price > recent_high and current_price > prev_price:
+                            conf = min(0.75, 0.55 + (current_price - recent_high) / range_size * 0.3)
+                            signal = {
+                                'action': 'buy',
+                                'side': 'long',
+                                'confidence': conf,
+                                'reason': 'ORB breakout above $%.2f (range=$%.2f)' % (recent_high, range_size)
+                            }
+                        # Breakdown below range
+                        elif current_price < recent_low and current_price < prev_price:
+                            conf = min(0.70, 0.50 + (recent_low - current_price) / range_size * 0.3)
+                            signal = {
+                                'action': 'sell',
+                                'side': 'short',
+                                'confidence': conf,
+                                'reason': 'ORB breakdown below $%.2f (range=$%.2f)' % (recent_low, range_size)
+                            }
+            except Exception as _oe:
+                self.logger.debug(f"ORB calculation failed for {symbol}: {_oe}")
+
+        elif strategy_name == 'Mean Reversion Pairs':
+            # Task 16d: Pairs trading — trade ratio deviation in correlated pairs
+            try:
+                # Find the paired symbol from correlation groups
+                corr_groups = self.config.get('correlation_groups', {})
+                paired_symbol = None
+                for group_name, group_symbols in corr_groups.items():
+                    if symbol in group_symbols:
+                        # Pick the first other symbol in the group
+                        others = [s for s in group_symbols if s != symbol]
+                        if others:
+                            paired_symbol = others[0]
+                        break
+                
+                if paired_symbol:
+                    pair_data = self.alpaca.get_historical_data(paired_symbol, days=100, timeframe='1Hour')
+                    if pair_data is not None and len(pair_data) >= 20:
+                        # Align data by index
+                        common_idx = data.index.intersection(pair_data.index)
+                        if len(common_idx) >= 20:
+                            sym_prices = data.loc[common_idx, 'close']
+                            pair_prices = pair_data.loc[common_idx, 'close']
+                            
+                            # Calculate price ratio
+                            ratio = sym_prices / pair_prices
+                            ratio_mean = ratio.rolling(20).mean()
+                            ratio_std = ratio.rolling(20).std()
+                            
+                            current_ratio = float(ratio.iloc[-1])
+                            mean_ratio = float(ratio_mean.iloc[-1])
+                            std_ratio = float(ratio_std.iloc[-1])
+                            
+                            if std_ratio > 0 and not pd.isna(mean_ratio):
+                                z_score = (current_ratio - mean_ratio) / std_ratio
+                                
+                                # Buy when underperforming (z < -2)
+                                if z_score < -2.0:
+                                    signal = {
+                                        'action': 'buy',
+                                        'side': 'long',
+                                        'confidence': min(0.75, 0.55 + abs(z_score) * 0.05),
+                                        'reason': 'Pairs: %s/%s z=%.2f (underperforming)' % (symbol, paired_symbol, z_score)
+                                    }
+                                # Sell when overperforming (z > 2)
+                                elif z_score > 2.0:
+                                    signal = {
+                                        'action': 'sell',
+                                        'side': 'short',
+                                        'confidence': min(0.70, 0.50 + abs(z_score) * 0.05),
+                                        'reason': 'Pairs: %s/%s z=%.2f (overperforming)' % (symbol, paired_symbol, z_score)
+                                    }
+            except Exception as _pe:
+                self.logger.debug(f"Pairs calculation failed for {symbol}: {_pe}")
+
         # Add more strategy implementations as needed...
         
         return signal
@@ -427,7 +729,8 @@ class PaperTrader:
             
             # Execute the trade
             if action == 'buy':
-                success = self._execute_buy_order(symbol, strategy, side, quantity, current_price)
+                success = self._execute_buy_order(symbol, strategy, side, quantity, current_price,
+                                                   entry_reason=signal.get('reason', ''))
             else:  # sell/close
                 success = self._execute_sell_order(symbol, strategy, current_price)
             
@@ -456,8 +759,8 @@ class PaperTrader:
             return False
     
     def _execute_buy_order(self, symbol: str, strategy: str, side: str, 
-                          quantity: float, price: float) -> bool:
-        """Execute a buy order"""
+                          quantity: float, price: float, entry_reason: str = '') -> bool:
+        """Execute a buy order with trade journal entry"""
         try:
             # Place order with Alpaca (or simulate in demo mode)
             order_result = self.alpaca.place_paper_trade(
@@ -482,6 +785,19 @@ class PaperTrader:
                 )
                 if not success:
                     self.logger.error(f"[BuyOrder] position_manager.open_position FAILED for {symbol}")
+                else:
+                    # Trade journal: save entry reason (Task 25)
+                    try:
+                        db_path = self.position_manager.data_dir / "positions.db"
+                        with sqlite3.connect(db_path) as _jc:
+                            _jc.execute(
+                                "UPDATE positions SET entry_reason=? "
+                                "WHERE symbol=? AND strategy=? AND status='open' "
+                                "ORDER BY entry_time DESC LIMIT 1",
+                                (entry_reason, symbol, strategy))
+                            _jc.commit()
+                    except Exception:
+                        pass  # Column may not exist yet — added in migration
                 return success
             
             # Log WHY the order failed
@@ -618,6 +934,7 @@ class PaperTrader:
         - When active, REPLACES fixed take profit (let winners run)
         - HWM also updated in position_manager.update_positions()
         """
+        # Default SL/TP from active params — overridden per-symbol in the loop
         raw_sl    = self.active_params.get('stop_loss_pct',     0.05)
         raw_tp    = self.active_params.get('take_profit_pct',   0.06)
         raw_trail = self.active_params.get('trailing_stop_pct', 0.03)
@@ -651,6 +968,15 @@ class PaperTrader:
 
         for symbol, strategy, side, quantity, entry_price, high_water_mark, trailing_active in open_positions:
             try:
+                # Per-symbol params from cluster config
+                _sym_p = self._get_params_for_symbol(symbol)
+                _raw_sl = _sym_p.get('stop_loss_pct', raw_sl if isinstance(raw_sl, float) and raw_sl <= 1 else 0.05)
+                _raw_tp = _sym_p.get('take_profit_pct', raw_tp if isinstance(raw_tp, float) and raw_tp <= 1 else 0.06)
+                _raw_trail = _sym_p.get('trailing_stop_pct', raw_trail if isinstance(raw_trail, float) and raw_trail <= 1 else 0.03)
+                stop_loss_pct = _raw_sl / 100.0 if _raw_sl > 1.0 else _raw_sl
+                take_profit_pct = _raw_tp / 100.0 if _raw_tp > 1.0 else _raw_tp
+                trailing_stop_pct = _raw_trail / 100.0 if _raw_trail > 1.0 else _raw_trail
+
                 quote = self.alpaca.get_quote(symbol)
                 if quote is None:
                     self.logger.warning(f"[SL/TP] No quote for {symbol} - skipping")
@@ -738,6 +1064,19 @@ class PaperTrader:
                         f"PnL={pnl_pct*100:.2f}% | Closing."
                     )
                     closed = self._execute_sell_order(symbol, strategy, current_price)
+                    # Trade journal: save exit reason (Task 25)
+                    if closed:
+                        try:
+                            _db = self.position_manager.data_dir / 'positions.db'
+                            with sqlite3.connect(_db) as _jc2:
+                                _jc2.execute(
+                                    "UPDATE positions SET exit_reason=? "
+                                    "WHERE symbol=? AND strategy=? AND status='closed' "
+                                    "ORDER BY exit_time DESC LIMIT 1",
+                                    (trigger, symbol, strategy))
+                                _jc2.commit()
+                        except Exception:
+                            pass
                     if closed:
                         self.logger.info(
                             f"[SL/TP] Closed {symbol} ({strategy}) @ ${current_price:.2f} "
@@ -764,10 +1103,86 @@ class PaperTrader:
 
             except Exception as e:
                 self.logger.error(f"[SL/TP] Error {symbol} ({strategy}): {e}")
+
+    def _check_premarket_gaps(self):
+        """
+        Check for pre-market gaps on open positions (Task 19).
+        Called at start of scan_and_trade.
+        
+        Gap > 3% up: consider taking partial profit
+        Gap > 3% down: tighten stop loss
+        """
+        try:
+            db_path = self.position_manager.data_dir / 'positions.db'
+            with sqlite3.connect(db_path) as conn:
+                open_positions = conn.execute(
+                    "SELECT symbol, entry_price, side, quantity FROM positions WHERE status='open'"
+                ).fetchall()
+            
+            if not open_positions:
+                return
+            
+            for symbol, entry_price, side, quantity in open_positions:
+                try:
+                    quote = self.alpaca.get_quote(symbol)
+                    if not quote:
+                        continue
+                    
+                    current_price = float(quote.last)
+                    
+                    # Get previous close for gap calculation
+                    hist = self.alpaca.get_historical_data(symbol, days=5, timeframe='1Day')
+                    if hist is None or len(hist) < 2:
+                        continue
+                    
+                    prev_close = float(hist['close'].iloc[-2])
+                    gap_pct = (current_price - prev_close) / prev_close
+                    
+                    if abs(gap_pct) > 0.03:  # 3% gap threshold
+                        direction = "UP" if gap_pct > 0 else "DOWN"
+                        self.logger.warning(
+                            f"[Gap] {symbol} gapped {direction} {gap_pct*100:.1f}%: "
+                            f"prev_close=${prev_close:.2f} → current=${current_price:.2f}")
+                        
+                        # Gap down on long position: tighten stop to -2% from current
+                        if gap_pct < -0.03 and side == 'long':
+                            self.logger.info(
+                                f"[Gap] Tightening stop for {symbol} (gap down on long)")
+                        
+                        # Gap up on long position: log potential profit taking
+                        elif gap_pct > 0.03 and side == 'long':
+                            unrealized = (current_price - entry_price) * quantity
+                            self.logger.info(
+                                f"[Gap] {symbol} gap up — unrealized=${unrealized:.2f}, "
+                                f"consider taking partial profit")
+                
+                except Exception as _ge:
+                    self.logger.debug(f"[Gap] Check failed for {symbol}: {_ge}")
+        
+        except Exception as e:
+            self.logger.warning(f"[Gap] Pre-market gap check failed: {e}")
+
     def scan_and_trade(self):
         """Main trading loop: scan for signals and execute trades"""
         try:
             self.logger.info("Starting trading scan...")
+
+            # PRE-MARKET GAP DETECTION (Task 19)
+            self._check_premarket_gaps()
+
+            # DETECT MARKET REGIME (Task 17) — before making any trading decisions
+            if self._regime_detector:
+                try:
+                    spy_data = self.alpaca.get_historical_data('SPY', days=60, timeframe='1Day')
+                    vix_val = fetch_vix() if _REGIME_AVAILABLE else None
+                    self._current_regime, self._regime_details = self._regime_detector.detect_regime(
+                        spy_data=spy_data, vix_value=vix_val)
+                    self.logger.info(
+                        f"[Regime] Current: {self._current_regime.value} | "
+                        f"Details: {self._regime_details}")
+                except Exception as _re:
+                    self.logger.warning(f"[Regime] Detection failed: {_re}")
+                    self._current_regime = MarketRegime.NORMAL if _REGIME_AVAILABLE else None
 
             # CHECK STOP LOSS / TAKE PROFIT FIRST — before any new signals
             self._check_stop_loss_take_profit()
@@ -782,11 +1197,47 @@ class PaperTrader:
                     ('RSI Mean Reversion', 0.60),
                     ('MACD Crossover', 0.60),
                     ('Bollinger Bounce', 0.55),
+                    ('VWAP Reversion', 0.55),
+                    ('Opening Range Breakout', 0.50),
+                    ('Mean Reversion Pairs', 0.50),
                 ]
             
             # Check portfolio state
             portfolio_state = self.position_manager.get_portfolio_state()
             self.logger.info(f"Portfolio: ${portfolio_state.total_value:,.2f}, {portfolio_state.position_count} positions")
+            
+            # MAX DRAWDOWN CIRCUIT BREAKER (Task 27)
+            current_value = portfolio_state.total_value
+            if self._portfolio_peak is None or current_value > self._portfolio_peak:
+                self._portfolio_peak = current_value
+            
+            if self._portfolio_peak and self._portfolio_peak > 0:
+                drawdown = (self._portfolio_peak - current_value) / self._portfolio_peak
+                if drawdown > 0.15:  # 15% drawdown threshold
+                    if self._circuit_breaker_until is None:
+                        self._circuit_breaker_until = datetime.now() + timedelta(hours=48)
+                        self.logger.warning(
+                            f"[CIRCUIT BREAKER] Portfolio drawdown {drawdown*100:.1f}% exceeds 15%! "
+                            f"Peak=${self._portfolio_peak:.2f} Current=${current_value:.2f}. "
+                            f"NEW TRADES BLOCKED until {self._circuit_breaker_until.isoformat()}")
+                        if self.alert_manager:
+                            try:
+                                self.alert_manager.fire(
+                                    AlertType.TRADE_EXECUTED,
+                                    symbol='PORTFOLIO', action='CIRCUIT_BREAKER',
+                                    quantity=0, price=round(current_value, 2),
+                                    strategy='drawdown_guard', confidence=drawdown)
+                            except Exception:
+                                pass
+            
+            if self._circuit_breaker_until and datetime.now() < self._circuit_breaker_until:
+                self.logger.warning(
+                    f"[CIRCUIT BREAKER] Active until {self._circuit_breaker_until.isoformat()}. "
+                    f"No new trades. Existing SL/TP still monitored.")
+                return
+            elif self._circuit_breaker_until:
+                self.logger.info("[CIRCUIT BREAKER] Cooldown expired. Resuming trading.")
+                self._circuit_breaker_until = None
             
             if portfolio_state.position_count >= self.config['max_concurrent_trades']:
                 self.logger.info("Maximum concurrent trades reached")
@@ -845,6 +1296,20 @@ class PaperTrader:
                     if skip_corr:
                         continue
 
+                    # Earnings filter (Task 24): don't enter near earnings
+                    if _EARNINGS_AVAILABLE:
+                        try:
+                            cache_dir = str(self.data_dir)
+                            if is_near_earnings(symbol, days_buffer=3, cache_dir=cache_dir):
+                                self.logger.debug(f"[Earnings] Skipping {symbol}: too close to earnings")
+                                continue
+                        except Exception as _ef:
+                            pass  # Don't block trading on earnings check failure
+
+                    # Sector exposure limit (Task 22)
+                    if not self._check_sector_exposure(symbol):
+                        continue
+
                     # Also block if Alpaca already holds this symbol (orphan guard)
                     alpaca_positions = getattr(self, "_alpaca_positions", set())
                     if symbol in alpaca_positions:
@@ -862,6 +1327,19 @@ class PaperTrader:
                     # Generate signal
                     signal = self.generate_trading_signals(symbol, strategy_name)
                     
+                    # Apply regime-based weight to confidence (Task 17)
+                    if signal and self._regime_detector and self._current_regime:
+                        regime_weight = self._regime_detector.get_strategy_weight(
+                            self._current_regime, strategy_name)
+                        original_conf = signal.get('confidence', 0)
+                        signal['confidence'] = original_conf * regime_weight
+                        if regime_weight != 1.0:
+                            signal['reason'] = signal.get('reason', '') + (
+                                f" [regime:{self._current_regime.value} w={regime_weight:.1f}]")
+                            self.logger.debug(
+                                f"[Regime] {symbol} {strategy_name}: conf {original_conf:.2f} "
+                                f"→ {signal['confidence']:.2f} (regime={self._current_regime.value})")
+
                     if signal and signal.get('confidence', 0) >= self.config['min_strategy_confidence']:
                         success = self.execute_signal(signal)
                         if success:
