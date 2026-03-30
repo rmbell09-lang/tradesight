@@ -3,6 +3,12 @@ import os
 import logging
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent.parent / ".env")
+except ImportError:
+    pass
+
 # Import keychain utilities — try absolute first (standalone script), then relative (package)
 try:
     try:

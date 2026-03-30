@@ -1717,7 +1717,7 @@ def run_paper_trader_test():
     
     try:
         # Initialize paper trader
-        trader = PaperTrader(base_dir=temp_dir)
+        import config; trader = PaperTrader(base_dir=temp_dir, alpaca_api_key=config.ALPACA_API_KEY, alpaca_secret=config.ALPACA_SECRET_KEY)
         
         print("✅ Paper trader initialized")
         
