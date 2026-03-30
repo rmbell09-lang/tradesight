@@ -192,6 +192,16 @@ class BacktestEngine:
         df['bb_upper'] = df['bb_middle'] + (2 * bb_std)
         df['bb_lower'] = df['bb_middle'] - (2 * bb_std)
         
+        # ATR (Average True Range) — volatility measure for dynamic stops
+        high_low = df['high'] - df['low']
+        high_close = (df['high'] - df['close'].shift(1)).abs()
+        low_close = (df['low'] - df['close'].shift(1)).abs()
+        true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        df['atr_14'] = true_range.rolling(14).mean()
+        
+        # Volume SMA for volume confirmation
+        df['volume_sma_20'] = df['volume'].rolling(20).mean()
+        
         return df
     
     def _execute_signal(self, signal: Dict, bar: pd.Series, bar_index: int):

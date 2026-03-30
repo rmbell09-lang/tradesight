@@ -113,6 +113,20 @@ class PaperTrader:
         else:
             self.alpaca = AlpacaClient()  # Demo mode
         
+        # Load per-symbol OOS performance (from optimizer)
+        self._symbol_performance = {}
+        try:
+            perf_file = self.base_dir / 'data' / 'symbol_performance.json'
+            if perf_file.exists():
+                with open(perf_file) as f:
+                    self._symbol_performance = json.load(f)
+                logging.getLogger('PaperTrader').info(
+                    'Loaded symbol performance: %d symbols, %d tradeable' % (
+                        len(self._symbol_performance),
+                        sum(1 for v in self._symbol_performance.values() if v.get('tradeable', True))))
+        except Exception as _spe:
+            logging.getLogger('PaperTrader').warning('Could not load symbol performance: %s' % str(_spe))
+        
         # Setup logging
         self._setup_logging()
         
@@ -138,7 +152,17 @@ class PaperTrader:
             'position_hold_days': 5,          # Hold positions 1-5 days (swing trade)
             'min_hold_hours': 24,             # MINIMUM 24hr hold - prevents day trades (PDT)
             'max_unrealized_gain_pct': 0.20,  # Auto-close at +20% unrealized gain
-            'rebalance_frequency_days': 7     # Rebalance weekly
+            'rebalance_frequency_days': 7,    # Rebalance weekly
+            # Correlation groups — max 2 positions per group
+            'correlation_groups': {
+                'broad_market': ['SPY', 'QQQ'],
+                'tech': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META'],
+                'financials': ['JPM', 'BAC', 'V', 'MA'],
+                'healthcare': ['JNJ', 'PFE'],
+                'energy': ['XOM', 'CVX'],
+                'consumer': ['WMT', 'COST', 'HD', 'KO', 'DIS'],
+            },
+            'max_per_correlation_group': 2
         }
     
     def _setup_logging(self):
@@ -289,11 +313,35 @@ class PaperTrader:
                                     in_downtrend = True
                                     self.logger.info(f"[TrendFilter] Skipping RSI buy for {symbol}: price {price_val:.2f} < SMA50 {sma50_val:.2f} * 0.97 (downtrend)")
                         if not in_downtrend:
+                            # VOLUME CONFIRMATION: adjust confidence based on volume
+                            # High volume = more conviction (capitulation). Low = drift.
+                            vol_boost = 0.0
+                            vol_tag = ""
+                            try:
+                                if len(data) > 20:
+                                    recent_vol = float(data.iloc[-1].get('volume', 0) if hasattr(data.iloc[-1], 'get') else data['volume'].iloc[-1])
+                                    avg_vol = float(data['volume'].tail(20).mean())
+                                    if avg_vol > 0:
+                                        vol_ratio = recent_vol / avg_vol
+                                        if vol_ratio >= 1.5:
+                                            vol_boost = 0.05  # High volume = capitulation
+                                            vol_tag = ", high vol"
+                                        elif vol_ratio >= 1.2:
+                                            vol_boost = 0.02
+                                            vol_tag = ", vol confirmed"
+                                        elif vol_ratio < 0.5:
+                                            vol_boost = -0.10  # Very low = reduce confidence
+                                            vol_tag = ", LOW vol"
+                            except Exception:
+                                pass  # Volume data unavailable — no adjustment
+                            
+                            base_conf = min(0.80, (oversold_thresh - current_rsi) / oversold_thresh + 0.60)
+                            adj_conf = max(0.50, min(0.85, base_conf + vol_boost))
                             signal = {
                                 "action": "buy",
                                 "side": "long",
-                                "confidence": min(0.80, (oversold_thresh - current_rsi) / oversold_thresh + 0.60),
-                                "reason": f"RSI oversold: {current_rsi:.1f}"
+                                "confidence": adj_conf,
+                                "reason": "RSI oversold: %.1f%s" % (current_rsi, vol_tag)
                             }
                     # Overbought condition
                     elif current_rsi > overbought_thresh:
@@ -770,11 +818,45 @@ class PaperTrader:
                     existing_positions = self._check_existing_position(symbol, strategy_name)
                     if existing_positions:
                         continue
+                    
+                    # Correlation guard: max positions per correlated group
+                    corr_groups = self.config.get('correlation_groups', {})
+                    max_per_group = self.config.get('max_per_correlation_group', 2)
+                    skip_corr = False
+                    for group_name, group_symbols in corr_groups.items():
+                        if symbol in group_symbols:
+                            # Count open positions in this group
+                            try:
+                                db_path = self.position_manager.data_dir / 'positions.db'
+                                with sqlite3.connect(db_path) as _cconn:
+                                    placeholders = ','.join('?' for _ in group_symbols)
+                                    group_count = _cconn.execute(
+                                        "SELECT COUNT(*) FROM positions WHERE symbol IN (%s) AND status='open'" % placeholders,
+                                        group_symbols
+                                    ).fetchone()[0]
+                                if group_count >= max_per_group:
+                                    self.logger.debug(
+                                        "[CorrGuard] Skipping %s: group '%s' has %d/%d positions" % (
+                                            symbol, group_name, group_count, max_per_group))
+                                    skip_corr = True
+                            except Exception as _cge:
+                                pass
+                            break
+                    if skip_corr:
+                        continue
 
                     # Also block if Alpaca already holds this symbol (orphan guard)
                     alpaca_positions = getattr(self, "_alpaca_positions", set())
                     if symbol in alpaca_positions:
-                        self.logger.debug(f"Skipping {symbol}: Alpaca already holds position (orphan guard)")
+                        self.logger.debug("Skipping %s: Alpaca already holds position (orphan guard)" % symbol)
+                        continue
+                    
+                    # Skip symbols that lose money in OOS validation
+                    sym_perf = self._symbol_performance.get(symbol, {})
+                    if sym_perf and not sym_perf.get('tradeable', True):
+                        self.logger.debug(
+                            "Skipping %s: OOS P&L=%.1f%% (not tradeable)" % (
+                                symbol, sym_perf.get('oos_pnl_pct', 0)))
                         continue
                     
                     # Generate signal
@@ -878,6 +960,30 @@ class PaperTrader:
             
             # Position performance
             report_lines.append(position_report)
+            
+            # Recent closed trades from DB (last 7 days)
+            try:
+                db_path = self.position_manager.data_dir / 'positions.db'
+                cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+                with sqlite3.connect(db_path) as conn:
+                    closed = conn.execute(
+                        "SELECT symbol, side, entry_price, exit_price, realized_pnl, strategy, exit_time "
+                        "FROM positions WHERE status='closed' AND exit_time > ? "
+                        "ORDER BY exit_time DESC LIMIT 10",
+                        (cutoff,)
+                    ).fetchall()
+                if closed:
+                    report_lines.append("")
+                    report_lines.append("📉 Recently Closed Trades (Last 7 Days)")
+                    report_lines.append("-" * 40)
+                    for sym, side, entry, exit_p, pnl, strat, exit_t in closed:
+                        exit_str = "$%.2f" % exit_p if exit_p else "N/A"
+                        pnl_str = "$%.2f" % pnl if pnl else "$0.00"
+                        report_lines.append(
+                            "%s %s: entry=$%.2f exit=%s P&L=%s (%s)" % (
+                                sym, side, entry or 0, exit_str, pnl_str, strat))
+            except Exception as _rpe:
+                self.logger.warning("Could not fetch closed trades for report: %s" % str(_rpe))
             
             return "\n".join(report_lines)
             
@@ -996,23 +1102,47 @@ class PaperTrader:
         This handles the case where Alpaca closes a position externally
         (stop-loss triggered, manual close, etc.) but local DB still shows open.
         Stale open positions block orphan detection and skew portfolio reporting.
+        Now fetches current price for proper P&L calculation instead of NULL exit.
         """
         try:
             db_path = self.position_manager.data_dir / 'positions.db'
             with sqlite3.connect(db_path) as conn:
                 local_open = conn.execute(
-                    "SELECT id, symbol FROM positions WHERE status='open'"
+                    "SELECT id, symbol, entry_price, quantity, side FROM positions WHERE status='open'"
                 ).fetchall()
-                stale = [(row[0], row[1]) for row in local_open if row[1] not in remote_symbols]
+                stale = [(row[0], row[1], row[2], row[3], row[4])
+                         for row in local_open if row[1] not in remote_symbols]
                 if stale:
-                    for pos_id, sym in stale:
+                    for pos_id, sym, entry_price, quantity, side in stale:
+                        # Fetch current price for proper exit price
+                        exit_price = None
+                        try:
+                            quote = self.alpaca.get_quote(sym)
+                            if quote and quote.last and quote.last > 0:
+                                exit_price = float(quote.last)
+                        except Exception as qe:
+                            self.logger.warning(
+                                "[StaleSync] Could not get quote for %s: %s" % (sym, qe))
+                        
+                        # Calculate realized P&L
+                        realized_pnl = 0.0
+                        if exit_price and entry_price and quantity:
+                            if side == 'long':
+                                realized_pnl = (exit_price - entry_price) * quantity
+                            else:
+                                realized_pnl = (entry_price - exit_price) * quantity
+                        
+                        exit_str = "$%.2f" % exit_price if exit_price else "unknown"
                         self.logger.warning(
-                            "[StaleSync] Closing local position %s (id=%d) — no longer in Alpaca." % (sym, pos_id)
-                        )
+                            "[StaleSync] Closing local position %s (id=%d) — "
+                            "no longer in Alpaca. Exit=%s PnL=$%.2f" % (
+                                sym, pos_id, exit_str, realized_pnl))
+                        
                         conn.execute(
                             "UPDATE positions SET status='closed', exit_time=?, "
-                            "updated_at=? WHERE id=?",
-                            (datetime.now().isoformat(), datetime.now().isoformat(), pos_id)
+                            "exit_price=?, realized_pnl=?, updated_at=? WHERE id=?",
+                            (datetime.now().isoformat(), exit_price, realized_pnl,
+                             datetime.now().isoformat(), pos_id)
                         )
                     conn.commit()
                     self.logger.info("[StaleSync] Closed %d stale position(s): %s" % (
@@ -1043,29 +1173,46 @@ class PaperTrader:
             with open(report_file, 'w') as f:
                 f.write(report)
             
-            # --- FEEDBACK LOOP ---
+            # --- FEEDBACK LOOP (per-trade, not per-scan) ---
+            # Only log feedback when trades were actually CLOSED in this session.
+            # Previous bug: logged cumulative portfolio P&L on every 15-min scan,
+            # producing garbage data (same P&L repeated 26x/day).
             if self.feedback and self.active_params:
                 try:
-                    portfolio = self.position_manager.get_portfolio_state()
-                    pnl_pct = (portfolio.total_pnl / max(portfolio.total_value - portfolio.total_pnl, 1)) * 100
-                    perf = self.position_manager.get_performance_report(days=1)
-                    # Parse win rate from report text (rough)
-                    win_rate = 0.0
-                    for line in perf.splitlines():
-                        if 'win rate' in line.lower():
-                            try:
-                                win_rate = float(line.split(':')[-1].strip().rstrip('%')) / 100
-                            except Exception:
-                                pass
-                    self.feedback.log_session(
-                        params=self.active_params,
-                        pnl=pnl_pct,
-                        trades_opened=getattr(portfolio, 'position_count', 0),
-                        win_rate=win_rate
-                    )
-                    self.logger.info(f"Feedback logged: P&L={pnl_pct:.2f}%, params={list(self.active_params.keys())}")
+                    db_path = self.position_manager.data_dir / 'positions.db'
+                    # Find trades closed in the last 20 minutes (this session window)
+                    cutoff = (datetime.now() - timedelta(minutes=20)).isoformat()
+                    with sqlite3.connect(db_path) as conn:
+                        closed_this_session = conn.execute(
+                            "SELECT symbol, entry_price, exit_price, realized_pnl, quantity "
+                            "FROM positions WHERE status='closed' AND exit_time > ?",
+                            (cutoff,)
+                        ).fetchall()
+                    
+                    if closed_this_session:
+                        total_pnl = sum(r[3] or 0 for r in closed_this_session)
+                        wins = sum(1 for r in closed_this_session if (r[3] or 0) > 0)
+                        total = len(closed_this_session)
+                        win_rate = wins / total if total > 0 else 0.0
+                        # Calculate P&L as percentage of total position value
+                        total_entry_value = sum((r[1] or 0) * (r[4] or 0) for r in closed_this_session)
+                        pnl_pct = (total_pnl / max(total_entry_value, 1)) * 100
+                        
+                        self.feedback.log_session(
+                            params=self.active_params,
+                            pnl=pnl_pct,
+                            trades_opened=0,
+                            trades_closed=total,
+                            win_rate=win_rate
+                        )
+                        symbols = [r[0] for r in closed_this_session]
+                        self.logger.info(
+                            "Feedback logged: %d closed trades, P&L=%.2f%%, "
+                            "WR=%.0f%%, symbols=%s" % (total, pnl_pct, win_rate * 100, symbols))
+                    else:
+                        self.logger.info("Feedback: no trades closed this session — skipping log")
                 except Exception as fe:
-                    self.logger.warning(f"Feedback logging failed (non-fatal): {fe}")
+                    self.logger.warning("Feedback logging failed (non-fatal): %s" % str(fe))
 
             self.logger.info(f"Trading session completed. Report saved to {report_file}")
             # Append trade-level analysis to report

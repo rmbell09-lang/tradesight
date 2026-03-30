@@ -123,12 +123,32 @@ class ParameterTuner:
                 price = current['close']
                 if sma50 is not None and not pd.isna(sma50) and price < sma50 * 0.97:
                     return None  # In downtrend — skip RSI oversold signal
+                
+                # VOLUME CONFIRMATION: skip if volume below average
+                vol = current.get('volume', 0)
+                vol_sma = current.get('volume_sma_20', 0)
+                if vol_sma and vol_sma > 0 and vol < vol_sma * 1.0:
+                    pass  # Volume filter disabled in optimizer (tested via grid)
+                
+                # ATR-BASED DYNAMIC STOPS: adapt to each stock's volatility
+                atr = current.get('atr_14', None)
                 entry_price = price
+                if atr and not pd.isna(atr) and atr > 0:
+                    # Use ATR for stops: SL = 2x ATR below, TP = 3x ATR above
+                    # But cap by the percentage params to avoid insane values
+                    atr_sl = min(2.0 * atr / entry_price, stop_loss_pct)
+                    atr_tp = min(3.0 * atr / entry_price, take_profit_pct)
+                    sl_price = entry_price * (1.0 - max(atr_sl, 0.02))
+                    tp_price = entry_price * (1.0 + max(atr_tp, 0.03))
+                else:
+                    sl_price = entry_price * (1.0 - stop_loss_pct)
+                    tp_price = entry_price * (1.0 + take_profit_pct)
+                
                 return {
                     'action': 'buy',
                     'size': size,
-                    'stop_loss': entry_price * (1.0 - stop_loss_pct),
-                    'take_profit': entry_price * (1.0 + take_profit_pct)
+                    'stop_loss': sl_price,
+                    'take_profit': tp_price
                 }
             
             return None
@@ -145,10 +165,10 @@ class ParameterTuner:
         
         results = []
         
-        # RSI thresholds
-        oversold_values  = [25, 28, 30, 33]        # 4 values
-        overbought_values = [65, 68, 72, 75]         # 4 values
-        size_values       = [0.25, 0.30, 0.35]       # 3 positions max, so 25-35% each is reasonable
+        # RSI thresholds — expanded for better coverage
+        oversold_values  = [22, 25, 28, 30, 33, 35]  # 6 values
+        overbought_values = [62, 65, 68, 72, 75, 78]  # 6 values
+        size_values       = [0.25, 0.30, 0.35]        # 3 positions max
         
         # Risk/reward parameters — TP must be reachable within max_holding_bars on 1H bars.
         # SPY/large-caps move 0.5-2% per day; 10 bars ≈ 1.5 trading days.
@@ -618,6 +638,25 @@ def save_optimization_report(results: Dict) -> Path:
     with open(report_file, 'w') as f:
         json.dump(results, f, indent=2)
     
+    # Save per-symbol OOS performance for paper trader filtering
+    cv = results.get('cross_validation', {})
+    if cv:
+        symbol_perf = {}
+        for sym, metrics in cv.items():
+            symbol_perf[sym] = {
+                'oos_pnl_pct': metrics.get('pnl_pct', 0),
+                'oos_sharpe': metrics.get('sharpe', 0),
+                'oos_win_rate': metrics.get('win_rate', 0),
+                'oos_trades': metrics.get('trades', 0),
+                'tradeable': metrics.get('pnl_pct', 0) > -2.0,  # Skip symbols losing > 2%
+                'updated': datetime.now().isoformat()
+            }
+        perf_file = Path(__file__).parent.parent / 'data' / 'symbol_performance.json'
+        with open(perf_file, 'w') as f:
+            json.dump(symbol_perf, f, indent=2)
+        logger.info("Symbol performance saved: %d symbols (%d tradeable)" % (
+            len(symbol_perf), sum(1 for v in symbol_perf.values() if v['tradeable'])))
+    
     logger.info(f"Report saved: {report_file}")
     return report_file
 
@@ -756,6 +795,14 @@ def main():
             except Exception as ce:
                 logger.warning(f"Champion tracker failed (non-fatal): {ce}")
 
+        # DATA SOURCE VALIDATION: refuse to promote from synthetic data
+        if results.get('data_source', 'synthetic') in ('synthetic', 'demo_fallback'):
+            logger.error(
+                "DATA SOURCE GUARD: Optimization ran on %s data — "
+                "refusing to update champion. Fix data feed." % results.get('data_source'))
+            results['champion_decision'] = 'REJECTED: synthetic/demo data'
+            results['active_params'] = None
+        
         report_file = save_optimization_report(results)
         print_summary(results)
         
