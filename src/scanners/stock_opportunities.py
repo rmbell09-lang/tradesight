@@ -15,6 +15,7 @@ from datetime import datetime
 import sys
 sys.path.append('..')
 from indicators.technical_indicators import TechnicalIndicators
+from scanners.market_sentiment import StockSentimentSnapshot
 
 
 @dataclass
@@ -32,6 +33,7 @@ class OpportunityScore:
     technical_score: float
     momentum_score: float
     trend_score: float
+    retail_sentiment_score: float = 50.0
     
     # Key signals
     active_signals: List[str] = field(default_factory=list)
@@ -41,6 +43,10 @@ class OpportunityScore:
     current_price: float = 0.0
     avg_volume: float = 0.0
     volatility_pct: float = 0.0
+    retail_sentiment_label: str = 'unavailable'
+    retail_sentiment_alignment: str = 'unavailable'
+    retail_sentiment_buzz: float = 0.0
+    retail_sentiment_coverage: int = 0
 
 
 class StockOpportunityScorer:
@@ -72,7 +78,8 @@ class StockOpportunityScorer:
     
     def score_opportunity(self, 
                           data: pd.DataFrame,
-                          symbol: str = "Unknown") -> OpportunityScore:
+                          symbol: str = "Unknown",
+                          market_sentiment: Optional[StockSentimentSnapshot] = None) -> OpportunityScore:
         """
         Score a single asset based on its OHLCV data.
         
@@ -115,13 +122,32 @@ class StockOpportunityScorer:
             signals.append(f"strong_{trend_dir}_trend")
         
         # Calculate weighted overall score
-        overall = (
+        base_overall = (
             volume_score * self.weights['volume'] +
             volatility_score * self.weights['volatility'] +
             technical_score * self.weights['technical'] +
             momentum_score * self.weights['momentum'] +
             trend_score * self.weights['trend']
         )
+        retail_sentiment_score = 50.0
+        retail_sentiment_label = 'unavailable'
+        retail_sentiment_alignment = 'unavailable'
+        retail_sentiment_buzz = 0.0
+        retail_sentiment_coverage = 0
+
+        overall = base_overall
+        if market_sentiment:
+            retail_sentiment_score = market_sentiment.score_component
+            retail_sentiment_label = market_sentiment.sentiment_label
+            retail_sentiment_alignment = market_sentiment.source_alignment
+            retail_sentiment_buzz = float(market_sentiment.average_buzz or 0.0)
+            retail_sentiment_coverage = market_sentiment.coverage
+            overall = (base_overall * 0.90) + (retail_sentiment_score * 0.10)
+            self._merge_market_sentiment_context(
+                market_sentiment,
+                signals,
+                risks,
+            )
         
         # Determine direction based on momentum and trend
         bullish_signals = sum(1 for s in signals if 'bullish' in s or 'buy' in s.lower())
@@ -153,16 +179,22 @@ class StockOpportunityScorer:
             technical_score=round(technical_score, 1),
             momentum_score=round(momentum_score, 1),
             trend_score=round(trend_score, 1),
+            retail_sentiment_score=round(retail_sentiment_score, 1),
             active_signals=signals,
             risk_factors=risks,
             current_price=current_price,
             avg_volume=float(data['volume'].tail(20).mean()),
-            volatility_pct=vol_pct
+            volatility_pct=vol_pct,
+            retail_sentiment_label=retail_sentiment_label,
+            retail_sentiment_alignment=retail_sentiment_alignment,
+            retail_sentiment_buzz=round(retail_sentiment_buzz, 1),
+            retail_sentiment_coverage=retail_sentiment_coverage,
         )
     
     def rank_opportunities(self,
                            datasets: Dict[str, pd.DataFrame],
-                           min_score: float = 40.0) -> List[OpportunityScore]:
+                           min_score: float = 40.0,
+                           market_sentiment: Optional[Dict[str, StockSentimentSnapshot]] = None) -> List[OpportunityScore]:
         """
         Score and rank multiple assets, returning sorted opportunities.
         
@@ -177,7 +209,11 @@ class StockOpportunityScorer:
         
         for symbol, data in datasets.items():
             try:
-                score = self.score_opportunity(data, symbol)
+                score = self.score_opportunity(
+                    data,
+                    symbol,
+                    market_sentiment=(market_sentiment or {}).get(symbol),
+                )
                 if score.overall_score >= min_score:
                     scores.append(score)
             except Exception as e:
@@ -185,6 +221,19 @@ class StockOpportunityScorer:
         
         scores.sort(key=lambda s: s.overall_score, reverse=True)
         return scores
+
+    def _merge_market_sentiment_context(
+        self,
+        market_sentiment: StockSentimentSnapshot,
+        signals: List[str],
+        risks: List[str],
+    ) -> None:
+        if market_sentiment.coverage >= 2 and market_sentiment.sentiment_label in {"bullish", "bearish"}:
+            signals.append(f"retail_sentiment_{market_sentiment.sentiment_label}")
+        if (market_sentiment.average_buzz or 0.0) >= 60:
+            signals.append("retail_buzz_spike")
+        if market_sentiment.source_alignment == "divergent":
+            risks.append("retail_sentiment_divergence")
     
     def _score_volume(self, data: pd.DataFrame) -> float:
         """Score based on volume analysis (0-100)"""

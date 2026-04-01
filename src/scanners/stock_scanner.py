@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import json
 
 from data.alpaca_client import AlpacaClient, StockQuote
+from scanners.market_sentiment import MarketSentimentClient
 from scanners.stock_opportunities import StockOpportunityScorer, OpportunityScore
 
 
@@ -66,6 +67,7 @@ class StockScanner:
             paper=paper_trading
         )
         self.scorer = StockOpportunityScorer()
+        self.market_sentiment = MarketSentimentClient()
         self.last_scan_result = None
         # Alert manager (optional)
         self._alert_manager = None
@@ -158,6 +160,13 @@ class StockScanner:
         print(f"📊 Starting {scan_type} scan of {len(symbols)} symbols...")
         
         opportunities = []
+        sentiment_by_symbol = {}
+        if self.market_sentiment.enabled:
+            try:
+                sentiment_by_symbol = self.market_sentiment.get_stock_sentiment(symbols)
+            except Exception as exc:
+                print(f"  Market sentiment enrichment unavailable: {exc}")
+                sentiment_by_symbol = {}
         
         for i, symbol in enumerate(symbols):
             try:
@@ -178,7 +187,11 @@ class StockScanner:
                         continue
                 
                 # Score the opportunity
-                opportunity = self.scorer.score_opportunity(data, symbol)
+                opportunity = self.scorer.score_opportunity(
+                    data,
+                    symbol,
+                    market_sentiment=sentiment_by_symbol.get(symbol),
+                )
                 
                 # Score filter
                 if opportunity.overall_score >= min_score:
@@ -220,7 +233,8 @@ class StockScanner:
                 'scan_type': scan_type,
                 'min_score': min_score,
                 'min_volume': min_volume,
-                'symbols_requested': len(symbols)
+                'symbols_requested': len(symbols),
+                'market_sentiment_enabled': self.market_sentiment.enabled,
             }
         )
         

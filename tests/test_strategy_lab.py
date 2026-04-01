@@ -242,6 +242,7 @@ class TestStrategyTournament:
 # --- Multi-Asset Backtester Tests ---
 
 from strategy_lab.backtester import MultiAssetBacktester, WalkForwardResult, MonteCarloResult, OverfitReport
+from scanners.market_sentiment import StockSentimentSnapshot
 
 
 class TestMultiAssetBacktester:
@@ -371,6 +372,38 @@ class TestStockOpportunityScorer:
         score = scorer.score_opportunity(self.test_data, 'BTC')
         assert isinstance(score, OpportunityScore)
 
+    def test_score_opportunity_with_retail_sentiment_overlay(self):
+        sentiment = StockSentimentSnapshot(
+            ticker='BTC',
+            average_buzz=62.0,
+            average_sentiment_score=0.24,
+            average_bullish_pct=64.0,
+            coverage=3,
+            source_alignment='aligned',
+            sentiment_label='bullish',
+            score_component=64.0,
+        )
+        score = self.scorer.score_opportunity(self.test_data, 'BTC', market_sentiment=sentiment)
+        assert score.retail_sentiment_score == 64.0
+        assert score.retail_sentiment_label == 'bullish'
+        assert score.retail_sentiment_alignment == 'aligned'
+        assert score.retail_sentiment_coverage == 3
+        assert 'retail_sentiment_bullish' in score.active_signals
+
+    def test_score_opportunity_flags_divergent_retail_sentiment(self):
+        sentiment = StockSentimentSnapshot(
+            ticker='BTC',
+            average_buzz=58.0,
+            average_sentiment_score=-0.05,
+            average_bullish_pct=49.0,
+            coverage=2,
+            source_alignment='divergent',
+            sentiment_label='neutral',
+            score_component=44.0,
+        )
+        score = self.scorer.score_opportunity(self.test_data, 'BTC', market_sentiment=sentiment)
+        assert 'retail_sentiment_divergence' in score.risk_factors
+
 
 # --- Alpaca Integration Tests ---
 
@@ -435,6 +468,7 @@ class TestStockScanner:
     def test_initialization(self):
         assert self.scanner.alpaca is not None
         assert self.scanner.scorer is not None
+        assert self.scanner.market_sentiment is not None
         assert self.scanner.last_scan_result is None
     
     def test_quick_scan(self):
@@ -459,3 +493,21 @@ class TestStockScanner:
         data = self.scanner.get_historical_data('AAPL', days=30)
         assert len(data) == 30
         assert 'close' in data.columns
+
+    def test_quick_scan_prefetches_market_sentiment(self):
+        self.scanner.market_sentiment.api_key = "test-key"
+        self.scanner.market_sentiment.get_stock_sentiment = lambda symbols: {
+            symbol: StockSentimentSnapshot(
+                ticker=symbol,
+                average_buzz=60.0,
+                average_sentiment_score=0.2,
+                average_bullish_pct=62.0,
+                coverage=2,
+                source_alignment='aligned',
+                sentiment_label='bullish',
+                score_component=61.0,
+            )
+            for symbol in symbols
+        }
+        result = self.scanner.quick_scan(limit=2)
+        assert result.scan_parameters['market_sentiment_enabled'] is True

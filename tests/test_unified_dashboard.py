@@ -46,7 +46,7 @@ def test_stock_stats_basic():
     stats = get_stock_stats()
     
     # Should have required keys
-    required_keys = ['total_scanned', 'opportunities_found', 'scan_duration', 'last_scan', 'top_opportunity', 'top_score']
+    required_keys = ['total_scanned', 'opportunities_found', 'scan_duration', 'last_scan', 'top_opportunity', 'top_score', 'market_sentiment_enabled']
     for key in required_keys:
         assert key in stats
         
@@ -75,6 +75,25 @@ def test_flask_routes():
     for endpoint in api_endpoints:
         response = client.get(endpoint)
         assert response.status_code == 200  # Should return JSON even if error
+
+
+def test_stock_opportunities_exposes_retail_sentiment_fields():
+    """The dashboard API should expose scanner sentiment enrichment fields."""
+    from dashboard import app
+
+    client = app.test_client()
+    response = client.get('/api/stocks/opportunities')
+    assert response.status_code == 200
+    payload = response.get_json()
+    if isinstance(payload, list) and payload:
+        required = {
+            'retail_sentiment_score',
+            'retail_sentiment_label',
+            'retail_sentiment_alignment',
+            'retail_sentiment_buzz',
+            'retail_sentiment_coverage',
+        }
+        assert required <= set(payload[0].keys())
 
 if __name__ == '__main__':
     test_unified_dashboard_imports()

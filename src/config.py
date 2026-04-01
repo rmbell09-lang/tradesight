@@ -56,6 +56,12 @@ else:
     OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
     logger.warning("Using environment variables for API keys - keychain not available")
 
+# Optional alternative-data provider
+ADANOS_API_KEY = os.environ.get("ADANOS_API_KEY", "")
+ADANOS_API_BASE_URL = "https://api.adanos.org"
+ADANOS_SENTIMENT_DAYS = int(os.environ.get("ADANOS_SENTIMENT_DAYS", "7"))
+ADANOS_TIMEOUT_SECONDS = int(os.environ.get("ADANOS_TIMEOUT_SECONDS", "8"))
+
 # API Configuration
 ALPACA_BASE_URL_PAPER = "https://paper-api.alpaca.markets"
 ALPACA_BASE_URL_LIVE = "https://api.alpaca.markets"
@@ -85,6 +91,7 @@ if KEYCHAIN_AVAILABLE:
             "Polygon": bool(POLYGON_API_KEY),
             "Yahoo": bool(YAHOO_API_KEY),
             "OpenAI": bool(OPENAI_API_KEY),
+            "Adanos": bool(ADANOS_API_KEY),
         }
         return keys
     
@@ -110,6 +117,7 @@ else:
             "Polygon": bool(POLYGON_API_KEY),
             "Yahoo": bool(YAHOO_API_KEY),
             "OpenAI": bool(OPENAI_API_KEY),
+            "Adanos": bool(ADANOS_API_KEY),
         }
         return keys
     
@@ -123,7 +131,7 @@ if not ALPACA_API_KEY:
     logger.warning("ALPACA_API_KEY not set - Alpaca integration will use demo mode")
 
 # Log startup status
-logger.info(f"TradeSight config loaded - Keychain: {KEYCHAIN_AVAILABLE}, API keys: {sum(get_api_key_status().values())}/5")
+logger.info(f"TradeSight config loaded - Keychain: {KEYCHAIN_AVAILABLE}, API keys: {sum(get_api_key_status().values())}/6")
 
 
 # ---------------------------------------------------------------------------
