@@ -80,12 +80,12 @@ class ParameterTuner:
     
     def __init__(self, training_data: pd.DataFrame):
         self.training_data = training_data
-        self.backtest_engine = BacktestEngine(initial_balance=500.0)
+        self.backtest_engine = BacktestEngine(initial_balance=500.0, slippage_pct=0.0005)
         self.results = []
     
     def create_rsi_variant(self, oversold: int, overbought: int, size: float,
                            stop_loss_pct: float, take_profit_pct: float,
-                           max_holding_bars: int):
+                           max_holding_bars: int, use_atr: bool = True):
         """
         Create RSI Mean Reversion variant with fully configurable parameters.
         
@@ -133,7 +133,7 @@ class ParameterTuner:
                 # ATR-BASED DYNAMIC STOPS: adapt to each stock's volatility
                 atr = current.get('atr_14', None)
                 entry_price = price
-                if atr and not pd.isna(atr) and atr > 0:
+                if use_atr and atr and not pd.isna(atr) and atr > 0:
                     # Use ATR for stops: SL = 2x ATR below, TP = 3x ATR above
                     # But cap by the percentage params to avoid insane values
                     atr_sl = min(2.0 * atr / entry_price, stop_loss_pct)
@@ -199,7 +199,7 @@ class ParameterTuner:
                                 
                                 variant = self.create_rsi_variant(
                                     oversold, overbought, size,
-                                    sl_pct, tp_pct, hold_bars
+                                    sl_pct, tp_pct, hold_bars, use_atr=False
                                 )
                                 
                                 backtest_results = self.backtest_engine.run_backtest(
@@ -340,6 +340,86 @@ class ParameterTuner:
             except Exception as e:
                 logger.warning(f"  CV {sym}: failed — {e}")
         return cv_results
+
+    def walk_forward_validate(self, full_data: pd.DataFrame, best_params: Dict,
+                              n_windows: int = 4, train_pct: float = 0.70) -> Dict:
+        """
+        Walk-forward validation: split data into N rolling windows,
+        test best params on each OOS slice.
+        
+        Returns dict with per-window results and stability score.
+        """
+        logger.info(f"Walk-forward validation: {n_windows} windows, {train_pct*100:.0f}% train")
+        
+        total_bars = len(full_data)
+        window_size = total_bars // n_windows
+        results = []
+        
+        for i in range(n_windows):
+            start = i * (window_size // 2)  # 50% overlap for more windows
+            end = min(start + window_size, total_bars)
+            
+            if end - start < 100:
+                continue
+            
+            window_data = full_data.iloc[start:end].copy()
+            split_idx = int(len(window_data) * train_pct)
+            oos_data = window_data.iloc[split_idx:].copy()
+            
+            if len(oos_data) < 50:
+                continue
+            
+            try:
+                variant = self.create_rsi_variant(
+                    best_params['oversold'], best_params['overbought'],
+                    best_params.get('position_size', 0.35),
+                    best_params.get('stop_loss_pct', 0.05),
+                    best_params.get('take_profit_pct', 0.12),
+                    best_params.get('max_holding_bars', 0)
+                )
+                bt = BacktestEngine(initial_balance=500.0, slippage_pct=0.0005)
+                res = bt.run_backtest(oos_data, variant, asset_name=f"WF_window_{i}")
+                m = res['metrics']
+                
+                results.append({
+                    'window': i,
+                    'oos_bars': len(oos_data),
+                    'pnl_pct': float(m['total_pnl_pct']),
+                    'sharpe': float(m['sharpe_ratio']),
+                    'win_rate': float(m['win_rate']),
+                    'trades': int(m['total_trades']),
+                })
+                logger.info(
+                    f"  WF window {i}: PnL={m['total_pnl_pct']:.2f}% "
+                    f"Sharpe={m['sharpe_ratio']:.4f} Trades={m['total_trades']}")
+            except Exception as e:
+                logger.warning(f"  WF window {i} failed: {e}")
+        
+        if not results:
+            return {'stable': False, 'windows': [], 'reason': 'No valid windows'}
+        
+        # Stability score: what fraction of windows are profitable?
+        profitable_windows = sum(1 for r in results if r['pnl_pct'] > 0)
+        stability = profitable_windows / len(results)
+        avg_pnl = sum(r['pnl_pct'] for r in results) / len(results)
+        avg_sharpe = sum(r['sharpe'] for r in results) / len(results)
+        
+        stable = stability >= 0.60  # At least 60% of windows profitable
+        
+        logger.info(
+            f"Walk-forward: {profitable_windows}/{len(results)} profitable "
+            f"(stability={stability:.0%}), avg PnL={avg_pnl:.2f}%, "
+            f"avg Sharpe={avg_sharpe:.4f}, STABLE={stable}")
+        
+        return {
+            'stable': stable,
+            'stability_pct': round(stability * 100, 1),
+            'profitable_windows': profitable_windows,
+            'total_windows': len(results),
+            'avg_pnl': round(avg_pnl, 2),
+            'avg_sharpe': round(avg_sharpe, 4),
+            'windows': results,
+        }
 
 
 
@@ -561,9 +641,21 @@ def optimize_winner_strategy(winner: Dict) -> Dict:
                 logger.info(f"OOS avg: PnL={avg_pnl:.2f}% Sharpe={avg_sharpe:.4f} Trades/symbol={avg_trades:.1f}")
                 logger.info("NOTE: OOS PnL is the honest number. Lower than training = overfit.")
             # cv_results kept for report (was set to None - bug fixed)
+            
+            # Walk-forward validation (Task 15) — tests stability across rolling windows
+            logger.info("")
+            logger.info("Walk-forward validation (Task 15)...")
+            wf_results = tuner.walk_forward_validate(full_primary_data, best)
+            if not wf_results.get('stable', False):
+                logger.warning(
+                    "WALK-FORWARD UNSTABLE: only %d/%d windows profitable. "
+                    "Params may be overfit." % (
+                        wf_results.get('profitable_windows', 0),
+                        wf_results.get('total_windows', 0)))
         
         return {
-            'winner': winner['name'],
+            'winner': 'RSI Mean Reversion',  # strategy actually being optimized
+            'tournament_winner': winner['name'],  # what won the nightly tournament
             'version': 'v3-real-data',
             'baseline': {
                 'pnl_pct': float(baseline_pnl),
@@ -617,6 +709,7 @@ def optimize_winner_strategy(winner: Dict) -> Dict:
             'symbols_tested': list(training_datasets.keys()),
             'primary_symbol': primary_symbol,
             'cross_validation': cv_results,
+            'walk_forward': wf_results,
             'timestamp': datetime.now().isoformat()
         }
     else:
