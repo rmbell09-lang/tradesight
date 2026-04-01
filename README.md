@@ -161,11 +161,21 @@ TradeSight is MIT-licensed and free to use. If it saved you time or you want the
 
 Includes: packaged download, setup walkthrough, pre-configured Alpaca integration, and strategy parameter reference.
 
-## 🔗 Related Projects
+## 🔗 Related Projects & Alternatives
 
-| Project | Description |
-|---|---|
-| [BillingWatch](https://github.com/rmbell09-lang/BillingWatch) | Self-hosted billing anomaly detection — catch Stripe issues before they cost you |
+TradeSight is similar to — but different from — these popular Python trading tools:
+
+| Project | What It Does | How TradeSight Differs |
+|---|---|---|
+| [backtrader](https://github.com/mementum/backtrader) | Python backtesting framework | TradeSight adds AI strategy evolution + live paper trading web dashboard |
+| [freqtrade](https://github.com/freqtrade/freqtrade) | Crypto trading bot | TradeSight focuses on **stocks** (Alpaca API) with overnight strategy tournaments |
+| [vectorbt](https://github.com/polakowo/vectorbt) | Vectorized backtesting in notebooks | TradeSight is a self-hosted web app — no notebook required |
+| [zipline-reloaded](https://github.com/stefan-jansen/zipline-reloaded) | Algorithmic trading library | TradeSight is a full app, not a library — no Python trading experience needed |
+| [Jesse](https://github.com/jesse-ai/jesse) | Crypto strategy framework | TradeSight is for **stocks + prediction markets**, not crypto |
+| [nautilus_trader](https://github.com/nautechsystems/nautilus_trader) | High-performance trading platform | TradeSight is simpler, self-hosted, built for hobbyists not HFT |
+| [BillingWatch](https://github.com/rmbell09-lang/BillingWatch) | Self-hosted billing anomaly detection | Same maker — catch Stripe issues before they cost you |
+
+> **Also useful for:** python trading bot · algorithmic trading python · paper trading software · free backtesting · stock trading python · quantitative finance · algo trading strategy tester · self-hosted trading platform · automated trading system · backtesting framework
 
 ---
 
