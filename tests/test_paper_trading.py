@@ -306,15 +306,31 @@ class TestPaperTrader:
         """Test RSI trading signal generation"""
         # Mock market data - include all OHLCV columns
         import pandas as pd
-        mock_data = pd.DataFrame({
+        hourly_data = pd.DataFrame({
             'open': list(range(200, 0, -1)),  # Declining open
             'high': list(range(201, 1, -1)),  # Declining high
             'low': list(range(199, -1, -1)),  # Declining low
             'close': list(range(200, 0, -1)),  # Declining close (oversold signal)
             'volume': [1000] * 200
         }, index=pd.date_range('2026-01-01', periods=200))
-        
-        self.trader.alpaca.get_historical_data = Mock(return_value=mock_data)
+        hourly_data.attrs['data_source'] = 'real'
+
+        daily_prices = list(range(100, 300))
+        daily_data = pd.DataFrame({
+            'open': daily_prices,
+            'high': [price + 1 for price in daily_prices],
+            'low': [price - 1 for price in daily_prices],
+            'close': daily_prices,
+            'volume': [1000] * 200,
+        }, index=pd.date_range('2025-06-01', periods=200))
+        daily_data.attrs['data_source'] = 'real'
+
+        def _mock_historical_data(symbol, days=100, timeframe='1Day'):
+            if timeframe == '1Hour':
+                return hourly_data
+            return daily_data
+
+        self.trader.alpaca.get_historical_data = Mock(side_effect=_mock_historical_data)
         
         # Mock RSI indicators with proper structure
         mock_indicator_instance = Mock()

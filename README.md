@@ -29,6 +29,7 @@ TradeSight is a self-hosted Python app that runs AI-powered strategy tournaments
 | 📊 **15+ Technical Indicators** | MACD, RSI, Bollinger Bands, EMA crossovers, ATR, volume analysis, and more |
 | 💸 **Paper Trading** | Connect Alpaca paper account — trade with fake money, track real P&L |
 | 🔍 **Multi-Market Scanner** | Scan stocks + Polymarket prediction markets for signals simultaneously |
+| 📰 **Retail Sentiment Overlay** | Optionally enrich stock scans with Reddit, X, Finance News, and Polymarket market sentiment from Adanos |
 | 🌐 **Web Dashboard** | Real-time Flask interface — positions, signals, tournament results, logs |
 | ⏰ **Cron Automation** | Overnight strategy improvement runs automatically — wake up to new results |
 | 🔒 **100% Local** | Runs on your machine. Your strategies stay yours. |
@@ -71,6 +72,16 @@ TradeSight runs fully in demo mode with simulated market data — no Alpaca acco
   "paper": true
 }
 ```
+
+### Optional Adanos Market Sentiment Overlay
+Add an `ADANOS_API_KEY` to your environment or `.env` file to enrich stock scans with
+multi-source market sentiment from Reddit, X, Finance News, and Polymarket.
+
+```bash
+export ADANOS_API_KEY=your_key_here
+```
+
+TradeSight keeps working without it; the overlay is fully optional.
 
 ---
 

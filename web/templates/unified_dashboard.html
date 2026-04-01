@@ -323,10 +323,11 @@
                         <th>Technical</th>
                         <th>Momentum</th>
                         <th>Trend</th>
+                        <th>Retail Sentiment</th>
                     </tr>
                 </thead>
                 <tbody id="stock-opportunities">
-                    <tr><td colspan="8" class="loading-msg">Loading stock data...</td></tr>
+                    <tr><td colspan="9" class="loading-msg">Loading stock data...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -708,7 +709,7 @@
                 <div class="card"><h3>Stocks Scanned</h3><div class="value blue">${d.total_scanned}</div></div>
                 <div class="card"><h3>Opportunities</h3><div class="value green">${d.opportunities_found}</div></div>
                 <div class="card"><h3>Top Pick</h3><div class="value">${d.top_opportunity || '--'}</div><div class="sub">Score: ${fmt(d.top_score)}</div></div>
-                <div class="card"><h3>Scan Time</h3><div class="value">${fmt(d.scan_duration)}s</div><div class="sub">${d.last_scan ? new Date(d.last_scan).toLocaleTimeString() : '--'}</div></div>`;
+                <div class="card"><h3>Scan Time</h3><div class="value">${fmt(d.scan_duration)}s</div><div class="sub">${d.market_sentiment_enabled ? 'Adanos overlay on' : (d.last_scan ? new Date(d.last_scan).toLocaleTimeString() : '--')}</div></div>`;
         }).catch(() => {
             document.getElementById('stock-stats').innerHTML = '<div class="card"><div class="value red">Error</div><h3>Failed to load</h3></div>';
         });
@@ -716,14 +717,14 @@
         // Stock opportunities
         fetch('/api/stocks/opportunities').then(r => r.json()).then(data => {
             if (data.error) {
-                document.getElementById('stock-opportunities').innerHTML = `<tr><td colspan="8" class="empty-msg">Demo mode — ${data.error}</td></tr>`;
+                document.getElementById('stock-opportunities').innerHTML = `<tr><td colspan="9" class="empty-msg">Demo mode — ${data.error}</td></tr>`;
                 document.getElementById('stock-count').textContent = '0';
                 return;
             }
             const arr = Array.isArray(data) ? data : (data.opportunities || []);
             document.getElementById('stock-count').textContent = arr.length + ' signals';
             if (arr.length === 0) {
-                document.getElementById('stock-opportunities').innerHTML = '<tr><td colspan="8" class="empty-msg">No opportunities found in latest scan</td></tr>';
+                document.getElementById('stock-opportunities').innerHTML = '<tr><td colspan="9" class="empty-msg">No opportunities found in latest scan</td></tr>';
                 return;
             }
             document.getElementById('stock-opportunities').innerHTML = arr.map(o => `
@@ -736,10 +737,13 @@
                     <td>${fmt(o.technical_score)}</td>
                     <td>${fmt(o.momentum_score)}</td>
                     <td>${fmt(o.trend_score)}</td>
+                    <td>${o.retail_sentiment_label && o.retail_sentiment_label !== 'unavailable'
+                        ? `<span class="badge badge-blue">${fmt(o.retail_sentiment_score)} · ${o.retail_sentiment_label}</span><div class="sub">${o.retail_sentiment_alignment} · ${o.retail_sentiment_coverage} src</div>`
+                        : '--'}</td>
                 </tr>
             `).join('');
         }).catch(() => {
-            document.getElementById('stock-opportunities').innerHTML = '<tr><td colspan="8" class="empty-msg">Failed to load stock data</td></tr>';
+            document.getElementById('stock-opportunities').innerHTML = '<tr><td colspan="9" class="empty-msg">Failed to load stock data</td></tr>';
         });
 
         // Polymarket stats

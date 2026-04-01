@@ -130,7 +130,8 @@ def get_stock_stats():
             'scan_duration': scan_result.scan_duration_seconds,
             'last_scan': scan_result.scan_time.isoformat(),
             'top_opportunity': scan_result.top_opportunities[0].symbol if scan_result.top_opportunities else None,
-            'top_score': scan_result.top_opportunities[0].overall_score if scan_result.top_opportunities else 0
+            'top_score': scan_result.top_opportunities[0].overall_score if scan_result.top_opportunities else 0,
+            'market_sentiment_enabled': scan_result.scan_parameters.get('market_sentiment_enabled', False),
         }
     except Exception as e:
         return {
@@ -251,6 +252,11 @@ def stocks_opportunities():
                 'technical_score': opp.technical_score,
                 'momentum_score': opp.momentum_score,
                 'trend_score': opp.trend_score,
+                'retail_sentiment_score': opp.retail_sentiment_score,
+                'retail_sentiment_label': opp.retail_sentiment_label,
+                'retail_sentiment_alignment': opp.retail_sentiment_alignment,
+                'retail_sentiment_buzz': opp.retail_sentiment_buzz,
+                'retail_sentiment_coverage': opp.retail_sentiment_coverage,
                 'confidence': opp.confidence,
                 'direction': opp.direction,
                 'current_price': getattr(opp, 'current_price', 0),
