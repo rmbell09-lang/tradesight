@@ -160,6 +160,8 @@ class PaperTrader:
         self._regime_details = {}
         self._portfolio_peak = None
         self._circuit_breaker_until = None
+        self._daily_loss_limit_reached = False  # Task 890 — daily loss circuit breaker
+        self._cb_date = None  # tracks calendar day for daily-loss reset
         
         # Trading parameters
         self.config = {
@@ -193,7 +195,8 @@ class PaperTrader:
                 'energy': ['XOM', 'CVX'],
                 'consumer': ['WMT', 'COST', 'HD', 'KO', 'DIS'],
             },
-            'max_per_correlation_group': 2
+            'max_per_correlation_group': 2,
+            'daily_loss_limit': 15.0,  # Task 890 — block new entries if daily P&L <= -$15
         }
     
     def _setup_logging(self):
@@ -687,6 +690,10 @@ class PaperTrader:
     
     def execute_signal(self, signal: Dict) -> bool:
         """Execute a trading signal"""
+        # Task 890: daily loss circuit breaker guard
+        if getattr(self, '_daily_loss_limit_reached', False):
+            self.logger.info('[CircuitBreaker] Daily loss limit active — execute_signal blocked.')
+            return False
         try:
             symbol = signal['symbol']
             strategy = signal['strategy']
@@ -922,6 +929,56 @@ class PaperTrader:
         except Exception as e:
             self.logger.error(f"Failed to execute sell order for {symbol}: {e}", exc_info=True)
             return False
+
+    def _check_daily_loss_limit(self) -> bool:
+        """
+        Task 890 — Daily loss circuit breaker.
+        Returns True (and sets flag) if today's realized P&L has hit the configured limit.
+        Resets automatically at midnight ET.
+        Does NOT block _check_stop_loss_take_profit — existing positions keep their protection.
+        """
+        # Midnight reset
+        today = datetime.now().date()
+        if self._cb_date is not None and self._cb_date != today:
+            self._daily_loss_limit_reached = False
+            self._cb_date = today
+
+        if self._daily_loss_limit_reached:
+            return True
+
+        limit = self.config.get('daily_loss_limit', 15.0)
+        try:
+            today_start = datetime.now().replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ).isoformat()
+            db_path = self.position_manager.data_dir / 'positions.db'
+            with sqlite3.connect(str(db_path)) as conn:
+                row = conn.execute(
+                    "SELECT SUM(realized_pnl) FROM positions WHERE status='closed' AND exit_time >= ?",
+                    (today_start,)
+                ).fetchone()
+            daily_pnl = float(row[0]) if row and row[0] is not None else 0.0
+            if daily_pnl <= -limit:
+                self._daily_loss_limit_reached = True
+                self._cb_date = today
+                self.logger.warning(
+                    f'[CircuitBreaker] TRIGGERED: daily_pnl={daily_pnl:.2f} <= -{limit:.2f}. '
+                    f'No new entries for the rest of today.'
+                )
+                if self.alert_manager:
+                    try:
+                        self.alert_manager.fire(
+                            AlertType.TRADE_EXECUTED,
+                            symbol='PORTFOLIO', action='DAILY_LOSS_LIMIT',
+                            quantity=0, price=round(abs(daily_pnl), 2),
+                            strategy='circuit_breaker', confidence=daily_pnl / -limit
+                        )
+                    except Exception:
+                        pass
+                return True
+        except Exception as e:
+            self.logger.error(f'[CircuitBreaker] _check_daily_loss_limit failed: {e}')
+        return False
 
     def _check_stop_loss_take_profit(self):
         """
@@ -1186,6 +1243,11 @@ class PaperTrader:
 
             # CHECK STOP LOSS / TAKE PROFIT FIRST — before any new signals
             self._check_stop_loss_take_profit()
+
+            # DAILY LOSS CIRCUIT BREAKER (Task 890) — block new entries if daily P&L too negative
+            if self._check_daily_loss_limit():
+                self.logger.warning('[CircuitBreaker] Daily loss limit reached -- no new entries today.')
+                return
             
             # Get winning strategies
             winning_strategies = self.get_latest_tournament_winners()
@@ -1194,7 +1256,7 @@ class PaperTrader:
                 # FALLBACK: Use built-in strategies with champion params when no tournament winners
                 self.logger.info("No recent tournament winners — using fallback strategies with champion params")
                 winning_strategies = [
-                    ('RSI Mean Reversion', 0.60),
+                    # RSI Mean Reversion DISABLED: 0% win rate over 4 trades (Mar 31). Re-enable after 30-day data review.
                     ('MACD Crossover', 0.60),
                     ('Bollinger Bounce', 0.55),
                     ('VWAP Reversion', 0.55),

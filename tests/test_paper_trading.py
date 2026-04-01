@@ -407,6 +407,104 @@ class TestPaperTrader:
         assert "Available Cash:" in report
 
 
+
+    # ── Task 890: Daily Loss Circuit Breaker ─────────────────────────────────
+
+    def test_circuit_breaker_flag_initializes_false(self):
+        """_daily_loss_limit_reached must start False"""
+        assert self.trader._daily_loss_limit_reached is False
+
+    def test_circuit_breaker_config_key_present(self):
+        """daily_loss_limit key must exist in config with a positive value"""
+        assert 'daily_loss_limit' in self.trader.config
+        assert self.trader.config['daily_loss_limit'] > 0
+
+    @patch('sqlite3.connect')
+    def test_check_daily_loss_no_loss(self, mock_connect):
+        """Returns False when no closed trades today"""
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = lambda s: mock_conn
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchone.return_value = (0.0,)
+        mock_connect.return_value = mock_conn
+        assert self.trader._check_daily_loss_limit() is False
+        assert self.trader._daily_loss_limit_reached is False
+
+    @patch('sqlite3.connect')
+    def test_check_daily_loss_under_limit(self, mock_connect):
+        """Returns False when loss is below the configured limit"""
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = lambda s: mock_conn
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchone.return_value = (-5.0,)  # -$5, limit is $15
+        mock_connect.return_value = mock_conn
+        assert self.trader._check_daily_loss_limit() is False
+
+    @patch('sqlite3.connect')
+    def test_check_daily_loss_at_limit(self, mock_connect):
+        """Returns True and sets flag when daily P&L == -limit"""
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = lambda s: mock_conn
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchone.return_value = (-15.0,)  # exactly at limit
+        mock_connect.return_value = mock_conn
+        result = self.trader._check_daily_loss_limit()
+        assert result is True
+        assert self.trader._daily_loss_limit_reached is True
+
+    @patch('sqlite3.connect')
+    def test_check_daily_loss_over_limit(self, mock_connect):
+        """Returns True when daily P&L exceeds limit"""
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = lambda s: mock_conn
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchone.return_value = (-22.50,)
+        mock_connect.return_value = mock_conn
+        assert self.trader._check_daily_loss_limit() is True
+        assert self.trader._daily_loss_limit_reached is True
+
+    def test_check_daily_loss_short_circuits_when_flag_set(self):
+        """Returns True immediately (no DB hit) when flag already set"""
+        self.trader._daily_loss_limit_reached = True
+        # No DB mock — if it tried to hit DB this would raise
+        result = self.trader._check_daily_loss_limit()
+        assert result is True
+
+    @patch('sqlite3.connect')
+    def test_check_daily_loss_db_error_returns_false(self, mock_connect):
+        """DB error must not crash the trader — returns False gracefully"""
+        mock_connect.side_effect = Exception("DB locked")
+        assert self.trader._check_daily_loss_limit() is False
+        assert self.trader._daily_loss_limit_reached is False
+
+    def test_execute_signal_blocked_when_limit_reached(self):
+        """execute_signal returns False immediately when circuit breaker is active"""
+        self.trader._daily_loss_limit_reached = True
+        signal = {
+            'symbol': 'AAPL', 'strategy': 'RSI', 'action': 'buy',
+            'side': 'long', 'current_price': 150.0, 'confidence': 0.75
+        }
+        result = self.trader.execute_signal(signal)
+        assert result is False
+
+    def test_daily_loss_limit_midnight_reset(self):
+        """Flag resets when _cb_date is a past date"""
+        from datetime import date, timedelta
+        self.trader._daily_loss_limit_reached = True
+        self.trader._cb_date = date.today() - timedelta(days=1)
+        # Calling with a DB that returns no loss should reset flag and return False
+        with patch('sqlite3.connect') as mock_connect:
+            mock_conn = MagicMock()
+            mock_conn.__enter__ = lambda s: mock_conn
+            mock_conn.__exit__ = MagicMock(return_value=False)
+            mock_conn.execute.return_value.fetchone.return_value = (0.0,)
+            mock_connect.return_value = mock_conn
+            result = self.trader._check_daily_loss_limit()
+        assert result is False
+        assert self.trader._daily_loss_limit_reached is False
+
+
+
 def run_paper_trading_integration_test():
     """Integration test for paper trading system"""
     print("Running paper trading integration test...")
