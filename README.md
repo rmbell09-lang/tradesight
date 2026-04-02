@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests: 169/169](https://img.shields.io/badge/tests-169%2F169%20passing-brightgreen.svg)]()
 [![Paper Trading](https://img.shields.io/badge/mode-paper%20trading-orange.svg)]()
+[![Live P&L](https://img.shields.io/badge/live%20P%26L-%2B6.43%25%20%28%2B%2432.15%29-brightgreen.svg)]()
+[![Portfolio](https://img.shields.io/badge/portfolio-%24532-blue.svg)]()
 
 **Build, test, and evolve trading strategies with AI — entirely on your own machine. No cloud subscription. No data leaks. No monthly fees.**
 
@@ -121,17 +123,28 @@ tradesight/
 
 ---
 
-## 📈 Paper Trading Log — March 2026
+## 📈 Live Paper Trading — April 2026
 
-Real system activity on paper money (transparent dev journal):
+Real money-at-risk (on paper). Updated automatically. System has been live since March 2026.
 
-| Date | Strategy | Action | Result |
+**Current Portfolio:** $532 total value | **+6.43% total return** (+$32.15)
+
+| Strategy | Trades | P&L | Win Rate |
 |---|---|---|---|
-| Mar 2026 | RSI Mean Reversion | 3 trades | -$113.96 realized |
-| Mar 16 | MACD Crossover | Tournament winner | Score: 0.72 |
-| Mar 12 | RSI Mean Reversion | Tournament winner | Score: 0.62 |
+| MACD Crossover | 1 | +$17.89 | 100% ✅ |
+| VWAP Reversion | 1 | -$4.75 | 0% |
+| RSI Mean Reversion | 5 | -$13.77 | 20% |
 
-> ⚠️ Early results reflect the initial RSI strategy before multi-indicator confluence filtering was added. Confluence (MACD + RSI + Bollinger alignment) is in active development.
+**Recent Closed Trades (Last 7 Days):**
+| Symbol | Strategy | Entry | Exit | P&L |
+|---|---|---|---|---|
+| JPM | MACD Crossover | $242.94 | $303.24 | +$17.89 ✅ |
+| SPY | RSI Mean Reversion | $596.36 | $649.79 | +$6.06 ✅ |
+| AMZN | VWAP Reversion | $223.25 | $209.69 | -$4.75 |
+| QQQ | RSI Mean Reversion | $590.06 | $565.22 | -$6.56 |
+| GOOG | RSI Mean Reversion | $297.77 | $276.47 | -$13.28 |
+
+> This is a live paper trading account connected to Alpaca. All prices are real market data; no real money at risk. System runs overnight tournaments to evolve strategy parameters automatically. Early RSI underperformance drove a regime-filter upgrade now in production.
 
 ---
 
