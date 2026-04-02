@@ -72,6 +72,10 @@ TAKE_PROFIT_PERCENTAGE = 0.10  # 10% take profit
 SCAN_INTERVAL_SECONDS = 300  # 5 minutes
 MAX_CONCURRENT_SCANS = 3
 
+# TradingView Integration
+TRADINGVIEW_SECRET = os.environ.get("TRADINGVIEW_SECRET", "")
+TRADINGVIEW_ENABLED = os.environ.get("TRADINGVIEW_ENABLED", "true").lower() == "true"
+
 # Database Configuration  
 DATABASE_URL = f"sqlite:///{DATA_DIR / 'tradesight.db'}"
 

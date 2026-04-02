@@ -65,6 +65,61 @@ except Exception as _e:
     _dashboard_alert_manager = None
     _DASHBOARD_ALERTS_AVAILABLE = False
 
+# TradingView Integration
+try:
+    from config import TRADINGVIEW_SECRET, TRADINGVIEW_ENABLED
+    from integrations.tradingview_adapter import (
+        parse_tradingview_payload, verify_token, to_internal_signal
+    )
+    _TRADINGVIEW_AVAILABLE = True
+except Exception as _tv_e:
+    TRADINGVIEW_SECRET = ""
+    TRADINGVIEW_ENABLED = False
+    _TRADINGVIEW_AVAILABLE = False
+
+# Lazy PaperTrader singleton for webhook execution
+_paper_trader_instance = None
+_paper_trader_lock = threading.Lock()
+
+
+def get_paper_trader():
+    """Get or create the PaperTrader singleton (thread-safe, lazy init)."""
+    global _paper_trader_instance
+    with _paper_trader_lock:
+        if _paper_trader_instance is None:
+            from trading.paper_trader import PaperTrader
+            try:
+                from utils.keychain import get_alpaca_api_key, get_alpaca_secret_key
+                api_key = get_alpaca_api_key()
+                secret_key = get_alpaca_secret_key()
+            except Exception:
+                api_key = os.environ.get("ALPACA_API_KEY", "")
+                secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
+            base_dir = os.path.join(os.path.dirname(__file__), '..', 'src')
+            _paper_trader_instance = PaperTrader(
+                base_dir=base_dir,
+                alpaca_api_key=api_key,
+                alpaca_secret=secret_key
+            )
+        return _paper_trader_instance
+
+
+def _get_live_price(symbol: str) -> float:
+    """Fetch live price from Alpaca for a symbol."""
+    from data.alpaca_client import AlpacaClient
+    try:
+        from utils.keychain import get_alpaca_api_key, get_alpaca_secret_key
+        api_key = get_alpaca_api_key()
+        secret_key = get_alpaca_secret_key()
+    except Exception:
+        api_key = os.environ.get("ALPACA_API_KEY", "")
+        secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
+    client = AlpacaClient(api_key=api_key, secret_key=secret_key, paper=True)
+    quote = client.get_quote(symbol)
+    if quote is None or quote.last <= 0:
+        raise RuntimeError(f"No valid price for {symbol}")
+    return quote.last
+
 app.json_encoder = NumpySafeEncoder
 
 def safe_jsonify(data):
@@ -727,6 +782,66 @@ def emergency_restore_positions():
         return jsonify({'restored': restored, 'alpaca_positions': len(alpaca_positions)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# ===========================================================================
+# TradingView Webhook API (Dual-Feed Integration)
+# ===========================================================================
+
+@app.route('/api/tradingview/webhook', methods=['POST'])
+def tradingview_webhook():
+    """Receive TradingView alert webhooks and execute paper trades.
+
+    Expected JSON payload:
+        {
+            "token": "YOUR_SECRET",         (optional, validated if TRADINGVIEW_SECRET is set)
+            "symbol": "AAPL",               (required)
+            "action": "buy" | "sell",       (required)
+            "confidence": 0.70,             (required, clamped to [0.55, 0.85])
+            "price": 185.50,                (optional, fetched from Alpaca if absent)
+            "strategy": "MyStrategy",       (optional, defaults to "TradingView")
+            "reason": "RSI oversold"        (optional)
+        }
+    """
+    if not TRADINGVIEW_ENABLED:
+        return jsonify({"success": False, "error": "TradingView integration disabled"}), 503
+
+    raw = request.get_json(silent=True)
+    if not raw:
+        return jsonify({"success": False, "error": "Invalid JSON"}), 400
+
+    # Token verification (if secret configured)
+    if TRADINGVIEW_SECRET:
+        if not verify_token(raw, TRADINGVIEW_SECRET):
+            return jsonify({"success": False, "error": "Invalid token"}), 401
+
+    try:
+        tv_signal = parse_tradingview_payload(raw)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 422
+
+    # Resolve price: use payload price or fetch live quote from Alpaca
+    try:
+        current_price = tv_signal.price or _get_live_price(tv_signal.symbol)
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Price unavailable: {exc}"}), 503
+
+    signal = to_internal_signal(tv_signal, current_price)
+
+    try:
+        trader = get_paper_trader()
+        executed = trader.execute_signal(signal)
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Execution error: {exc}"}), 500
+
+    return jsonify({
+        "success": True,
+        "executed": executed,
+        "symbol": tv_signal.symbol,
+        "action": tv_signal.action,
+        "confidence": tv_signal.confidence,
+        "price": current_price
+    })
+
 
 if __name__ == '__main__':
     app.run(debug=False, host="127.0.0.1", port=5001)
