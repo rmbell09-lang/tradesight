@@ -5,13 +5,33 @@
   <link href="https://rmbell09-lang.github.io/tradesight/feed.xml" rel="self" type="application/atom+xml"/>
   <link href="https://rmbell09-lang.github.io/tradesight/blog/" rel="alternate" type="text/html"/>
   <id>https://rmbell09-lang.github.io/tradesight/</id>
-  <updated>2026-04-02T12:00:00Z</updated>
+  <updated>2026-04-02T19:00:00Z</updated>
   <author>
     <name>TradeSight Project</name>
     <uri>https://github.com/rmbell09-lang/tradesight</uri>
   </author>
   <icon>https://rmbell09-lang.github.io/tradesight/logo.png</icon>
   <rights>MIT License — open source</rights>
+
+  <entry>
+    <title>Building a Paper Trading Bot with Python + Alpaca API</title>
+    <link href="https://rmbell09-lang.github.io/tradesight/blog/paper-trading-bot.html" rel="alternate" type="text/html"/>
+    <id>https://rmbell09-lang.github.io/tradesight/blog/paper-trading-bot.html</id>
+    <published>2026-04-02T19:00:00Z</published>
+    <updated>2026-04-02T19:00:00Z</updated>
+    <category term="python" label="Python"/>
+    <category term="paper-trading" label="Paper Trading"/>
+    <category term="alpaca-api" label="Alpaca API"/>
+    <summary type="text">
+      How TradeSight runs 4 concurrent strategies (MACD, RSI, VWAP, Bollinger) against Alpaca paper trading API.
+      Live results: +6.43% portfolio return. MACD leading, RSI struggling in high-VIX regime. Full code included.
+    </summary>
+    <content type="html">
+      &amp;lt;p&amp;gt;TradeSight is an open-source Python paper trading bot that runs 4 concurrent strategies against Alpaca paper API. This post covers the architecture, the MACD implementation, and live results from the past week.&amp;lt;/p&amp;gt;
+      &amp;lt;p&amp;gt;Portfolio: &amp;lt;strong&amp;gt;+6.43%&amp;lt;/strong&amp;gt; over ~32 trades. MACD Crossover +.89 on JPM. RSI struggling at -.77 net (high VIX kills mean reversion). Bollinger Breakout solid at +.44.&amp;lt;/p&amp;gt;
+      &amp;lt;p&amp;gt;&amp;lt;a href="https://rmbell09-lang.github.io/tradesight/blog/paper-trading-bot.html"&amp;gt;Read the full post →&amp;lt;/a&amp;gt;&amp;lt;/p&amp;gt;
+    </content>
+  </entry>
 
   <entry>
     <title>Building a Python Stock Scanner with RSI Signals</title>

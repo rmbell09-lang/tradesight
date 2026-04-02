@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Building a Paper Trading Bot with Python + Alpaca API - TradeSight</title>
+  <meta name="description" content="How I built a live paper trading bot in Python using Alpaca API, MACD and RSI strategies with real portfolio results.">
+  <meta name="keywords" content="python, paper trading, alpaca api, algorithmic trading, MACD, RSI, backtesting, trading bot">
+  <link rel="alternate" type="application/atom+xml" title="TradeSight Blog" href="../feed.xml">
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    nav { background: #161b22; border-bottom: 1px solid #21262d; padding: 12px 0; }
+    nav .nav-inner { max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 24px; }
+    nav a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    nav .brand { font-weight: 700; font-size: 1.1rem; color: #e6edf3; }
+    h1 { font-size: 2.2rem; font-weight: 700; color: #e6edf3; margin-bottom: 12px; line-height: 1.3; }
+    .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 32px; }
+    .meta span { margin-right: 16px; }
+    h2 { font-size: 1.4rem; font-weight: 600; color: #e6edf3; margin: 40px 0 16px; }
+    p { line-height: 1.8; color: #c9d1d9; margin-bottom: 16px; }
+    ul { color: #c9d1d9; line-height: 1.8; }
+    pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; overflow-x: auto; margin: 24px 0; }
+    code { font-family: monospace; font-size: 0.9rem; color: #79c0ff; }
+    pre code { color: #e6edf3; }
+    .tag { background: #1c2128; border: 1px solid #30363d; color: #58a6ff; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; margin-right: 8px; }
+    .callout { background: #1c2128; border-left: 3px solid #58a6ff; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; }
+    .result-box { background: #1c2128; border: 1px solid #238636; border-radius: 8px; padding: 20px; margin: 24px 0; }
+    .result-box h3 { color: #3fb950; margin: 0 0 12px; font-size: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin: 24px 0; }
+    th { background: #161b22; color: #e6edf3; padding: 10px 14px; border: 1px solid #30363d; text-align: left; }
+    td { padding: 10px 14px; border: 1px solid #30363d; color: #c9d1d9; }
+    footer { border-top: 1px solid #21262d; padding: 30px 0; color: #8b949e; font-size: 0.85rem; text-align: center; margin-top: 60px; }
+    a { color: #58a6ff; }
+  </style>
+</head>
+<body>
+<nav>
+  <div class="nav-inner">
+    <span class="brand">📈 TradeSight</span>
+    <a href="../index.html">Home</a>
+    <a href="index.html">Blog</a>
+    <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a>
+  </div>
+</nav>
+<div class="container">
+  <div class="meta">
+    <span>📅 April 2, 2026</span>
+    <span class="tag">python</span>
+    <span class="tag">alpaca-api</span>
+    <span class="tag">paper-trading</span>
+    <span class="tag">algorithmic-trading</span>
+  </div>
+  <h1>Building a Paper Trading Bot with Python + Alpaca API</h1>
+  <p>Paper trading is one of the best ways to validate a strategy without risking real capital. The problem: most setups are either too manual (spreadsheets) or too heavyweight (commercial platforms with lock-in). This post walks through TradeSight - a lightweight, open-source Python bot that runs 4 concurrent strategies against Alpaca's paper trading API.</p>
+  <div class="callout">
+    <strong>Live results as of April 2, 2026:</strong> +6.43% portfolio return over ~32 trades. MACD Crossover leading (+.89 on JPM). RSI struggling (-.77 net). VIX at 25.4 - high volatility regime.
+  </div>
+  <h2>Why Alpaca?</h2>
+  <p>Alpaca gives you a free paper trading API that mirrors real market conditions - real prices, realistic fills, market hours enforcement. No signup fee, no monthly cost. Their Python SDK (alpaca-py) handles authentication, order submission, and position tracking cleanly.</p>
+  <pre><code>pip install alpaca-py pandas numpy</code></pre>
+  <h2>Architecture</h2>
+  <p>TradeSight runs 4 strategies in parallel, each managing its own position slice:</p>
+  <ul>
+    <li><strong>MACD Crossover</strong> - momentum signal on 12/26 EMA with 9-period signal line</li>
+    <li><strong>RSI Mean Reversion</strong> - buy oversold (&lt;30), sell overbought (&gt;70)</li>
+    <li><strong>VWAP Reversion</strong> - price deviation from intraday VWAP</li>
+    <li><strong>Bollinger Breakout</strong> - volatility squeeze breakout detection</li>
+  </ul>
+  <h2>Core MACD Implementation</h2>
+  <pre><code>import pandas as pd
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
+
+def get_macd_signal(symbol, api_key, secret_key):
+    client = StockHistoricalDataClient(api_key, secret_key)
+    request = StockBarsRequest(
+        symbol_or_symbols=symbol,
+        timeframe=TimeFrame.Hour,
+        limit=100
+    )
+    bars = client.get_stock_bars(request).df
+    close = bars["close"]
+    ema_fast = close.ewm(span=12, adjust=False).mean()
+    ema_slow = close.ewm(span=26, adjust=False).mean()
+    macd = ema_fast - ema_slow
+    signal = macd.ewm(span=9, adjust=False).mean()
+    if macd.iloc[-1] > signal.iloc[-1] and macd.iloc[-2] <= signal.iloc[-2]:
+        return "BUY"
+    elif macd.iloc[-1] < signal.iloc[-1] and macd.iloc[-2] >= signal.iloc[-2]:
+        return "SELL"
+    return "HOLD"</code></pre>
+  <h2>Live Results Breakdown</h2>
+  <table>
+    <tr><th>Strategy</th><th>Net P&amp;L</th><th>Top Trade</th><th>Notes</th></tr>
+    <tr><td>MACD Crossover</td><td>+.89</td><td>JPM +.12</td><td>Strong in trending regime</td></tr>
+    <tr><td>RSI Mean Reversion</td><td>-.77</td><td>-</td><td>High VIX kills mean reversion</td></tr>
+    <tr><td>VWAP Reversion</td><td>-/bin/bash.75</td><td>-</td><td>0% win rate this period</td></tr>
+    <tr><td>Bollinger Breakout</td><td>+.44</td><td>NVDA +.90</td><td>More breakouts in volatile market</td></tr>
+  </table>
+  <p>In a high-VIX environment, momentum strategies outperform mean-reversion plays. Mean reversion assumes prices return to equilibrium - that breaks down in volatile regimes.</p>
+  <h2>Running It Yourself</h2>
+  <pre><code>git clone https://github.com/rmbell09-lang/tradesight
+cd tradesight
+cp .env.example .env
+# Add Alpaca paper trading API key + secret
+pip install -r requirements.txt
+python paper_trader.py</code></pre>
+  <div class="result-box">
+    <h3>Free and open source</h3>
+    <p>TradeSight is MIT-licensed. Fork it, modify it, run your own strategies. <a href="https://github.com/rmbell09-lang/tradesight">github.com/rmbell09-lang/tradesight</a></p>
+  </div>
+  <h2>What is Next</h2>
+  <p>Regime detection is the obvious next step - automatically weighting strategies based on market conditions. When VIX exceeds 20, reduce RSI allocation and increase MACD weight. Also planning WebSocket reconnect logic and a 7-day ticker cooldown after stop-losses.</p>
+  <p>Building something similar? <a href="https://github.com/rmbell09-lang/tradesight/issues">Open an issue</a> or star the repo.</p>
+</div>
+<footer>
+  <p>TradeSight - open-source Python paper trading | <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a> | <a href="../feed.xml">RSS Feed</a></p>
+</footer>
+</body>
+</html>
