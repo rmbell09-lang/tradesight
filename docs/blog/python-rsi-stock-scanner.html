@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Building a Python Stock Scanner with RSI Signals — TradeSight</title>
+  <meta name="description" content="How I built a stock scanner in Python using RSI momentum signals, yfinance, and pandas — with live paper trading results.">
+  <meta name="keywords" content="python, stock scanner, RSI, trading, yfinance, pandas, algorithmic trading">
+  <link rel="alternate" type="application/atom+xml" title="TradeSight Blog" href="../feed.xml">
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    nav { background: #161b22; border-bottom: 1px solid #21262d; padding: 12px 0; margin-bottom: 0; }
+    nav .nav-inner { max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 24px; }
+    nav a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    nav .brand { font-weight: 700; font-size: 1.1rem; color: #e6edf3; }
+    h1 { font-size: 2.2rem; font-weight: 700; color: #e6edf3; margin-bottom: 12px; line-height: 1.3; }
+    .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 32px; }
+    .meta span { margin-right: 16px; }
+    h2 { font-size: 1.4rem; font-weight: 600; color: #e6edf3; margin: 40px 0 16px; }
+    p { line-height: 1.8; color: #c9d1d9; margin-bottom: 16px; }
+    pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; overflow-x: auto; margin: 24px 0; }
+    code { font-family: 'Courier New', monospace; font-size: 0.9rem; color: #79c0ff; }
+    pre code { color: #e6edf3; }
+    .tag { background: #1c2128; border: 1px solid #30363d; color: #58a6ff; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; margin-right: 8px; }
+    .callout { background: #1c2128; border-left: 3px solid #58a6ff; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; }
+    .result-box { background: #1c2128; border: 1px solid #238636; border-radius: 8px; padding: 20px; margin: 24px 0; }
+    .result-box h3 { color: #3fb950; margin: 0 0 12px; font-size: 1rem; }
+    .result-box p { margin: 0; }
+    footer { border-top: 1px solid #21262d; padding: 30px 0; color: #8b949e; font-size: 0.85rem; text-align: center; margin-top: 60px; }
+    a { color: #58a6ff; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <span class="brand">🔍 TradeSight</span>
+    <a href="../index.html">Home</a>
+    <a href="index.html">Blog</a>
+    <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a>
+  </div>
+</nav>
+
+<div class="container">
+  <article>
+    <div class="meta" style="margin-top: 40px;">
+      <span class="tag">python</span>
+      <span class="tag">trading</span>
+      <span class="tag">open-source</span>
+    </div>
+
+    <h1>Building a Python Stock Scanner with RSI Signals</h1>
+
+    <div class="meta">
+      <span>📅 April 2, 2026</span>
+      <span>⏱ 8 min read</span>
+      <span>👤 TradeSight Project</span>
+    </div>
+
+    <p>
+      I've been building <a href="../index.html">TradeSight</a> — an open-source algorithmic trading system
+      written in Python. At its core is a stock scanner that uses momentum signals (RSI, MACD, volume)
+      to surface trade setups across 50+ symbols in real time. This post breaks down how the RSI scanner
+      works, what I got wrong the first time, and the live paper trading results so far.
+    </p>
+
+    <div class="result-box">
+      <h3>📊 Live Paper Trading Results (as of April 2026)</h3>
+      <p>+6.43% return over 3 weeks | $532 portfolio | 3 active strategies | 0 crashes since circuit breaker added</p>
+    </div>
+
+    <h2>What is RSI and Why Use It?</h2>
+
+    <p>
+      The Relative Strength Index (RSI), developed by J. Welles Wilder in 1978, measures momentum
+      by comparing the magnitude of recent gains to recent losses. Values below 30 suggest oversold
+      conditions (potential buy), values above 70 suggest overbought (potential sell or short).
+    </p>
+
+    <p>
+      RSI is imperfect — it generates false signals during strong trends and in volatile markets. But
+      it's a good starting point for a scanner because it's fast to compute, widely understood, and
+      produces clear thresholds. Here's the core calculation:
+    </p>
+
+    <pre><code>import pandas as pd
+
+def rsi(series: pd.Series, window: int = 14) -> pd.Series:
+    """
+    Compute RSI for a price series.
+    Returns a Series of RSI values (0-100).
+    """
+    delta = series.diff().dropna()
+    gains = delta.clip(lower=0)
+    losses = (-delta).clip(lower=0)
+
+    avg_gain = gains.ewm(com=window - 1, adjust=False).mean()
+    avg_loss = losses.ewm(com=window - 1, adjust=False).mean()
+
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))</code></pre>
+
+    <p>
+      One thing I got wrong initially: using <code>rolling().mean()</code> instead of
+      <code>ewm()</code>. Wilder's original formula uses exponential smoothing, not a simple
+      moving average. The difference is subtle early on but compounds with more data.
+    </p>
+
+    <h2>Fetching Data with yfinance</h2>
+
+    <p>
+      <code>yfinance</code> is the easiest way to pull historical OHLCV data in Python without
+      paying for a data subscription. TradeSight uses it to pull daily bars for a watchlist of 50+
+      symbols:
+    </p>
+
+    <pre><code>import yfinance as yf
+import pandas as pd
+
+WATCHLIST = [
+    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA',
+    'SPY', 'QQQ', 'IWM',  # ETFs for market context
+    # ... 40+ more
+]
+
+def fetch_data(symbols: list, period: str = '3mo') -> dict:
+    """Fetch OHLCV data for multiple symbols. Returns dict of DataFrames."""
+    result = {}
+    for sym in symbols:
+        try:
+            ticker = yf.Ticker(sym)
+            hist = ticker.history(period=period)
+            if len(hist) > 30:  # skip symbols with thin history
+                result[sym] = hist
+        except Exception as e:
+            print(f"[WARN] {sym}: {e}")
+    return result</code></pre>
+
+    <div class="callout">
+      <strong>Rate limit note:</strong> yfinance hits Yahoo Finance's unofficial API.
+      If you're running this on many symbols, add a short sleep between requests or use
+      <code>yf.download()</code> with a list of tickers — it batches them more efficiently.
+    </div>
+
+    <h2>The Scanner: Scoring Each Symbol</h2>
+
+    <p>
+      Instead of a binary buy/sell signal, TradeSight computes a <em>score</em> for each symbol
+      based on multiple signals. RSI is one component; MACD crossover and relative volume are others.
+      The scanner returns a ranked list:
+    </p>
+
+    <pre><code>def scan_symbol(df: pd.DataFrame) -> dict | None:
+    """
+    Score a symbol based on RSI + MACD + volume signals.
+    Returns None if data is insufficient.
+    """
+    if len(df) < 30:
+        return None
+
+    close = df['Close']
+    volume = df['Volume']
+
+    # RSI signal
+    rsi_val = rsi(close).iloc[-1]
+    rsi_signal = 0
+    if rsi_val < 35:
+        rsi_signal = 1   # oversold — bullish
+    elif rsi_val > 65:
+        rsi_signal = -1  # overbought — bearish
+
+    # Relative volume (today vs 20-day avg)
+    avg_vol = volume.rolling(20).mean().iloc[-1]
+    rel_vol = volume.iloc[-1] / avg_vol if avg_vol > 0 else 1.0
+
+    # MACD crossover (simple version)
+    ema_fast = close.ewm(span=12).mean()
+    ema_slow = close.ewm(span=26).mean()
+    macd = ema_fast - ema_slow
+    signal_line = macd.ewm(span=9).mean()
+    macd_cross = 1 if (macd.iloc[-1] > signal_line.iloc[-1] and
+                       macd.iloc[-2] <= signal_line.iloc[-2]) else 0
+
+    score = rsi_signal + macd_cross + min(rel_vol / 2.0, 1.0)
+    return {'rsi': round(rsi_val, 1), 'rel_vol': round(rel_vol, 2),
+            'macd_cross': macd_cross, 'score': round(score, 2)}</code></pre>
+
+    <h2>Adding a Circuit Breaker</h2>
+
+    <p>
+      Paper trading went fine until one session where a strategy kept re-entering losing positions.
+      The fix was a simple daily loss limit — if total P&L drops below -2% in a session, all new
+      trades are blocked until the next day:
+    </p>
+
+    <pre><code>class CircuitBreaker:
+    def __init__(self, max_daily_loss: float = -0.02):
+        self.max_daily_loss = max_daily_loss
+        self.session_start_equity = None
+        self.triggered = False
+
+    def check(self, current_equity: float) -> bool:
+        """Returns True if trading should continue, False if circuit is open."""
+        if self.session_start_equity is None:
+            self.session_start_equity = current_equity
+            return True
+
+        daily_return = (current_equity - self.session_start_equity) / self.session_start_equity
+        if daily_return <= self.max_daily_loss:
+            self.triggered = True
+
+        return not self.triggered</code></pre>
+
+    <p>
+      Simple, but it eliminated the drawdown spiral that was eating into paper gains.
+    </p>
+
+    <h2>Results and What's Next</h2>
+
+    <p>
+      Three weeks of paper trading with RSI + MACD strategies across SPY, QQQ, and individual
+      names: <strong>+6.43% return</strong> on a $532 virtual portfolio. Not extraordinary, but
+      consistent and without any major drawdowns after the circuit breaker was added.
+    </p>
+
+    <p>
+      Next steps for TradeSight:
+    </p>
+
+    <ul style="color: #c9d1d9; line-height: 2; padding-left: 24px;">
+      <li>Add mean-reversion strategy (Bollinger Bands + RSI combo)</li>
+      <li>Real-time data via WebSocket (Alpaca Markets)</li>
+      <li>Backtesting module with walk-forward validation</li>
+      <li>Risk-adjusted scoring (Sharpe ratio per strategy)</li>
+    </ul>
+
+    <p>
+      The full source is on <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a>.
+      It's MIT licensed and actively being developed. If you're building something similar or want
+      to contribute, issues and PRs are open.
+    </p>
+
+    <div class="callout">
+      <strong>Try it yourself:</strong>
+      <code>git clone https://github.com/rmbell09-lang/tradesight && pip install -r requirements.txt</code>
+      — runs out of the box with paper trading mode enabled by default.
+    </div>
+
+  </article>
+</div>
+
+<footer>
+  <div class="container">
+    <p>
+      <a href="../index.html">TradeSight</a> · 
+      <a href="index.html">Blog</a> · 
+      <a href="../feed.xml">RSS/Atom Feed</a> · 
+      <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a>
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

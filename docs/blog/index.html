@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TradeSight Blog — Python Trading Systems</title>
+  <meta name="description" content="Open-source Python algorithmic trading posts: RSI scanners, paper trading, circuit breakers, and more.">
+  <link rel="alternate" type="application/atom+xml" title="TradeSight Blog" href="../feed.xml">
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    nav { background: #161b22; border-bottom: 1px solid #21262d; padding: 12px 0; }
+    nav .nav-inner { max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 24px; }
+    nav a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    nav .brand { font-weight: 700; font-size: 1.1rem; color: #e6edf3; }
+    h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; }
+    .subtitle { color: #8b949e; margin-bottom: 40px; }
+    .post-card { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 24px; margin-bottom: 20px; transition: border-color 0.2s; }
+    .post-card:hover { border-color: #58a6ff; }
+    .post-card h2 { font-size: 1.3rem; margin: 0 0 8px; }
+    .post-card h2 a { color: #e6edf3; text-decoration: none; }
+    .post-card h2 a:hover { color: #58a6ff; }
+    .post-meta { color: #8b949e; font-size: 0.85rem; margin-bottom: 12px; }
+    .post-excerpt { color: #c9d1d9; line-height: 1.7; }
+    .tag { background: #1c2128; border: 1px solid #30363d; color: #58a6ff; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; margin-right: 8px; }
+    .feed-link { display: inline-flex; align-items: center; gap: 8px; background: #161b22; border: 1px solid #30363d; color: #8b949e; padding: 8px 16px; border-radius: 8px; text-decoration: none; font-size: 0.85rem; margin-bottom: 32px; }
+    .feed-link:hover { border-color: #58a6ff; color: #58a6ff; }
+  </style>
+</head>
+<body>
+<nav>
+  <div class="nav-inner">
+    <span class="brand">🔍 TradeSight</span>
+    <a href="../index.html">Home</a>
+    <a href="index.html">Blog</a>
+    <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a>
+  </div>
+</nav>
+<div class="container">
+  <h1>TradeSight Blog</h1>
+  <p class="subtitle">Open-source Python trading systems: signals, strategies, and real paper trading results.</p>
+
+  <a href="../feed.xml" class="feed-link">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6.18 15.64a2.18 2.18 0 0 1 2.18 2.18C8.36 19.01 7.38 20 6.18 20C4.98 20 4 19.01 4 17.82a2.18 2.18 0 0 1 2.18-2.18M4 4.44A15.56 15.56 0 0 1 19.56 20h-2.83A12.73 12.73 0 0 0 4 7.27V4.44m0 5.66a9.9 9.9 0 0 1 9.9 9.9h-2.83A7.07 7.07 0 0 0 4 12.93V10.1z"/></svg>
+    Atom/RSS Feed
+  </a>
+
+  <div class="post-card">
+    <h2><a href="python-rsi-stock-scanner.html">Building a Python Stock Scanner with RSI Signals</a></h2>
+    <div class="post-meta">📅 April 2, 2026 · ⏱ 8 min read</div>
+    <div style="margin-bottom: 12px;">
+      <span class="tag">python</span>
+      <span class="tag">trading</span>
+      <span class="tag">open-source</span>
+    </div>
+    <p class="post-excerpt">
+      How I built a stock scanner using RSI, MACD, and relative volume signals in Python — with yfinance,
+      pandas, and a circuit breaker that eliminated drawdown spirals. Includes live paper trading results (+6.43% over 3 weeks).
+    </p>
+  </div>
+</div>
+</body>
+</html>
