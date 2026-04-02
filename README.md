@@ -170,7 +170,7 @@ Real money-at-risk (on paper). Updated automatically. System has been live since
 
 TradeSight is MIT-licensed and free to use. If it saved you time or you want the packaged strategy lab with setup guide and pre-tuned parameters:
 
-**[Get TradeSight Strategy Lab on Gumroad →](https://qcautonomous.gumroad.com/l/tradesight)** — $49 one-time
+**[Get TradeSight Strategy Lab on Gumroad →](https://qcautonomous.gumroad.com/l/zpkutz)** — $49 one-time
 
 Includes: packaged download, setup walkthrough, pre-configured Alpaca integration, and strategy parameter reference.
 
