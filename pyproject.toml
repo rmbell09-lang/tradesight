@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradesight"
+version = "1.0.0"
+description = "Self-hosted AI trading strategy lab — backtest, paper trade, run AI tournaments overnight."
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Ray Bell", email = "hello@tradesight.dev"},
+]
+keywords = [
+    "algotrading",
+    "paper-trading",
+    "backtesting",
+    "algorithmic-trading",
+    "quantitative-finance",
+    "trading-strategies",
+    "ai-trading",
+    "python-finance",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0",
+    "flask>=2.3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/rmbell09-lang/TradeSight"
+Repository = "https://github.com/rmbell09-lang/TradeSight"
+"Bug Tracker" = "https://github.com/rmbell09-lang/TradeSight/issues"
+Documentation = "https://github.com/rmbell09-lang/TradeSight#readme"
+
+[project.scripts]
+tradesight = "tradesight.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tradesight*"]
