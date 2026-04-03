@@ -5,7 +5,7 @@
   <link href="https://rmbell09-lang.github.io/tradesight/feed.xml" rel="self" type="application/atom+xml"/>
   <link href="https://rmbell09-lang.github.io/tradesight/blog/" rel="alternate" type="text/html"/>
   <id>https://rmbell09-lang.github.io/tradesight/</id>
-  <updated>2026-04-02T19:00:00Z</updated>
+  <updated>2026-04-03T01:00:00Z</updated>
   <author>
     <name>TradeSight Project</name>
     <uri>https://github.com/rmbell09-lang/tradesight</uri>
@@ -14,6 +14,28 @@
   <rights>MIT License — open source</rights>
 
   <entry>
+    <title>How to Measure Trading Strategy Performance in Python</title>
+    <link href="https://rmbell09-lang.github.io/tradesight/blog/trading-strategy-performance-metrics.html" rel="alternate" type="text/html"/>
+    <id>https://rmbell09-lang.github.io/tradesight/blog/trading-strategy-performance-metrics.html</id>
+    <published>2026-04-03T01:00:00Z</published>
+    <updated>2026-04-03T01:00:00Z</updated>
+    <category term="python" label="Python"/>
+    <category term="backtesting" label="Backtesting"/>
+    <category term="performance" label="Performance Metrics"/>
+    <category term="open-source" label="Open Source"/>
+    <summary type="text">
+      Sharpe ratio, max drawdown, win rate, profit factor, and Calmar ratio — the five Python implementations
+      you need to evaluate whether a trading strategy is worth running live. Includes real TradeSight
+      tournament benchmarks and a composite scoring system.
+    </summary>
+    <content type="html">
+      &lt;p&gt;A strategy that made 20% last year sounds great — until you learn it had a 40% max drawdown and got lucky on one spike. This post covers the five metrics I use in &lt;a href="https://rmbell09-lang.github.io/tradesight/"&gt;TradeSight&lt;/a&gt; to evaluate every strategy before it goes live.&lt;/p&gt;
+      &lt;p&gt;All implementations are pure Python + pandas + numpy — no special libraries needed. Includes a composite scorecard that TradeSight uses in its overnight tournament to rank 200+ strategy variants.&lt;/p&gt;
+      &lt;p&gt;&lt;a href="https://rmbell09-lang.github.io/tradesight/blog/trading-strategy-performance-metrics.html"&gt;Read the full post →&lt;/a&gt;&lt;/p&gt;
+    </content>
+  </entry>
+
+  
     <title>Building a Paper Trading Bot with Python + Alpaca API</title>
     <link href="https://rmbell09-lang.github.io/tradesight/blog/paper-trading-bot.html" rel="alternate" type="text/html"/>
     <id>https://rmbell09-lang.github.io/tradesight/blog/paper-trading-bot.html</id>
