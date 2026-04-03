@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Python Trading Strategies — TradeSight</title>
+  <meta name="description" content="Python trading strategy tutorials with full code: Bollinger Bands, mean reversion, MACD momentum, RSI scanner, and more. Self-hosted paper trading with TradeSight.">
+  <meta name="keywords" content="python trading strategies, algorithmic trading python, bollinger bands python, mean reversion python, MACD python, RSI python, paper trading bot">
+  <link rel="canonical" href="https://rmbell09-lang.github.io/tradesight/strategies/">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; }
+    a { color: #58a6ff; }
+    .hero { background: linear-gradient(135deg, #1a2332 0%, #0d1117 100%); padding: 50px 0 36px; border-bottom: 1px solid #21262d; }
+    .strategy-card { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 24px; margin-bottom: 20px; transition: border-color 0.2s; text-decoration: none; display: block; color: inherit; }
+    .strategy-card:hover { border-color: #58a6ff; color: inherit; text-decoration: none; }
+    .strategy-card h3 { color: #58a6ff; font-size: 1.15rem; margin-bottom: 8px; }
+    .strategy-card p { color: #8b949e; font-size: 0.9rem; margin: 0; }
+    .tag { background: #21262d; color: #8b949e; padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; margin: 2px; display: inline-block; }
+    footer { border-top: 1px solid #21262d; padding: 28px 0; color: #8b949e; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+<nav style="background:#161b22; border-bottom:1px solid #21262d; padding:12px 0;">
+  <div class="container">
+    <a href="../index.html" style="color:#58a6ff; font-weight:600; text-decoration:none;">← TradeSight</a>
+    <span style="color:#30363d; margin:0 12px;">|</span>
+    <a href="../blog/index.html" style="color:#8b949e; text-decoration:none;">Blog</a>
+  </div>
+</nav>
+
+<div class="hero">
+  <div class="container">
+    <h1 style="color:#58a6ff; font-size:2.2rem; font-weight:700;">Python Trading Strategies</h1>
+    <p style="color:#8b949e; font-size:1.05rem; max-width:600px; margin-top:10px;">
+      Full implementations with code, backtest results, and paper trading setup. Each strategy runs inside TradeSight's nightly tournament engine.
+    </p>
+  </div>
+</div>
+
+<section style="padding:50px 0;">
+  <div class="container" style="max-width:760px;">
+    <div class="row">
+      <div class="col-md-6">
+        <a href="bollinger-bands.html" class="strategy-card">
+          <h3>📊 Bollinger Bands</h3>
+          <p>Squeeze detection, band-width breakouts, and volume confirmation. Great for range-bound markets.</p>
+          <div style="margin-top:12px;">
+            <span class="tag">volatility</span>
+            <span class="tag">breakout</span>
+            <span class="tag">pandas</span>
+          </div>
+        </a>
+      </div>
+      <div class="col-md-6">
+        <a href="mean-reversion.html" class="strategy-card">
+          <h3>📉 Mean Reversion</h3>
+          <p>Z-score normalization, regime filters, and statistical edge. Works best in low-volatility uptrends.</p>
+          <div style="margin-top:12px;">
+            <span class="tag">z-score</span>
+            <span class="tag">stat-arb</span>
+            <span class="tag">regime</span>
+          </div>
+        </a>
+      </div>
+      <div class="col-md-6">
+        <a href="../blog/macd-momentum-strategy.html" class="strategy-card">
+          <h3>📈 MACD Momentum</h3>
+          <p>Signal crossover logic, histogram divergence, and live paper trading results. Trending market staple.</p>
+          <div style="margin-top:12px;">
+            <span class="tag">momentum</span>
+            <span class="tag">MACD</span>
+            <span class="tag">trend</span>
+          </div>
+        </a>
+      </div>
+      <div class="col-md-6">
+        <a href="../blog/python-rsi-stock-scanner.html" class="strategy-card">
+          <h3>🔍 RSI Stock Scanner</h3>
+          <p>Oversold/overbought scanning across a watchlist. Multi-ticker RSI with alert thresholds.</p>
+          <div style="margin-top:12px;">
+            <span class="tag">RSI</span>
+            <span class="tag">scanner</span>
+            <span class="tag">yfinance</span>
+          </div>
+        </a>
+      </div>
+      <div class="col-md-6">
+        <a href="../blog/paper-trading-bot.html" class="strategy-card">
+          <h3>🤖 Paper Trading Bot</h3>
+          <p>End-to-end Alpaca paper trading bot setup. Connect any strategy to live fake-money execution.</p>
+          <div style="margin-top:12px;">
+            <span class="tag">Alpaca</span>
+            <span class="tag">live</span>
+            <span class="tag">automation</span>
+          </div>
+        </a>
+      </div>
+    </div>
+
+    <div style="background:#161b22; border:2px solid #238636; border-radius:16px; padding:36px; text-align:center; margin-top:40px;">
+      <h3 style="color:#58a6ff;">Run Every Strategy Automatically</h3>
+      <p style="color:#8b949e; max-width:500px; margin:12px auto 24px;">TradeSight runs all of these in a nightly tournament. Strategies compete, evolve parameters, and the winners paper-trade live. You just review the results.</p>
+      <a href="https://qcautonomous.gumroad.com/l/zpkutz" style="background:#238636; color:white; padding:14px 44px; border-radius:8px; font-size:1.05rem; font-weight:600; text-decoration:none; display:inline-block;">Get TradeSight — $49</a>
+      <p style="color:#6e7681; font-size:0.85rem; margin-top:12px;">One-time · MIT license · Self-hosted</p>
+    </div>
+
+  </div>
+</section>
+
+<footer>
+  <div class="container text-center">
+    <p><a href="../index.html">TradeSight Home</a> · <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a> · <a href="https://qcautonomous.gumroad.com/l/zpkutz">Buy on Gumroad</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
