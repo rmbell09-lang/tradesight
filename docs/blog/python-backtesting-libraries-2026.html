@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Python Backtesting Libraries in 2026: Backtrader vs Zipline vs VectorBT vs TradeSight</title>
+  <meta name="description" content="An honest comparison of Python backtesting libraries in 2026 — Backtrader, Zipline, VectorBT, and TradeSight. Which one actually fits your workflow?">
+  <meta name="keywords" content="python backtesting, backtrader, zipline, vectorbt, algorithmic trading python, backtesting library comparison 2026, tradesight">
+  <link rel="alternate" type="application/atom+xml" title="TradeSight Blog" href="../feed.xml">
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    nav { background: #161b22; border-bottom: 1px solid #21262d; padding: 12px 0; margin-bottom: 0; }
+    nav .nav-inner { max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 24px; }
+    nav a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    nav .brand { font-weight: 700; font-size: 1.1rem; color: #e6edf3; }
+    h1 { font-size: 2.2rem; font-weight: 700; color: #e6edf3; margin-bottom: 12px; line-height: 1.3; }
+    .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 32px; }
+    .meta span { margin-right: 16px; }
+    h2 { font-size: 1.4rem; font-weight: 600; color: #e6edf3; margin: 40px 0 16px; }
+    h3 { font-size: 1.15rem; font-weight: 600; color: #c9d1d9; margin: 28px 0 12px; }
+    p { line-height: 1.8; color: #c9d1d9; margin-bottom: 16px; }
+    pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; overflow-x: auto; margin: 24px 0; }
+    code { font-family: 'Courier New', monospace; font-size: 0.9rem; color: #79c0ff; }
+    pre code { color: #e6edf3; }
+    .tag { background: #1c2128; border: 1px solid #30363d; color: #58a6ff; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; margin-right: 8px; }
+    .callout { background: #1c2128; border-left: 3px solid #58a6ff; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; }
+    .result-box { background: #1c2128; border: 1px solid #238636; border-radius: 8px; padding: 20px; margin: 24px 0; }
+    .result-box h3 { color: #3fb950; margin: 0 0 12px; font-size: 1rem; }
+    .result-box p { margin: 0; }
+    footer { border-top: 1px solid #21262d; padding: 30px 0; color: #8b949e; font-size: 0.85rem; text-align: center; margin-top: 60px; }
+    a { color: #58a6ff; }
+    table { width: 100%; border-collapse: collapse; margin: 24px 0; }
+    th { background: #161b22; color: #e6edf3; padding: 10px 14px; text-align: left; border: 1px solid #30363d; font-size: 0.9rem; }
+    td { padding: 10px 14px; border: 1px solid #30363d; color: #c9d1d9; font-size: 0.9rem; }
+    tr:nth-child(even) { background: #0d1117; }
+    tr:nth-child(odd) { background: #161b22; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <span class="brand">🔍 TradeSight</span>
+    <a href="../index.html">Home</a>
+    <a href="index.html">Blog</a>
+    <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a>
+  </div>
+</nav>
+
+<div class="container">
+  <article>
+    <div class="meta" style="margin-top: 40px;">
+      <span class="tag">python</span>
+      <span class="tag">backtesting</span>
+      <span class="tag">algo-trading</span>
+      <span class="tag">comparison</span>
+    </div>
+
+    <h1>Python Backtesting Libraries in 2026: Backtrader vs Zipline vs VectorBT vs TradeSight</h1>
+
+    <div class="meta">
+      <span>📅 April 3, 2026</span>
+      <span>⏱ 9 min read</span>
+      <span>👤 TradeSight Project</span>
+    </div>
+
+    <p>
+      Choosing a Python backtesting library is one of those decisions that looks simple until you're six hours in and fighting with some framework's event loop. I've used most of the popular options, and they all have real tradeoffs worth knowing before you commit.
+    </p>
+    <p>
+      This is an honest comparison — not a sales pitch for TradeSight. Each library has a different philosophy and fits different use cases.
+    </p>
+
+    <h2>Quick Comparison</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Library</th>
+          <th>Best For</th>
+          <th>Learning Curve</th>
+          <th>Speed</th>
+          <th>Active Dev</th>
+          <th>Self-Hosted</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Backtrader</strong></td>
+          <td>General strategy testing</td>
+          <td>Medium</td>
+          <td>Moderate</td>
+          <td>Mostly stalled</td>
+          <td>Yes</td>
+        </tr>
+        <tr>
+          <td><strong>Zipline</strong></td>
+          <td>Quantopian-style research</td>
+          <td>High</td>
+          <td>Fast</td>
+          <td>zipline-reloaded fork</td>
+          <td>Yes</td>
+        </tr>
+        <tr>
+          <td><strong>VectorBT</strong></td>
+          <td>Fast parameter sweeps</td>
+          <td>Medium</td>
+          <td>Very fast</td>
+          <td>Active</td>
+          <td>Yes</td>
+        </tr>
+        <tr>
+          <td><strong>TradeSight</strong></td>
+          <td>Strategy tournaments + paper trading</td>
+          <td>Low</td>
+          <td>Fast</td>
+          <td>Active (new)</td>
+          <td>Yes (local only)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Backtrader</h2>
+    <p>
+      Backtrader has been the go-to for years and it earns that reputation. The event-driven architecture makes it easy to reason about — each bar triggers a <code>next()</code> call on your strategy class, and you have access to a full order management system. It handles multiple data feeds, position sizing, and slippage modeling out of the box.
+    </p>
+    <p>
+      The downside: Backtrader development stalled around 2021. There are open issues and PRs that haven't been merged. It still works fine for most use cases, but you're essentially maintaining anything you build on top of it yourself.
+    </p>
+    <p>
+      Good pick if you want a mature, battle-tested framework and don't need the latest Python version features.
+    </p>
+
+    <h2>Zipline</h2>
+    <p>
+      Zipline was built by Quantopian and has the most institutional pedigree. It's designed around a research pipeline that separates data ingestion, strategy logic, and risk analysis cleanly. If you want to run proper factor-based research with tear sheets, Zipline + pyfolio is the standard toolkit.
+    </p>
+    <p>
+      The catch: the original repo is effectively dead (Quantopian shut down). The community maintains <code>zipline-reloaded</code>, which works, but the setup is more involved — you need to ingest data into Zipline's bundle format before you can do anything. Plan on spending a few hours on environment setup before your first backtest.
+    </p>
+    <p>
+      Best fit for people coming from a quant research background who want Pandas/NumPy-native analytics.
+    </p>
+
+    <h2>VectorBT</h2>
+    <p>
+      VectorBT takes a different approach entirely. Instead of event-driven simulation, it vectorizes everything — entire price histories become NumPy arrays, and strategies are expressed as array operations. This makes it extremely fast for parameter sweeps. Running 10,000 RSI parameter combinations is feasible in seconds.
+    </p>
+    <p>
+      The tradeoff is that realistic order simulation is harder. Vectorized backtesting by default doesn't model partial fills, slippage, or order queuing well. For research and exploration it's excellent. For simulating actual live trading behavior, you need to be careful.
+    </p>
+    <p>
+      VectorBT Pro (the paid version) has expanded features, but the open-source version is still genuinely useful.
+    </p>
+
+    <h2>TradeSight</h2>
+    <p>
+      TradeSight is a different category from the above — it's not a backtesting library you embed in your code, but a self-hosted app you run locally. The core idea: define strategies, let TradeSight run overnight tournaments to find which performs best under current conditions, then paper trade the winner via Alpaca.
+    </p>
+    <p>
+      It ships 9 built-in strategies (RSI, MACD, Bollinger Bands, SMA crossovers, etc.) and a web dashboard. The setup is <code>git clone</code> and <code>pip install -r requirements.txt</code> — no data ingestion pipeline, no cloud accounts required.
+    </p>
+
+    <pre><code># Clone and run
+git clone https://github.com/rmbell09-lang/tradesight
+cd tradesight
+pip install -r requirements.txt
+cp .env.example .env  # add your Alpaca paper trading keys
+python run.py</code></pre>
+
+    <p>
+      What it doesn't do: it won't let you write arbitrary strategy code the way Backtrader will. It's designed around a specific workflow — configure, run tournaments, paper trade, review. If you want something closer to a library you extend programmatically, Backtrader or VectorBT is the better fit.
+    </p>
+
+    <div class="result-box">
+      <h3>📊 Live stats (as of April 2026)</h3>
+      <p>169/169 tests passing · 9 strategies in rotation · Paper trading via Alpaca · Local web dashboard</p>
+    </div>
+
+    <h2>Which One to Use</h2>
+
+    <p><strong>Just starting out with algo trading in Python?</strong> Backtrader or TradeSight. Backtrader gives you more flexibility; TradeSight gives you something running in an afternoon.</p>
+
+    <p><strong>Doing factor research or multi-asset portfolio backtesting?</strong> Zipline + pyfolio is the established path.</p>
+
+    <p><strong>Running thousands of parameter combinations?</strong> VectorBT. Nothing else comes close on speed.</p>
+
+    <p><strong>Want an opinionated setup that handles tournament selection and paper trading without writing a framework?</strong> TradeSight.</p>
+
+    <div class="callout">
+      <p>TradeSight is open source at <a href="https://github.com/rmbell09-lang/tradesight">github.com/rmbell09-lang/tradesight</a>. Questions and contributions welcome.</p>
+    </div>
+
+  </article>
+</div>
+
+<footer>
+  <p>© 2026 TradeSight — <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a> · <a href="https://rmbell09-lang.github.io/tradesight/">Docs</a></p>
+</footer>
+
+</body>
+</html>

@@ -5,13 +5,22 @@
   <link href="https://rmbell09-lang.github.io/tradesight/feed.xml" rel="self" type="application/atom+xml"/>
   <link href="https://rmbell09-lang.github.io/tradesight/blog/" rel="alternate" type="text/html"/>
   <id>https://rmbell09-lang.github.io/tradesight/</id>
-  <updated>2026-04-03T01:00:00Z</updated>
+  <updated>2026-04-03T18:00:00Z</updated>
   <author>
     <name>TradeSight Project</name>
     <uri>https://github.com/rmbell09-lang/tradesight</uri>
   </author>
   <icon>https://rmbell09-lang.github.io/tradesight/logo.png</icon>
   <rights>MIT License — open source</rights>
+
+  <entry>
+    <title>Python Backtesting Libraries in 2026: Backtrader vs Zipline vs VectorBT vs TradeSight</title>
+    <link href="https://rmbell09-lang.github.io/tradesight/blog/python-backtesting-libraries-2026.html" rel="alternate" type="text/html"/>
+    <id>https://rmbell09-lang.github.io/tradesight/blog/python-backtesting-libraries-2026.html</id>
+    <updated>2026-04-03T18:00:00Z</updated>
+    <summary>An honest comparison of Backtrader, Zipline, VectorBT, and TradeSight in 2026. Each has real tradeoffs worth knowing before you commit to one.</summary>
+    <author><name>TradeSight Project</name></author>
+  </entry>
 
   <entry>
     <title>MACD Momentum Strategy in Python: Implementation and Live Paper Trading Results</title>
