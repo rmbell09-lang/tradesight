@@ -165,18 +165,19 @@ class PaperTrader:
         
         # Trading parameters
         self.config = {
-            # FILTERED WATCHLIST - 9 OOS-validated mean reversion winners (Apr 2, 2026)
-            # Removed 11 symbols where RSI mean reversion loses money OOS:
-            #   QQQ, AAPL, MSFT, META, JPM, BAC, V, MA, COST, HD, DIS
-            # Kept only symbols with positive OOS PnL in optimization cross-validation.
-            # Review after 50+ closed trades (~3-4 weeks).
+            # SWING TRADE WATCHLIST - 20 mega/large-cap, high-liquidity stocks
+            # Broad enough for good data collection, no high-beta names that
+            # destroy mean reversion (removed TSLA, ADBE, AMD, BA - too volatile)
+            # PDT avoided via min_hold_hours, not small watchlist
             'trading_symbols': [
-                'SPY',                              # Broad market ETF (+0.41% OOS)
-                'GOOGL', 'AMZN',                    # Tech mega-cap (OOS winners)
-                'JNJ', 'PFE',                       # Healthcare (+4.15%, +5.79% OOS)
-                'XOM', 'CVX',                       # Energy (+5.20%, +4.15% OOS)
-                'WMT',                              # Consumer staples (+2.82% OOS)
-                'KO',                               # Consumer staples (+0.21% OOS)
+                'SPY', 'QQQ',                      # Broad market ETFs
+                'AAPL', 'MSFT', 'GOOGL', 'AMZN',  # Tech mega-cap
+                'META',                             # Tech (stable post-2024)
+                'JPM', 'BAC', 'V', 'MA',           # Financials
+                'JNJ', 'PFE',                       # Healthcare
+                'XOM', 'CVX',                       # Energy
+                'WMT', 'COST', 'HD',               # Consumer/Retail
+                'KO', 'DIS',                        # Consumer staples + media
             ],
             'min_strategy_confidence': 0.55,  # Slightly higher bar for fewer, better trades
             'max_concurrent_trades': 5,       # 5 positions for more data (fractional shares)
@@ -187,11 +188,12 @@ class PaperTrader:
             'rebalance_frequency_days': 7,    # Rebalance weekly
             # Correlation groups — max 2 positions per group
             'correlation_groups': {
-                'broad_market': ['SPY'],
-                'tech': ['GOOGL', 'AMZN'],
+                'broad_market': ['SPY', 'QQQ'],
+                'tech': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META'],
+                'financials': ['JPM', 'BAC', 'V', 'MA'],
                 'healthcare': ['JNJ', 'PFE'],
                 'energy': ['XOM', 'CVX'],
-                'consumer': ['WMT', 'KO'],
+                'consumer': ['WMT', 'COST', 'HD', 'KO', 'DIS'],
             },
             'max_per_correlation_group': 2,
             'daily_loss_limit': 15.0,  # Task 890 — block new entries if daily P&L <= -$15
