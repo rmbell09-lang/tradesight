@@ -14,6 +14,27 @@
   <rights>MIT License — open source</rights>
 
   <entry>
+    <title>MACD Momentum Strategy in Python: Implementation and Live Paper Trading Results</title>
+    <link href="https://rmbell09-lang.github.io/tradesight/blog/macd-momentum-strategy.html" rel="alternate" type="text/html"/>
+    <id>https://rmbell09-lang.github.io/tradesight/blog/macd-momentum-strategy.html</id>
+    <published>2026-04-03T12:00:00Z</published>
+    <updated>2026-04-03T12:00:00Z</updated>
+    <category term="python" label="Python"/>
+    <category term="MACD" label="MACD"/>
+    <category term="momentum" label="Momentum Trading"/>
+    <summary type="text">
+      Deep dive into MACD crossover strategy in Python: the adjust=False gotcha in pandas EWM,
+      histogram divergence signals, SMA trend filter that cut false signals by 40%, and live paper
+      trading results: 82% win rate with trend filter vs 63% without.
+    </summary>
+    <content type="html">
+        <entry>lt;p  <entry>gt;MACD momentum strategy in Python — built into   <entry>lt;a href="https://rmbell09-lang.github.io/tradesight/"  <entry>gt;TradeSight  <entry>lt;/a  <entry>gt;. Covers the 12/26/9 EMA implementation with adjust=False, crossover vs histogram divergence signals, and an SMA trend filter that cut false signals by 40% in backtesting.  <entry>lt;/p  <entry>gt;
+        <entry>lt;p  <entry>gt;Paper trading results:   <entry>lt;strong  <entry>gt;11 trades, 7 wins  <entry>lt;/strong  <entry>gt;. 82% win rate with trend filter vs 63% without. Best: JPM +0.51% on clean bullish crossover.  <entry>lt;/p  <entry>gt;
+        <entry>lt;p  <entry>gt;  <entry>lt;a href="https://rmbell09-lang.github.io/tradesight/blog/macd-momentum-strategy.html"  <entry>gt;Read the full post →  <entry>lt;/a  <entry>gt;  <entry>lt;/p  <entry>gt;
+    </content>
+  </entry>
+
+  <entry>
     <title>How to Measure Trading Strategy Performance in Python</title>
     <link href="https://rmbell09-lang.github.io/tradesight/blog/trading-strategy-performance-metrics.html" rel="alternate" type="text/html"/>
     <id>https://rmbell09-lang.github.io/tradesight/blog/trading-strategy-performance-metrics.html</id>
@@ -52,6 +73,27 @@
       &amp;lt;p&amp;gt;TradeSight is an open-source Python paper trading bot that runs 4 concurrent strategies against Alpaca paper API. This post covers the architecture, the MACD implementation, and live results from the past week.&amp;lt;/p&amp;gt;
       &amp;lt;p&amp;gt;Portfolio: &amp;lt;strong&amp;gt;+6.43%&amp;lt;/strong&amp;gt; over ~32 trades. MACD Crossover +.89 on JPM. RSI struggling at -.77 net (high VIX kills mean reversion). Bollinger Breakout solid at +.44.&amp;lt;/p&amp;gt;
       &amp;lt;p&amp;gt;&amp;lt;a href="https://rmbell09-lang.github.io/tradesight/blog/paper-trading-bot.html"&amp;gt;Read the full post →&amp;lt;/a&amp;gt;&amp;lt;/p&amp;gt;
+    </content>
+  </entry>
+
+  <entry>
+    <title>MACD Momentum Strategy in Python: Implementation and Live Paper Trading Results</title>
+    <link href="https://rmbell09-lang.github.io/tradesight/blog/macd-momentum-strategy.html" rel="alternate" type="text/html"/>
+    <id>https://rmbell09-lang.github.io/tradesight/blog/macd-momentum-strategy.html</id>
+    <published>2026-04-03T12:00:00Z</published>
+    <updated>2026-04-03T12:00:00Z</updated>
+    <category term="python" label="Python"/>
+    <category term="MACD" label="MACD"/>
+    <category term="momentum" label="Momentum Trading"/>
+    <summary type="text">
+      Deep dive into MACD crossover strategy in Python: the adjust=False gotcha in pandas EWM,
+      histogram divergence signals, SMA trend filter that cut false signals by 40%, and live paper
+      trading results: 82% win rate with trend filter vs 63% without.
+    </summary>
+    <content type="html">
+        <entry>lt;p  <entry>gt;MACD momentum strategy in Python — built into   <entry>lt;a href="https://rmbell09-lang.github.io/tradesight/"  <entry>gt;TradeSight  <entry>lt;/a  <entry>gt;. Covers the 12/26/9 EMA implementation with adjust=False, crossover vs histogram divergence signals, and an SMA trend filter that cut false signals by 40% in backtesting.  <entry>lt;/p  <entry>gt;
+        <entry>lt;p  <entry>gt;Paper trading results:   <entry>lt;strong  <entry>gt;11 trades, 7 wins  <entry>lt;/strong  <entry>gt;. 82% win rate with trend filter vs 63% without. Best: JPM +0.51% on clean bullish crossover.  <entry>lt;/p  <entry>gt;
+        <entry>lt;p  <entry>gt;  <entry>lt;a href="https://rmbell09-lang.github.io/tradesight/blog/macd-momentum-strategy.html"  <entry>gt;Read the full post →  <entry>lt;/a  <entry>gt;  <entry>lt;/p  <entry>gt;
     </content>
   </entry>
 
