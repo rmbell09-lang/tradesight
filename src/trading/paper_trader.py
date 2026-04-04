@@ -733,6 +733,12 @@ class PaperTrader:
             if quantity <= 0:
                 self.logger.info(f"No position size available for {symbol} {strategy}")
                 return False
+
+            # Alpaca minimum order: notional must be >= $1
+            notional = quantity * current_price
+            if notional < 1.0:
+                self.logger.info(f"Order too small for {symbol}: ${notional:.2f} notional < $1.00 minimum. Skipping.")
+                return False
             
             # Execute the trade
             if action == 'buy':
