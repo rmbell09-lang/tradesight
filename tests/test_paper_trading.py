@@ -303,16 +303,22 @@ class TestPaperTrader:
     
     @patch('trading.paper_trader.TechnicalIndicators')
     def test_generate_trading_signals_rsi(self, mock_indicators):
-        """Test RSI trading signal generation"""
-        # Mock market data - include all OHLCV columns
+        """Test RSI trading signal generation — bullish daily trend with oversold RSI.
+        
+        Uses ascending prices so daily SMA50 trend filter (Task 14) passes,
+        while mocked RSI = 20.0 simulates an oversold pullback within an uptrend.
+        """
         import pandas as pd
+        # Ascending prices: price rises 100→300 so daily trend = bullish (price > SMA50)
+        # This simulates a healthy uptrend with a temporary oversold dip (RSI mocked at 20)
+        close_prices = list(range(100, 300))  # 200 bars, ascending
         mock_data = pd.DataFrame({
-            'open': list(range(200, 0, -1)),  # Declining open
-            'high': list(range(201, 1, -1)),  # Declining high
-            'low': list(range(199, -1, -1)),  # Declining low
-            'close': list(range(200, 0, -1)),  # Declining close (oversold signal)
-            'volume': [1000] * 200
-        }, index=pd.date_range('2026-01-01', periods=200))
+            'open': [p - 0.5 for p in close_prices],
+            'high': [p + 1.0 for p in close_prices],
+            'low': [p - 1.0 for p in close_prices],
+            'close': close_prices,
+            'volume': [1_000_000] * 200
+        }, index=pd.date_range('2026-01-01', periods=200, freq='1h'))
         
         self.trader.alpaca.get_historical_data = Mock(return_value=mock_data)
         
@@ -326,14 +332,45 @@ class TestPaperTrader:
             "signals": {}
         }
         
-        # Generate signal
+        # Generate signal — should pass MTF filter (bullish trend) + RSI filter (oversold)
         signal = self.trader.generate_trading_signals('AAPL', 'RSI Mean Reversion')
         
-        assert signal is not None
+        assert signal is not None, "Expected buy signal: RSI oversold in bullish daily trend"
         assert signal['action'] == 'buy'
         assert signal['side'] == 'long'
         assert signal['confidence'] > 0.60
         assert 'RSI oversold' in signal['reason']
+
+    @patch('trading.paper_trader.TechnicalIndicators')
+    def test_rsi_mtf_filter_blocks_bearish_trend(self, mock_indicators):
+        """Task 14: MTF filter must block RSI buy signals when daily trend is bearish.
+        
+        Uses declining prices so daily SMA50 filter detects a downtrend,
+        which should suppress the RSI buy signal even when RSI = 20.
+        """
+        import pandas as pd
+        # Declining prices: 200 → 1 → daily trend = bearish
+        close_prices = list(range(200, 0, -1))
+        mock_data = pd.DataFrame({
+            'open': [p - 0.5 for p in close_prices],
+            'high': [p + 1.0 for p in close_prices],
+            'low': [p - 1.0 for p in close_prices],
+            'close': close_prices,
+            'volume': [1_000_000] * 200
+        }, index=pd.date_range('2026-01-01', periods=200, freq='1h'))
+        
+        self.trader.alpaca.get_historical_data = Mock(return_value=mock_data)
+        
+        mock_indicator_instance = Mock()
+        mock_indicators.return_value = mock_indicator_instance
+        mock_indicator_instance.calculate_all.return_value = {
+            "indicators": {"rsi": 20.0},
+            "signals": {}
+        }
+        
+        # Signal should be blocked — RSI oversold but daily trend is bearish
+        signal = self.trader.generate_trading_signals('AAPL', 'RSI Mean Reversion')
+        assert signal is None, "MTF filter should block RSI buy in bearish daily trend"
     
     def test_generate_trading_signals_insufficient_data(self):
         """Test signal generation with insufficient data"""
