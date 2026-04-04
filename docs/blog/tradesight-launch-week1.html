@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TradeSight Launch Week: What We Built, What Broke, and What Actually Worked</title>
+  <meta name="description" content="A real account of shipping TradeSight — a self-hosted Python paper trading lab. 169 tests, 9 strategies, AI overnight tournaments, and lessons from week one.">
+  <meta name="keywords" content="tradesight launch, python paper trading, algorithmic trading open source, self-hosted trading bot, alpaca api python, algo trading strategy lab">
+  <link rel="alternate" type="application/atom+xml" title="TradeSight Blog" href="../feed.xml">
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    nav { background: #161b22; border-bottom: 1px solid #21262d; padding: 12px 0; margin-bottom: 0; }
+    nav .nav-inner { max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 24px; }
+    nav a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    nav .brand { font-weight: 700; font-size: 1.1rem; color: #e6edf3; }
+    h1 { font-size: 2.2rem; font-weight: 700; color: #e6edf3; margin-bottom: 12px; line-height: 1.3; }
+    .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 32px; }
+    .meta span { margin-right: 16px; }
+    h2 { font-size: 1.4rem; font-weight: 600; color: #e6edf3; margin: 40px 0 16px; }
+    h3 { font-size: 1.15rem; font-weight: 600; color: #c9d1d9; margin: 28px 0 12px; }
+    p { line-height: 1.8; color: #c9d1d9; margin-bottom: 16px; }
+    pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; overflow-x: auto; margin: 24px 0; }
+    code { font-family: 'Courier New', monospace; font-size: 0.9rem; color: #79c0ff; }
+    pre code { color: #e6edf3; }
+    .tag { background: #1c2128; border: 1px solid #30363d; color: #58a6ff; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; margin-right: 8px; }
+    .callout { background: #1c2128; border-left: 3px solid #58a6ff; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; }
+    .callout p { margin: 0; }
+    .result-box { background: #1c2128; border: 1px solid #238636; border-radius: 8px; padding: 20px; margin: 24px 0; }
+    .result-box h3 { color: #3fb950; margin: 0 0 12px; font-size: 1rem; }
+    .result-box p { margin: 0; }
+    .warn-box { background: #1c2128; border: 1px solid #d29922; border-radius: 8px; padding: 20px; margin: 24px 0; }
+    .warn-box h3 { color: #d29922; margin: 0 0 12px; font-size: 1rem; }
+    .warn-box p { margin: 0; }
+    footer { border-top: 1px solid #21262d; padding: 30px 0; color: #8b949e; font-size: 0.85rem; text-align: center; margin-top: 60px; }
+    a { color: #58a6ff; }
+    .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 24px 0; }
+    .stat-card { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 20px; text-align: center; }
+    .stat-card .num { font-size: 2rem; font-weight: 700; color: #58a6ff; }
+    .stat-card .label { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
+    ol li, ul li { line-height: 1.8; color: #c9d1d9; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <span class="brand">🔍 TradeSight</span>
+    <a href="../index.html">Home</a>
+    <a href="index.html">Blog</a>
+    <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a>
+  </div>
+</nav>
+
+<div class="container">
+  <article>
+    <div class="meta" style="margin-top: 40px;">
+      <span class="tag">launch</span>
+      <span class="tag">open-source</span>
+      <span class="tag">python</span>
+      <span class="tag">algo-trading</span>
+    </div>
+
+    <h1>TradeSight Launch Week: What We Built, What Broke, and What Actually Worked</h1>
+
+    <div class="meta">
+      <span>📅 April 3, 2026</span>
+      <span>⏱ 8 min read</span>
+      <span>👤 TradeSight Project</span>
+    </div>
+
+    <p>
+      TradeSight is live. Week one is done. Here's the real version of what happened — not a highlight reel, just an honest rundown of what shipped, what immediately broke, and what surprised us.
+    </p>
+
+    <p>
+      The short version: 9 strategies in production, overnight AI tournaments running, 169 tests passing, and paper P&L hovering around +6.43%. The longer version involves a lot of pandas gotchas, one really stupid cron timing bug, and a MACD strategy that outperformed every other approach we tried.
+    </p>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="num">169</div>
+        <div class="label">Tests passing (169/169)</div>
+      </div>
+      <div class="stat-card">
+        <div class="num">9</div>
+        <div class="label">Live paper trading strategies</div>
+      </div>
+      <div class="stat-card">
+        <div class="num">+6.43%</div>
+        <div class="label">Paper portfolio return</div>
+      </div>
+      <div class="stat-card">
+        <div class="num">15+</div>
+        <div class="label">Technical indicators implemented</div>
+      </div>
+    </div>
+
+    <h2>What TradeSight Actually Is</h2>
+
+    <p>
+      A self-hosted Python app that backtests strategies, runs them as live paper trades via Alpaca, and uses an AI tournament engine overnight to evolve the best-performing ones. No cloud subscription. No strategy leaks to a third-party server. Runs on your machine.
+    </p>
+
+    <p>
+      The core loop is simple:
+    </p>
+
+    <ol>
+      <li>Strategies compete overnight in a backtested tournament</li>
+      <li>Winners advance, losers get retired or mutated</li>
+      <li>Winning strategies execute as paper trades through Alpaca</li>
+      <li>Results feed back into the next tournament cycle</li>
+    </ol>
+
+    <p>
+      The web dashboard (Flask, localhost:5000) shows live positions, signal feeds, tournament brackets, and P&L in real time. You wake up to new results every morning.
+    </p>
+
+    <div class="callout">
+      <p><strong>Demo mode works without any API keys.</strong> Clone the repo, run <code>python START_TRADESIGHT.py</code>, and you get simulated market data immediately. No Alpaca account required to explore.</p>
+    </div>
+
+    <h2>The First Real Problem: pandas EWM and adjust=False</h2>
+
+    <p>
+      The MACD implementation was the first place we hit a real correctness issue. pandas' <code>EWM</code> function has an <code>adjust</code> parameter that defaults to <code>True</code>, which uses a different weighting formula than most trading platforms and textbooks expect.
+    </p>
+
+<pre><code># What most tutorials show:
+ema_fast = prices.ewm(span=12).mean()
+
+# What you actually want for MACD that matches TradingView:
+ema_fast = prices.ewm(span=12, adjust=False).mean()</code></pre>
+
+    <p>
+      With <code>adjust=True</code>, early values get inflated because pandas normalizes by the sum of decaying weights. With <code>adjust=False</code>, each value is computed recursively — which matches how the rest of the world calculates EMA. We were getting signals that looked correct in isolation but drifted from any external reference.
+    </p>
+
+    <p>
+      Fix took 20 minutes once we knew what to look for. Finding it took two days.
+    </p>
+
+    <h2>The Cron Timing Bug</h2>
+
+    <p>
+      The overnight tournament is supposed to run at 2 AM. It was running at 2 AM UTC, which is 9 PM or 10 PM Eastern depending on daylight saving. So tournaments were completing before US market close, using incomplete daily candles for the final period.
+    </p>
+
+    <p>
+      This is a boring bug with a boring fix — always store and schedule in UTC, display in local time — but it cost us several days of tournament results that included partially-formed candlesticks as the "close" of the session.
+    </p>
+
+<pre><code># config/schedule.py — explicit UTC timezone
+import pytz
+
+TOURNAMENT_HOUR_UTC = 7  # 2 AM ET (EST offset), adjust for EDT
+TOURNAMENT_TIMEZONE = pytz.UTC</code></pre>
+
+    <p>
+      Now tournaments run after US market data is fully settled and cleaned up.
+    </p>
+
+    <h2>What the AI Tournament Engine Actually Does</h2>
+
+    <p>
+      "AI tournament" sounds more exotic than it is. The tournament engine is a genetic-style selection loop: strategies are parameterized (fast period, slow period, signal period, risk filter thresholds), we run N backtests with randomized parameter variants, score them on a combined metric (Sharpe ratio weighted against max drawdown and win rate), keep the top performers, mutate their parameters slightly, and repeat.
+    </p>
+
+    <p>
+      It's not a neural network. It's just systematic parameter search with selection pressure. The "AI" label comes from the fact that it's using an LLM to suggest parameter mutations and interpret why certain configurations outperformed others — generating a plain-English explanation of what each winning strategy is actually doing.
+    </p>
+
+    <div class="result-box">
+      <h3>🏆 Week 1 Tournament Winner: MACD Crossover with SMA Trend Filter</h3>
+      <p>Fast EMA: 10, Slow EMA: 23, Signal: 9, SMA filter: 50-period. Added a trend filter that prevented entering long trades when price was below the 50 SMA — cut false signals by ~40% in ranging markets. Win rate: 82% (filtered) vs 63% (unfiltered). Still running as live paper position.</p>
+    </div>
+
+    <h2>The RSI Strategy: A Useful Failure</h2>
+
+    <p>
+      The first live strategy we ran was RSI-based: buy when RSI crosses below 30 (oversold), sell when it crosses above 70 (overbought). Classic. And it lost money immediately.
+    </p>
+
+    <p>
+      Not because RSI is bad — it's not — but because oversold conditions in a strong downtrend just mean the stock keeps going down. RSI mean-reversion only works in ranging markets. We were running it during a trending period and it was catching falling knives.
+    </p>
+
+    <p>
+      The fix (which the tournament engine independently discovered) was adding a trend confirmation filter: only take RSI oversold entries when the broader trend (50 SMA) is pointing up. This alone recovered most of the losses in backtests.
+    </p>
+
+    <p>
+      The lesson isn't that RSI is bad. It's that no single indicator works in all market regimes, and running live paper trades with unfiltered signals is a fast way to learn that.
+    </p>
+
+    <div class="warn-box">
+      <h3>⚠️ Paper trading ≠ real trading</h3>
+      <p>TradeSight uses Alpaca's paper environment. Fills are simulated at mid-price with no slippage model. Real execution would see worse fills on thinly-traded names. Don't treat paper P&L as a direct prediction of live performance — treat it as a sanity check that your signals aren't completely broken.</p>
+    </div>
+
+    <h2>The Multi-Market Scanner</h2>
+
+    <p>
+      One feature that surprised us with its usefulness: scanning Polymarket prediction markets alongside stocks. Polymarket prices on events like Fed rate decisions, macro data releases, and geopolitical events are real money bets — they're often earlier signals than news sentiment.
+    </p>
+
+    <p>
+      We haven't proven edge from this yet. But having a live view of what the prediction markets are pricing on the same dashboard as your equity signals is genuinely interesting, and it's a data source most retail algo setups ignore.
+    </p>
+
+    <h2>What's Next</h2>
+
+    <p>
+      A few things on the roadmap that didn't make week one:
+    </p>
+
+    <ul>
+      <li><strong>Options flow signals</strong> — unusual options activity as a filter for existing equity signals</li>
+      <li><strong>Sector rotation logic</strong> — the current scanner treats all stocks independently; adding sector-level momentum would reduce correlated positions</li>
+      <li><strong>Sharpe-weighted position sizing</strong> — right now all positions are equal-sized; sizing by strategy confidence would improve risk-adjusted returns</li>
+      <li><strong>Email/webhook alerts</strong> — the web dashboard is great locally, but a daily summary email would make it usable without keeping the dashboard open</li>
+    </ul>
+
+    <h2>Get It Running</h2>
+
+    <p>
+      If you want to run TradeSight yourself, setup is about 5 minutes:
+    </p>
+
+<pre><code>git clone https://github.com/rmbell09-lang/tradesight.git
+cd tradesight
+pip install -r requirements.txt
+python START_TRADESIGHT.py</code></pre>
+
+    <p>
+      Dashboard opens at <a href="http://localhost:5000">http://localhost:5000</a>. No API keys required for demo mode. If you want live paper trading, connect a free Alpaca paper account in <code>config/api_keys.json</code>.
+    </p>
+
+    <p>
+      The repo is MIT licensed. Issues, PRs, and strategy ideas welcome — especially if you've found a signal combination that works in the current market regime.
+    </p>
+
+    <p>
+      → <a href="https://github.com/rmbell09-lang/tradesight">github.com/rmbell09-lang/tradesight</a>
+    </p>
+
+  </article>
+
+  <footer>
+    <p>TradeSight — open-source Python paper trading lab · <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a> · <a href="index.html">Blog</a></p>
+  </footer>
+</div>
+</body>
+</html>
