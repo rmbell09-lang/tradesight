@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How TradeSight's Overnight Strategy Tournament Works — Python Algo Trading</title>
+  <meta name="description" content="Inside TradeSight's overnight AI tournament: how 9 Python trading strategies compete nightly, how composite scores are calculated, and why the winner changes week to week.">
+  <meta name="keywords" content="python, algorithmic trading, strategy tournament, backtesting, paper trading, MACD, RSI, Bollinger, algo trading, open source">
+  <link rel="alternate" type="application/atom+xml" title="TradeSight Blog" href="../feed.xml">
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    nav { background: #161b22; border-bottom: 1px solid #21262d; padding: 12px 0; }
+    nav .nav-inner { max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 24px; }
+    nav a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    nav .brand { font-weight: 700; font-size: 1.1rem; color: #e6edf3; }
+    h1 { font-size: 2.2rem; font-weight: 700; color: #e6edf3; margin-bottom: 12px; line-height: 1.3; }
+    .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 32px; }
+    .meta span { margin-right: 16px; }
+    h2 { font-size: 1.4rem; font-weight: 600; color: #e6edf3; margin: 40px 0 16px; }
+    p { line-height: 1.8; color: #c9d1d9; margin-bottom: 16px; }
+    ul, ol { color: #c9d1d9; line-height: 1.8; padding-left: 1.5rem; }
+    li { margin-bottom: 6px; }
+    pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; overflow-x: auto; margin: 24px 0; }
+    code { font-family: 'Consolas', 'Fira Code', monospace; font-size: 0.88rem; color: #79c0ff; }
+    pre code { color: #e6edf3; }
+    .tag { background: #1c2128; border: 1px solid #30363d; color: #58a6ff; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; margin-right: 8px; }
+    .callout { background: #1c2128; border-left: 3px solid #58a6ff; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; }
+    .result-box { background: #1c2128; border: 1px solid #238636; border-radius: 8px; padding: 20px; margin: 24px 0; }
+    .result-box h3 { color: #3fb950; margin: 0 0 12px; font-size: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin: 24px 0; }
+    th { background: #161b22; color: #e6edf3; padding: 10px 14px; border: 1px solid #30363d; text-align: left; }
+    td { padding: 10px 14px; border: 1px solid #30363d; color: #c9d1d9; }
+    tr:nth-child(even) td { background: #0d1117; }
+    footer { border-top: 1px solid #21262d; padding: 30px 0; color: #8b949e; font-size: 0.85rem; text-align: center; margin-top: 60px; }
+    a { color: #58a6ff; }
+    .winner-badge { display: inline-block; background: #238636; color: #3fb950; border: 1px solid #2ea043; border-radius: 4px; padding: 2px 8px; font-size: 0.8rem; font-weight: 600; margin-left: 8px; }
+  </style>
+</head>
+<body>
+<nav>
+  <div class="nav-inner">
+    <span class="brand">📈 TradeSight</span>
+    <a href="../index.html">Home</a>
+    <a href="index.html">Blog</a>
+    <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a>
+  </div>
+</nav>
+<div class="container">
+  <div class="meta">
+    <span>📅 April 4, 2026</span>
+    <span class="tag">python</span>
+    <span class="tag">algo-trading</span>
+    <span class="tag">backtesting</span>
+    <span class="tag">open-source</span>
+  </div>
+  <h1>How TradeSight's Overnight Strategy Tournament Works</h1>
+
+  <p>Every night at 2 AM, TradeSight runs all 9 of its built-in strategies against 6 months of historical data and scores them. The top performer gets more capital allocation the next trading day. By morning, you have a ranked leaderboard and a winner — without touching anything.</p>
+
+  <p>This post explains the tournament mechanics: what gets scored, how composite scores are calculated, and why the winner isn't always the strategy with the highest return.</p>
+
+  <div class="callout">
+    <strong>TL;DR:</strong> Return alone is a bad fitness function. TradeSight scores on Sharpe ratio, max drawdown, win rate, and profit factor — then weights them to penalize high-variance strategies even if they look profitable on raw P&amp;L.
+  </div>
+
+  <h2>The 9 Strategies</h2>
+
+  <p>Each strategy is a standalone Python module under <code>strategies/</code> with a consistent interface: it takes OHLCV data, returns a list of trades. No shared state, no side effects between strategies during the tournament run.</p>
+
+  <table>
+    <tr><th>Strategy</th><th>Signal Type</th><th>Primary Indicator</th></tr>
+    <tr><td>MACD Crossover</td><td>Momentum</td><td>12/26 EMA delta vs 9-period signal</td></tr>
+    <tr><td>MACD + SMA Filter</td><td>Momentum + Trend</td><td>MACD cross only above 50-day SMA</td></tr>
+    <tr><td>RSI Mean Reversion</td><td>Mean Reversion</td><td>RSI &lt;30 buy / &gt;70 sell</td></tr>
+    <tr><td>Bollinger Breakout</td><td>Volatility</td><td>Price crossing upper/lower band</td></tr>
+    <tr><td>Bollinger + Volume Confirm</td><td>Volatility + Volume</td><td>Breakout only with volume &gt;1.5x avg</td></tr>
+    <tr><td>EMA Crossover (9/21)</td><td>Trend</td><td>Fast/slow EMA crossover</td></tr>
+    <tr><td>VWAP Reversion</td><td>Mean Reversion</td><td>Price deviation from intraday VWAP</td></tr>
+    <tr><td>ATR Momentum</td><td>Volatility</td><td>Price range expansion relative to ATR</td></tr>
+    <tr><td>Confluence Strategy</td><td>Multi-signal</td><td>MACD + RSI + SMA agreement</td></tr>
+  </table>
+
+  <h2>Running the Tournament</h2>
+
+  <p>The tournament runner iterates over each strategy, fetches data for the configured ticker universe, runs the backtest, and collects metrics. The whole thing runs under a cron job:</p>
+
+  <pre><code># crontab entry
+0 2 * * 1-5 cd /path/to/tradesight && python run_tournament.py >> logs/tournament.log 2>&1</code></pre>
+
+  <pre><code>from tournament import TournamentRunner
+
+runner = TournamentRunner(
+    strategies=load_all_strategies(),
+    tickers=["AAPL", "MSFT", "NVDA", "JPM", "META", "AMZN"],
+    lookback_days=180
+)
+
+results = runner.run()
+winner = results.ranked[0]
+print(f"Winner: {winner.name} — composite score {winner.score:.3f}")</code></pre>
+
+  <p>Each strategy runs the same data, same date range, same tickers. No lookahead, no survivorship bias in the ticker selection — the universe is fixed upfront.</p>
+
+  <h2>The Scoring Function</h2>
+
+  <p>This is where most tournament implementations go wrong. If you rank by return, you get the strategy that got lucky on one big trade. TradeSight uses a composite score:</p>
+
+  <pre><code>def composite_score(metrics: StrategyMetrics) -> float:
+    """
+    Weights tuned empirically over 3 months of live paper trading.
+    Penalizes high variance aggressively — a consistent +8% beats
+    a volatile +15% with deep drawdowns.
+    """
+    sharpe_score    = normalize(metrics.sharpe_ratio,    min=-2, max=3)   * 0.35
+    drawdown_score  = normalize(-metrics.max_drawdown,   min=-0.4, max=0) * 0.25
+    winrate_score   = normalize(metrics.win_rate,        min=0.3, max=0.8) * 0.20
+    pfactor_score   = normalize(metrics.profit_factor,   min=0.5, max=3.0) * 0.20
+
+    return sharpe_score + drawdown_score + winrate_score + pfactor_score</code></pre>
+
+  <p>The weights reflect real risk tolerance. Sharpe ratio gets 35% because it captures return <em>per unit of risk</em>. Max drawdown gets 25% because a strategy you'd abandon mid-drawdown is useless regardless of its long-term backtest. Win rate and profit factor split the remainder.</p>
+
+  <h2>Why the Winner Changes Week to Week</h2>
+
+  <p>This is the part that surprised people when we first shared TradeSight. The Confluence Strategy — which combines MACD, RSI, and SMA agreement — almost always wins during trending, low-volatility regimes. But when VIX spikes above 20, MACD Crossover takes the top spot because momentum signals work better in high-volatility environments where mean reversion breaks down.</p>
+
+  <table>
+    <tr><th>Market Regime</th><th>VIX Range</th><th>Typical Winner</th><th>Why</th></tr>
+    <tr><td>Low volatility trend</td><td>&lt;15</td><td>Confluence</td><td>Multi-signal agreement = fewer false entries</td></tr>
+    <tr><td>Normal</td><td>15–20</td><td>MACD + SMA Filter</td><td>Trend filter cuts whipsaws</td></tr>
+    <tr><td>High volatility</td><td>20–30</td><td>MACD Crossover <span class="winner-badge">current</span></td><td>Momentum dominates in chaotic price action</td></tr>
+    <tr><td>Extreme / crash</td><td>&gt;30</td><td>ATR Momentum</td><td>Volatility expansion signals more reliable than direction signals</td></tr>
+  </table>
+
+  <p>This is regime-dependent performance in action. A static capital allocation — "always run the Confluence strategy" — underperforms because it's optimized for one regime. The tournament handles this automatically.</p>
+
+  <h2>Capital Allocation After Each Tournament</h2>
+
+  <p>After ranking, TradeSight redistributes capital across the live strategies for the next trading day:</p>
+
+  <pre><code>def allocate_capital(ranked_results, total_capital=10000):
+    """
+    Top scorer gets 50%, second gets 30%, third gets 20%.
+    Everything below rank 3 runs at zero allocation (monitoring only).
+    """
+    allocations = {}
+    weights = [0.50, 0.30, 0.20]
+    for i, result in enumerate(ranked_results[:3]):
+        allocations[result.name] = total_capital * weights[i]
+    return allocations</code></pre>
+
+  <p>This is deliberately simple. Fancier allocation schemes (Kelly criterion, mean-variance optimization) add fragility. The tournament already does the heavy lifting by identifying which strategy fits the current regime.</p>
+
+  <h2>Running It Yourself</h2>
+
+  <pre><code>git clone https://github.com/rmbell09-lang/tradesight
+cd tradesight
+pip install -r requirements.txt
+cp .env.example .env  # add Alpaca paper trading keys
+
+# Run a single tournament manually
+python run_tournament.py --tickers AAPL MSFT NVDA --lookback 90
+
+# Or let cron handle it nightly
+crontab -e  # add the 2 AM line from above</code></pre>
+
+  <div class="result-box">
+    <h3>Open source, MIT licensed</h3>
+    <p>Fork it, add your own strategies, plug in your own scoring weights. <a href="https://github.com/rmbell09-lang/tradesight">github.com/rmbell09-lang/tradesight</a></p>
+  </div>
+
+  <p>The code is structured so adding a new strategy is one file and one import — the tournament runner discovers them automatically. If you build something interesting, open a PR.</p>
+
+</div>
+<footer>
+  <p>TradeSight — open-source Python paper trading | <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a> | <a href="../feed.xml">RSS Feed</a></p>
+</footer>
+</body>
+</html>
