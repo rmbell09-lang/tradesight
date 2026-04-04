@@ -1,3 +1,4 @@
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rmbell09-lang/tradesight/blob/main/intro_demo.ipynb)
 [![PyPI version](https://badge.fury.io/py/tradesight.svg)](https://pypi.org/project/tradesight/)
 
 # 🎯 TradeSight — Self-Hosted AI Trading Strategy Lab
