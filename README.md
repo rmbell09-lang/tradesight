@@ -49,6 +49,13 @@ TradeSight is a self-hosted Python app that runs AI-powered strategy tournaments
 
 ### Install
 
+**macOS (Homebrew):**
+```bash
+brew tap rmbell09-lang/tradesight
+brew install tradesight
+```
+
+**From source:**
 ```bash
 git clone https://github.com/rmbell09-lang/tradesight.git
 cd tradesight
