@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How We Handle Gap Openings in a Python Paper Trader - TradeSight</title>
+  <meta name="description" content="April 3rd was a nasty gap-up day. Here's how TradeSight's gap detection fired on MSFT (+4.6%), AAPL (+4.5%), and V (+4.8%) — and what the bot actually did about it.">
+  <meta name="keywords" content="python, paper trading, gap detection, alpaca api, algorithmic trading, VIX regime, gap up, trading bot, stock market gaps">
+  <link rel="alternate" type="application/atom+xml" title="TradeSight Blog" href="../feed.xml">
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    nav { background: #161b22; border-bottom: 1px solid #21262d; padding: 12px 0; }
+    nav .nav-inner { max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 24px; }
+    nav a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    nav .brand { font-weight: 700; font-size: 1.1rem; color: #e6edf3; }
+    h1 { font-size: 2.2rem; font-weight: 700; color: #e6edf3; margin-bottom: 12px; line-height: 1.3; }
+    .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 32px; }
+    .meta span { margin-right: 16px; }
+    h2 { font-size: 1.4rem; font-weight: 600; color: #e6edf3; margin: 40px 0 16px; }
+    p { line-height: 1.8; color: #c9d1d9; margin-bottom: 16px; }
+    ul, ol { color: #c9d1d9; line-height: 1.8; }
+    pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; overflow-x: auto; margin: 24px 0; }
+    code { font-family: monospace; font-size: 0.9rem; color: #79c0ff; }
+    pre code { color: #e6edf3; }
+    .tag { background: #1c2128; border: 1px solid #30363d; color: #58a6ff; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; margin-right: 8px; }
+    .callout { background: #1c2128; border-left: 3px solid #58a6ff; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; }
+    .warning { background: #1c2128; border-left: 3px solid #d29922; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; }
+    .result-box { background: #1c2128; border: 1px solid #238636; border-radius: 8px; padding: 20px; margin: 24px 0; }
+    .result-box h3 { color: #3fb950; margin: 0 0 12px; font-size: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin: 24px 0; }
+    th { background: #161b22; color: #e6edf3; padding: 10px 14px; border: 1px solid #30363d; text-align: left; }
+    td { padding: 10px 14px; border: 1px solid #30363d; color: #c9d1d9; }
+    .log-line { font-family: monospace; font-size: 0.85rem; color: #8b949e; line-height: 1.6; }
+    .log-warn { color: #d29922; }
+    .log-info { color: #3fb950; }
+    .log-err { color: #f85149; }
+    footer { border-top: 1px solid #21262d; padding: 30px 0; color: #8b949e; font-size: 0.85rem; text-align: center; margin-top: 60px; }
+    a { color: #58a6ff; }
+  </style>
+</head>
+<body>
+<nav>
+  <div class="nav-inner">
+    <span class="brand">📈 TradeSight</span>
+    <a href="../index.html">Home</a>
+    <a href="index.html">Blog</a>
+    <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a>
+  </div>
+</nav>
+<div class="container">
+  <div class="meta">
+    <span>📅 April 5, 2026</span>
+    <span class="tag">python</span>
+    <span class="tag">paper-trading</span>
+    <span class="tag">gap-detection</span>
+    <span class="tag">risk-management</span>
+  </div>
+  <h1>How We Handle Gap Openings in Our Python Paper Trader</h1>
+  <p>April 3rd was a big gap day. MSFT opened +4.6% over the prior close, AAPL +4.5%, V +4.8%. If you're running an overnight position in any of those, you need to know what your bot is going to do with that — before it does it.</p>
+  <p>Here's how TradeSight's gap detection module works, what it logged that morning, and the reasoning behind the "consider taking partial profit" recommendation rather than an automatic exit.</p>
+
+  <div class="result-box">
+    <h3>📊 Apr 3 Live Paper Trading Results</h3>
+    <p style="margin:0;color:#c9d1d9;font-size:0.95rem;">Portfolio: <strong style="color:#3fb950;">$544.19</strong> (+8.84% from $500 starting capital) · 4 open positions · VIX: 23.9 (normal regime)</p>
+  </div>
+
+  <h2>What the Logs Said</h2>
+  <p>Here's the actual output from the Apr 3 scan, lightly formatted:</p>
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:24px 0;font-family:monospace;font-size:0.85rem;line-height:1.8;">
+    <div class="log-warn">[Gap] MSFT gapped UP 4.6%: prev_close=$369.46 → current=$386.39</div>
+    <div class="log-info">[Gap] MSFT gap up — unrealized=$9.17, consider taking partial profit</div>
+    <div class="log-warn">[Gap] AAPL gapped UP 4.5%: prev_close=$255.43 → current=$266.91</div>
+    <div class="log-info">[Gap] AAPL gap up — unrealized=$4.70, consider taking partial profit</div>
+    <div class="log-warn">[Gap] V gapped UP 4.8%: prev_close=$298.50 → current=$312.90</div>
+    <div class="log-info">[Gap] V gap up — unrealized=$0.05, consider taking partial profit</div>
+    <div class="log-info">[Regime] VIX=23.9 → normal</div>
+    <div class="log-info">[SL/TP/Trail] SL=5.0% TP=12.0% Trail=3.0% (activates at +2%)</div>
+  </div>
+
+  <h2>The Gap Detection Logic</h2>
+  <p>The gap detector runs at the top of every trading scan. It compares the previous close to the current price for each held position:</p>
+  <pre><code>def check_gaps(positions, threshold=0.03):
+    """
+    Flag any held position that gapped significantly from prior close.
+    threshold: 0.03 = 3% gap triggers a warning
+    """
+    alerts = []
+    for pos in positions:
+        symbol = pos['symbol']
+        prev_close = get_prev_close(symbol)  # from daily bar data
+        current = float(pos['current_price'])
+
+        if prev_close is None:
+            continue
+
+        gap_pct = (current - prev_close) / prev_close
+
+        if abs(gap_pct) >= threshold:
+            direction = "UP" if gap_pct > 0 else "DOWN"
+            unrealized = float(pos['unrealized_pl'])
+            alerts.append({
+                'symbol': symbol,
+                'direction': direction,
+                'gap_pct': gap_pct,
+                'prev_close': prev_close,
+                'current': current,
+                'unrealized_pl': unrealized
+            })
+            logger.warning(
+                f"[Gap] {symbol} gapped {direction} {gap_pct:.1%}: "
+                f"prev_close=${prev_close:.2f} → current=${current:.2f}"
+            )
+            if gap_pct > 0:
+                logger.info(
+                    f"[Gap] {symbol} gap up — unrealized=${unrealized:.2f}, "
+                    f"consider taking partial profit"
+                )
+            else:
+                logger.warning(
+                    f"[Gap] {symbol} gap down — unrealized=${unrealized:.2f}, "
+                    f"stop-loss active at {SL_PCT:.1%}"
+                )
+
+    return alerts</code></pre>
+
+  <p>The threshold is set at 3% by default. A gap under that is noise. Above that, something real happened overnight that your intraday signal didn't see coming.</p>
+
+  <h2>Why "Consider" Instead of Auto-Exit?</h2>
+  <p>The log says "consider taking partial profit" — not "sell now." That's intentional. Here's the reasoning:</p>
+  <ul>
+    <li><strong>Gaps can extend.</strong> A 4.6% gap on MSFT could be the start of a 10% move. Auto-exiting on every gap means you'll miss the continuation trades.</li>
+    <li><strong>The stop-loss is already armed.</strong> With SL=5%, if the gap reverses, the position gets cut automatically. You don't need to add a second exit trigger that fires on good news.</li>
+    <li><strong>Trailing stop handles the rest.</strong> The 3% trailing stop activates once unrealized P&L hits +2%. A big gap accelerates that — the trailing stop tightens and locks in gains.</li>
+  </ul>
+
+  <div class="callout">
+    <strong>The mental model:</strong> Gap detection is an alerting layer, not a decision layer. It tells the system "something unusual happened, check your stops." The stops themselves handle the actual exit.
+  </div>
+
+  <h2>VIX Regime Changes the Calculation</h2>
+  <p>The regime detector ran in parallel and returned <code>normal</code> (VIX=23.9). That matters because the same 4.6% gap reads differently in different regimes:</p>
+
+  <table>
+    <tr><th>VIX Range</th><th>Regime</th><th>Gap Response</th></tr>
+    <tr><td>&lt;18</td><td>low_vol</td><td>Gaps are rare — treat as signal, tighten stop</td></tr>
+    <tr><td>18–28</td><td>normal</td><td>Gaps happen — alert only, let stops run</td></tr>
+    <tr><td>28–40</td><td>high_vol</td><td>Gaps are frequent — reduce position sizes, widen stops</td></tr>
+    <tr><td>&gt;40</td><td>extreme</td><td>New entries paused — manage existing only</td></tr>
+  </table>
+
+  <p>At VIX=23.9, we're in normal territory. The system correctly classified it and didn't alter stop-loss parameters. Had VIX been above 28, the SL/TP config would have automatically widened to SL=7% / TP=15% to account for bigger intraday swings.</p>
+
+  <pre><code>def get_regime(vix: float) -> str:
+    if vix < 18:
+        return "low_vol"
+    elif vix < 28:
+        return "normal"
+    elif vix < 40:
+        return "high_vol"
+    else:
+        return "extreme"
+
+def get_sl_tp_config(regime: str) -> dict:
+    configs = {
+        "low_vol":  {"sl": 0.04, "tp": 0.10, "trail": 0.02, "trail_activates": 0.015},
+        "normal":   {"sl": 0.05, "tp": 0.12, "trail": 0.03, "trail_activates": 0.020},
+        "high_vol": {"sl": 0.07, "tp": 0.15, "trail": 0.04, "trail_activates": 0.030},
+        "extreme":  {"sl": 0.08, "tp": 0.18, "trail": 0.05, "trail_activates": 0.040},
+    }
+    return configs[regime]</code></pre>
+
+  <h2>What We'd Do Differently</h2>
+  <p>A few things Apr 3 exposed:</p>
+  <ol>
+    <li><strong>V gap was barely worth reporting.</strong> Unrealized P&L of $0.05 on a 4.8% gap means the position is tiny. The gap detector doesn't filter by position size — it probably should.</li>
+    <li><strong>No pre-market check.</strong> All three tickers gapped because of macro news (broad market move). We don't currently distinguish between stock-specific gaps vs. broad market gaps. The response should differ.</li>
+    <li><strong>Gap-down asymmetry.</strong> We handle gap-downs more aggressively (stop-loss fires immediately vs. just alerting). That's correct but could be surfaced more clearly in the logs.</li>
+  </ol>
+
+  <div class="warning">
+    <strong>One thing we haven't solved:</strong> pre-market gap detection. By the time the first scan runs at 9:35 AM ET, the gap has already happened. Ideally you'd check the pre-market print at 9:25 and decide before the open — but that requires a pre-market data subscription on Alpaca (or a separate feed). On the free tier, you work with what opens at 9:30.
+  </div>
+
+  <h2>The Bigger Picture</h2>
+  <p>After ~5 weeks of paper trading, the portfolio is at +8.84% ($544.19 from $500). That's not spectacular but it's positive and the system is learning — each tournament cycle, strategies compete on real performance metrics and the loser gets its parameters evolved. The MACD Crossover strategy has been the consistent winner; RSI mean reversion has been the consistent underperformer on this particular market regime.</p>
+  <p>Gap handling is one of the less glamorous parts of a trading bot but it's where you lose money fast if you get it wrong. A system that ignores overnight moves will hold positions into reversals. One that exits on every gap will constantly sell into continuation moves. The answer is almost always: alert, adjust stops, let the position ride unless the stop fires.</p>
+
+  <p>If you're building something similar, the <a href="https://github.com/rmbell09-lang/tradesight">TradeSight repo</a> is open source. The gap detection code is in <code>signals/signal_service.py</code>.</p>
+
+  <footer>
+    <div>© 2026 TradeSight · <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a> · <a href="../feed.xml">RSS</a></div>
+  </footer>
+</div>
+</body>
+</html>
