@@ -5,7 +5,7 @@
   <link href="https://rmbell09-lang.github.io/tradesight/feed.xml" rel="self" type="application/atom+xml"/>
   <link href="https://rmbell09-lang.github.io/tradesight/blog/" rel="alternate" type="text/html"/>
   <id>https://rmbell09-lang.github.io/tradesight/</id>
-  <updated>2026-04-03T18:00:00Z</updated>
+  <updated>2026-04-06T17:00:00Z</updated>
   <author>
     <name>TradeSight Project</name>
     <uri>https://github.com/rmbell09-lang/tradesight</uri>
@@ -13,6 +13,20 @@
   <icon>https://rmbell09-lang.github.io/tradesight/logo.png</icon>
   <rights>MIT License — open source</rights>
 
+
+  <entry>
+    <title>TradeSight vs QuantConnect: Head-to-Head Comparison (2026)</title>
+    <link href="https://rmbell09-lang.github.io/tradesight/blog/quantconnect-alternative-python.html" rel="alternate" type="text/html"/>
+    <id>https://rmbell09-lang.github.io/tradesight/blog/quantconnect-alternative-python.html</id>
+    <published>2026-04-06T17:00:00Z</published>
+    <updated>2026-04-06T17:00:00Z</updated>
+    <category term="comparison" label="Comparison"/>
+    <category term="quantconnect" label="QuantConnect"/>
+    <category term="python" label="Python"/>
+    <summary type="text">
+      QuantConnect vs TradeSight: honest head-to-head on pricing, setup, backtesting depth, paper trading, and strategy workflow. When the $240/yr subscription is worth it -- and when free + local wins.
+    </summary>
+  </entry>
   <entry>
     <title>Python Backtesting Libraries in 2026: Backtrader vs Zipline vs VectorBT vs TradeSight</title>
     <link href="https://rmbell09-lang.github.io/tradesight/blog/python-backtesting-libraries-2026.html" rel="alternate" type="text/html"/>
