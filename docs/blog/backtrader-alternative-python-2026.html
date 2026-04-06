@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Backtrader Alternative in 2026? Try TradeSight (vs Backtrader, Zipline, QuantConnect)</title>
+  <meta name="description" content="Looking for a Backtrader or Zipline alternative in 2026? TradeSight is an open-source Python paper trading lab with live Alpaca integration, 9 built-in strategies, and nightly AI tournaments.">
+  <meta name="keywords" content="backtrader alternative, zipline alternative, quantconnect alternative, python paper trading, open source algo trading 2026, tradesight vs backtrader, backtrader replacement">
+  <link rel="alternate" type="application/atom+xml" title="TradeSight Blog" href="../feed.xml">
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    nav { background: #161b22; border-bottom: 1px solid #21262d; padding: 12px 0; margin-bottom: 0; }
+    nav .nav-inner { max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 24px; }
+    nav a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    nav .brand { font-weight: 700; font-size: 1.1rem; color: #e6edf3; }
+    h1 { font-size: 2.2rem; font-weight: 700; color: #e6edf3; margin-bottom: 12px; line-height: 1.3; }
+    .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 32px; }
+    .meta span { margin-right: 16px; }
+    h2 { font-size: 1.4rem; font-weight: 600; color: #e6edf3; margin: 40px 0 16px; }
+    h3 { font-size: 1.15rem; font-weight: 600; color: #c9d1d9; margin: 28px 0 12px; }
+    p { line-height: 1.8; color: #c9d1d9; margin-bottom: 16px; }
+    pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; overflow-x: auto; margin: 24px 0; }
+    code { font-family: 'Courier New', monospace; font-size: 0.9rem; color: #79c0ff; }
+    pre code { color: #e6edf3; }
+    .tag { background: #1c2128; border: 1px solid #30363d; color: #58a6ff; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; margin-right: 8px; }
+    .callout { background: #1c2128; border-left: 3px solid #58a6ff; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; }
+    .callout.warn { border-left-color: #f0883e; }
+    .callout.green { border-left-color: #3fb950; }
+    .result-box { background: #1c2128; border: 1px solid #238636; border-radius: 8px; padding: 20px; margin: 24px 0; }
+    .result-box h3 { color: #3fb950; margin: 0 0 12px; font-size: 1rem; }
+    .result-box p { margin: 0; }
+    footer { border-top: 1px solid #21262d; padding: 30px 0; color: #8b949e; font-size: 0.85rem; text-align: center; margin-top: 60px; }
+    a { color: #58a6ff; }
+    table { width: 100%; border-collapse: collapse; margin: 24px 0; }
+    th { background: #161b22; color: #e6edf3; padding: 10px 14px; text-align: left; border: 1px solid #30363d; font-size: 0.9rem; }
+    td { padding: 10px 14px; border: 1px solid #30363d; color: #c9d1d9; font-size: 0.9rem; }
+    tr:nth-child(even) { background: #0d1117; }
+    tr:nth-child(odd) { background: #161b22; }
+    .verdict { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px 24px; margin: 12px 0; }
+    .verdict-name { font-weight: 700; color: #e6edf3; font-size: 1.05rem; margin-bottom: 6px; }
+    .verdict-tag { display: inline-block; font-size: 0.75rem; padding: 2px 10px; border-radius: 10px; margin-left: 10px; }
+    .verdict-tag.dead { background: #3d1515; color: #f85149; border: 1px solid #4d2020; }
+    .verdict-tag.cloud { background: #1c2128; color: #8b949e; border: 1px solid #30363d; }
+    .verdict-tag.alive { background: #1a2e1a; color: #3fb950; border: 1px solid #238636; }
+    .verdict-tag.free { background: #1a2a3a; color: #58a6ff; border: 1px solid #1f6feb; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <span class="brand">🔍 TradeSight</span>
+    <a href="../index.html">Home</a>
+    <a href="index.html">Blog</a>
+    <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a>
+  </div>
+</nav>
+
+<div class="container">
+  <article>
+    <div class="meta" style="margin-top: 40px;">
+      <span class="tag">python</span>
+      <span class="tag">backtrader-alternative</span>
+      <span class="tag">algo-trading</span>
+      <span class="tag">comparison</span>
+      <span class="tag">open-source</span>
+    </div>
+
+    <h1>Backtrader Alternative in 2026? Here's the Honest Comparison</h1>
+
+    <div class="meta">
+      <span>📅 April 5, 2026</span>
+      <span>⏱ 8 min read</span>
+      <span>👤 TradeSight Project</span>
+    </div>
+
+    <p>
+      Backtrader was the go-to Python algo trading library for years. Then it went quiet. The last commit was years ago, Yahoo Finance broke the data feed, and the docs never got updated for Python 3.10+. A lot of people are actively looking for something that actually works in 2026.
+    </p>
+    <p>
+      This page compares the four options you'll find when you search: Backtrader, Zipline, QuantConnect, and TradeSight. None of them are perfect — but they're very different tools for different problems.
+    </p>
+
+    <h2>Quick Comparison</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Tool</th>
+          <th>Live Trading</th>
+          <th>Maintained</th>
+          <th>Setup</th>
+          <th>Cost</th>
+          <th>Best For</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Backtrader</strong></td>
+          <td>❌ None</td>
+          <td>⚠️ Abandoned</td>
+          <td>Medium</td>
+          <td>Free</td>
+          <td>Historical backtesting only</td>
+        </tr>
+        <tr>
+          <td><strong>Zipline</strong></td>
+          <td>❌ None</td>
+          <td>❌ Dead</td>
+          <td>Hard</td>
+          <td>Free</td>
+          <td>Legacy Quantopian workflows</td>
+        </tr>
+        <tr>
+          <td><strong>QuantConnect</strong></td>
+          <td>✅ Full</td>
+          <td>✅ Active</td>
+          <td>Easy (cloud)</td>
+          <td>$0–$600+/mo</td>
+          <td>Professional cloud trading</td>
+        </tr>
+        <tr>
+          <td><strong>TradeSight</strong></td>
+          <td>✅ Paper (Alpaca)</td>
+          <td>✅ Active</td>
+          <td>Easy</td>
+          <td>Free</td>
+          <td>Strategy research + paper trading</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Backtrader: Still Works, But Abandoned</h2>
+
+    <div class="verdict">
+      <div class="verdict-name">Backtrader <span class="verdict-tag alive">alive-ish</span></div>
+      <p style="color:#8b949e; margin:0; font-size:0.9rem;">github.com/mementum/backtrader · Last significant commit: 2020</p>
+    </div>
+
+    <p>
+      Backtrader is genuinely powerful for backtesting. Event-driven architecture, clean data feed system, good indicator library. If you have a strategy that worked in 2019 and you just need to validate historical performance, it still runs fine.
+    </p>
+    <p>
+      The problems start when you try to use it in 2026:
+    </p>
+    <ul style="color:#c9d1d9; line-height:2;">
+      <li>Yahoo Finance data feed is broken (yfinance changes broke the built-in connector)</li>
+      <li>No live or paper trading — backtesting only</li>
+      <li>Python 3.10+ has subtle compatibility issues in some versions</li>
+      <li>Community is quiet; most Stack Overflow answers are 4+ years old</li>
+      <li>No overnight or scheduled strategy tournaments</li>
+    </ul>
+
+    <div class="callout warn">
+      <strong>Bottom line:</strong> If you need live paper trading or any kind of automated overnight runs, Backtrader can't help you. It's a pure backtesting tool built for a data ecosystem that mostly doesn't exist anymore.
+    </div>
+
+    <h2>Zipline: Actually Dead</h2>
+
+    <div class="verdict">
+      <div class="verdict-name">Zipline <span class="verdict-tag dead">dead</span></div>
+      <p style="color:#8b949e; margin:0; font-size:0.9rem;">github.com/quantopian/zipline · Quantopian shut down in 2020</p>
+    </div>
+
+    <p>
+      Zipline was the engine behind Quantopian. When Quantopian closed in 2020, active development stopped. There's a community fork (zipline-reloaded) that's kept it barely alive on newer Python versions, but:
+    </p>
+    <ul style="color:#c9d1d9; line-height:2;">
+      <li>Yahoo Finance data is dead — you need to wire in your own bundle</li>
+      <li>Setup requires ingesting your own data format, which takes hours</li>
+      <li>No live trading at all</li>
+      <li>The community fork has only a handful of active maintainers</li>
+    </ul>
+
+    <p>
+      Unless you're migrating a specific Quantopian algorithm or doing academic research that requires Zipline's exact architecture, there's no good reason to start a new project here in 2026.
+    </p>
+
+    <h2>QuantConnect: The Professional Option</h2>
+
+    <div class="verdict">
+      <div class="verdict-name">QuantConnect <span class="verdict-tag cloud">cloud</span></div>
+      <p style="color:#8b949e; margin:0; font-size:0.9rem;">quantconnect.com · Well-funded, actively maintained, $0–$600+/mo</p>
+    </div>
+
+    <p>
+      QuantConnect is the real deal. Full live trading across equities, crypto, options, forex. Real-time data. An algorithm marketplace (Alpha Streams). Excellent documentation. If you're serious about running real money and need enterprise infrastructure, it's hard to beat.
+    </p>
+    <p>
+      The tradeoffs:
+    </p>
+    <ul style="color:#c9d1d9; line-height:2;">
+      <li>Everything runs in their cloud — no local development unless you pay</li>
+      <li>Pricing scales up fast once you want live trading or dedicated backtesting nodes</li>
+      <li>Lean (their C# engine) is powerful but opinionated — you write Python against their framework</li>
+      <li>You're locked into their ecosystem</li>
+    </ul>
+
+    <div class="callout">
+      <strong>Use QuantConnect if:</strong> You're trading real money, need institutional data quality, and are willing to pay for managed infrastructure. It's not bloatware — it's genuinely excellent. It's just not free.
+    </div>
+
+    <h2>TradeSight: Free, Local, Live Paper Trading</h2>
+
+    <div class="verdict">
+      <div class="verdict-name">TradeSight <span class="verdict-tag free">open source · free</span></div>
+      <p style="color:#8b949e; margin:0; font-size:0.9rem;">github.com/rmbell09-lang/tradesight · Active development, 2026</p>
+    </div>
+
+    <p>
+      TradeSight was built specifically to fill the gap between "pure backtester" and "expensive cloud platform." It's a local Python paper trading strategy lab that runs on your own machine using Alpaca's free API.
+    </p>
+
+    <h3>What it actually does</h3>
+    <ul style="color:#c9d1d9; line-height:2;">
+      <li><strong>9 built-in strategies</strong>: MACD, RSI, Bollinger Bands, SMA/EMA crossovers, ATR volatility, momentum, gap detection, composite</li>
+      <li><strong>Overnight AI tournament</strong>: runs all 9 strategies against live market data nightly, ranks by composite score (Sharpe + win rate + profit factor)</li>
+      <li><strong>Live paper trading via Alpaca</strong>: zero cost, no brokerage minimums, real market data</li>
+      <li><strong>Circuit breakers</strong>: automatic shutdown on drawdown thresholds so you don't come back to a paper portfolio in flames</li>
+      <li><strong>Backtesting + forward testing</strong>: not just historical — you can run paper trades and see how strategies perform in real time</li>
+    </ul>
+
+    <pre><code># Install and run in under 5 minutes
+git clone https://github.com/rmbell09-lang/tradesight
+cd tradesight
+pip install -r requirements.txt
+
+# Set your Alpaca keys (free at alpaca.markets)
+export APCA_API_KEY_ID=your_key
+export APCA_API_SECRET_KEY=your_secret
+
+# Run all 9 strategies in tournament mode
+python tournament.py --strategies all --mode paper</code></pre>
+
+    <h3>What it doesn't do</h3>
+    <p>
+      TradeSight is honest about its scope. It's not a live trading platform — it's a paper trading and strategy research tool. If you're running real capital, you need QuantConnect or Interactive Brokers + something heavier. TradeSight is for the stage before that: figuring out which strategies actually work before you commit real money.
+    </p>
+
+    <div class="callout green">
+      <strong>Revenue filter (for your portfolio):</strong> Use TradeSight to identify your best 2–3 strategies over 30–60 days of paper trading. Then take those specific strategies to a live platform. It's the cheapest due diligence you can do.
+    </div>
+
+    <h2>Which One Should You Use?</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>If you want...</th>
+          <th>Use this</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Free backtesting with historical data (and don't mind the janky data feeds)</td>
+          <td>Backtrader</td>
+        </tr>
+        <tr>
+          <td>Migrate a Quantopian algorithm</td>
+          <td>Zipline (reloaded fork)</td>
+        </tr>
+        <tr>
+          <td>Production live trading with real capital</td>
+          <td>QuantConnect</td>
+        </tr>
+        <tr>
+          <td>Free local paper trading + strategy research + overnight tournaments</td>
+          <td><strong>TradeSight</strong></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>The Real Problem With "Backtrader Alternatives"</h2>
+
+    <p>
+      Most "alternative" searches are actually looking for two different things: (1) a backtester with better data integration than Backtrader's broken Yahoo Finance feed, or (2) something that goes beyond backtesting into live/paper trading. These are different problems.
+    </p>
+    <p>
+      If you just want historical backtesting with better data, look at VectorBT (vectorbt.pro) — it's fast, actively maintained, and has solid data connectors. If you want to actually run strategies against live market data without paying QuantConnect rates, TradeSight is the gap-filler.
+    </p>
+
+    <div class="result-box">
+      <h3>📦 TradeSight Quick Start</h3>
+      <p>
+        Open source. MIT license. Free Alpaca account required for live paper trading (takes 5 minutes to create).
+        GitHub: <a href="https://github.com/rmbell09-lang/tradesight">github.com/rmbell09-lang/tradesight</a>
+      </p>
+    </div>
+
+  </article>
+</div>
+
+<footer>
+  <div>TradeSight — Open source Python paper trading strategy lab</div>
+  <div style="margin-top: 8px;"><a href="https://github.com/rmbell09-lang/tradesight">GitHub</a> &middot; <a href="index.html">Blog</a></div>
+</footer>
+
+</body>
+</html>
