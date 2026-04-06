@@ -1,7 +1,7 @@
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rmbell09-lang/tradesight/blob/main/intro_demo.ipynb)
 [![PyPI version](https://badge.fury.io/py/tradesight.svg)](https://pypi.org/project/tradesight/)
 
-# 🎯 TradeSight — Self-Hosted AI Trading Strategy Lab
+# 🎯 TradeSight — Python Algorithmic Trading & Backtesting Strategy Lab
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Flask](https://img.shields.io/badge/flask-2.3+-green.svg)](https://flask.palletsprojects.com/)
@@ -10,6 +10,8 @@
 [![Paper Trading](https://img.shields.io/badge/mode-paper%20trading-orange.svg)]()
 [![Live P&L](https://img.shields.io/badge/live%20P%26L-%2B6.43%25%20%28%2B%2432.15%29-brightgreen.svg)]()
 [![Portfolio](https://img.shields.io/badge/portfolio-%24532-blue.svg)]()
+[![GitHub Stars](https://img.shields.io/github/stars/rmbell09-lang/tradesight?style=social)](https://github.com/rmbell09-lang/tradesight)
+[![Strategies](https://img.shields.io/badge/strategies-9-brightgreen.svg)](https://github.com/rmbell09-lang/tradesight#strategies)
 
 **Build, test, and evolve trading strategies with AI — entirely on your own machine. No cloud subscription. No data leaks. No monthly fees.**
 
@@ -26,7 +28,7 @@ TradeSight is a self-hosted Python app that runs AI-powered strategy tournaments
 
 ---
 
-## ✨ Features
+## ✨ Features <a name=strategies></a>
 
 | Feature | Description |
 |---|---|
