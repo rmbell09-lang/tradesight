@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuantConnect Alternative? TradeSight — Free, Local, No Monthly Fee</title>
+  <meta name="description" content="Looking for a free QuantConnect alternative in 2026? TradeSight is a self-hosted Python backtesting and paper trading platform — no cloud, no subscription, full code control.">
+  <meta name="keywords" content="quantconnect alternative, quantconnect free alternative, quantconnect vs tradesight, open source algo trading python, free backtesting platform, self hosted quantconnect, python paper trading 2026">
+  <link rel="alternate" type="application/atom+xml" title="TradeSight Blog" href="../feed.xml">
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    nav { background: #161b22; border-bottom: 1px solid #21262d; padding: 12px 0; margin-bottom: 0; }
+    nav .nav-inner { max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 24px; }
+    nav a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    nav .brand { font-weight: 700; font-size: 1.1rem; color: #e6edf3; }
+    h1 { font-size: 2.2rem; font-weight: 700; color: #e6edf3; margin-bottom: 12px; line-height: 1.3; }
+    .meta { color: #8b949e; font-size: 0.9rem; margin-bottom: 32px; }
+    .meta span { margin-right: 16px; }
+    h2 { font-size: 1.4rem; font-weight: 600; color: #e6edf3; margin: 40px 0 16px; }
+    h3 { font-size: 1.15rem; font-weight: 600; color: #c9d1d9; margin: 28px 0 12px; }
+    p { line-height: 1.8; color: #c9d1d9; margin-bottom: 16px; }
+    pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; overflow-x: auto; margin: 24px 0; }
+    code { font-family: 'Courier New', monospace; font-size: 0.9rem; color: #79c0ff; }
+    pre code { color: #e6edf3; }
+    .tag { background: #1c2128; border: 1px solid #30363d; color: #58a6ff; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; margin-right: 8px; }
+    .callout { background: #1c2128; border-left: 3px solid #58a6ff; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; }
+    .callout.warn { border-left-color: #f0883e; }
+    .callout.green { border-left-color: #3fb950; }
+    .result-box { background: #1c2128; border: 1px solid #238636; border-radius: 8px; padding: 20px; margin: 24px 0; }
+    .result-box h3 { color: #3fb950; margin: 0 0 12px; font-size: 1rem; }
+    .result-box p { margin: 0; }
+    footer { border-top: 1px solid #21262d; padding: 30px 0; color: #8b949e; font-size: 0.85rem; text-align: center; margin-top: 60px; }
+    a { color: #58a6ff; }
+    table { width: 100%; border-collapse: collapse; margin: 24px 0; }
+    th { background: #161b22; color: #e6edf3; padding: 10px 14px; text-align: left; border: 1px solid #30363d; font-size: 0.9rem; }
+    td { padding: 10px 14px; border: 1px solid #30363d; color: #c9d1d9; font-size: 0.9rem; }
+    tr:nth-child(even) { background: #0d1117; }
+    tr:nth-child(odd) { background: #161b22; }
+    .verdict { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px 24px; margin: 12px 0; }
+    .verdict-name { font-weight: 700; color: #e6edf3; font-size: 1.05rem; margin-bottom: 6px; }
+    .verdict-tag { display: inline-block; font-size: 0.75rem; padding: 2px 10px; border-radius: 10px; margin-left: 10px; }
+    .verdict-tag.paid { background: #2d1f00; color: #f0883e; border: 1px solid #5a3e00; }
+    .verdict-tag.free { background: #1a2a3a; color: #58a6ff; border: 1px solid #1f6feb; }
+    .verdict-tag.cloud { background: #1c2128; color: #8b949e; border: 1px solid #30363d; }
+    .verdict-tag.local { background: #1a2e1a; color: #3fb950; border: 1px solid #238636; }
+    .cta-box { background: linear-gradient(135deg, #1a2332 0%, #0d1117 100%); border: 2px solid #58a6ff; border-radius: 12px; padding: 32px; text-align: center; margin: 40px 0; }
+    .cta-box h3 { color: #58a6ff; font-size: 1.5rem; margin: 0 0 12px; }
+    .cta-btn { background: #238636; border: none; padding: 14px 40px; font-size: 1rem; font-weight: 600; border-radius: 8px; color: white; text-decoration: none; display: inline-block; margin: 8px; }
+    .cta-btn:hover { background: #2ea043; color: white; }
+    .cta-btn.secondary { background: #1f2d3d; border: 1px solid #58a6ff; color: #58a6ff; }
+    .cta-btn.secondary:hover { background: #243447; color: #79c0ff; }
+    .price-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 24px 0; }
+    .price-box { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 24px; text-align: center; }
+    .price-box.highlight { border-color: #58a6ff; }
+    .price-amount { font-size: 2.5rem; font-weight: 700; margin: 8px 0; }
+    .price-label { color: #8b949e; font-size: 0.85rem; }
+    @media (max-width: 600px) { .price-compare { grid-template-columns: 1fr; } h1 { font-size: 1.7rem; } }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <span class="brand">🔍 TradeSight</span>
+    <a href="../index.html">Home</a>
+    <a href="index.html">Blog</a>
+    <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a>
+  </div>
+</nav>
+
+<div class="container">
+  <article>
+    <div class="meta" style="margin-top: 40px;">
+      <span class="tag">python</span>
+      <span class="tag">quantconnect-alternative</span>
+      <span class="tag">algo-trading</span>
+      <span class="tag">comparison</span>
+      <span class="tag">free</span>
+    </div>
+
+    <h1>QuantConnect Alternative in 2026? The Honest Comparison</h1>
+
+    <div class="meta">
+      <span>📅 April 6, 2026</span>
+      <span>⏱ 7 min read</span>
+      <span>👤 TradeSight Project</span>
+    </div>
+
+    <p>
+      QuantConnect is genuinely good software. Large data library, solid backtesting engine, active community. But it's cloud-only, your strategies run on their servers, and the pricing adds up fast once you need anything beyond the free tier. A lot of developers are looking for a self-hosted, Python-native alternative that gives them the same systematic trading workflow without the ongoing subscription.
+    </p>
+
+    <p>
+      This is an honest comparison. TradeSight is simpler than QuantConnect — it doesn't pretend otherwise. But for Python developers who want local control, a readable codebase, and no monthly fee, it's a better fit for a lot of use cases.
+    </p>
+
+    <h2>TL;DR Comparison</h2>
+
+    <table>
+      <tr>
+        <th>Feature</th>
+        <th>QuantConnect</th>
+        <th>TradeSight</th>
+      </tr>
+      <tr>
+        <td>Price</td>
+        <td>$8–$50+/month (subscription)</td>
+        <td>$49 one-time (or free, MIT)</td>
+      </tr>
+      <tr>
+        <td>Where it runs</td>
+        <td>Their cloud servers</td>
+        <td>Your machine</td>
+      </tr>
+      <tr>
+        <td>Strategy language</td>
+        <td>C# or Python (cloud-flavored)</td>
+        <td>Pure Python 3.11+</td>
+      </tr>
+      <tr>
+        <td>Data sources</td>
+        <td>Extensive (institutional)</td>
+        <td>Alpaca, CSV, Yahoo Finance</td>
+      </tr>
+      <tr>
+        <td>Paper trading</td>
+        <td>Yes (simulated)</td>
+        <td>Yes (live Alpaca paper)</td>
+      </tr>
+      <tr>
+        <td>AI strategy evolution</td>
+        <td>No</td>
+        <td>Yes (nightly tournament)</td>
+      </tr>
+      <tr>
+        <td>Your code visibility</td>
+        <td>Runs on their infra</td>
+        <td>100% local, inspect everything</td>
+      </tr>
+      <tr>
+        <td>Open source</td>
+        <td>Partially (Lean engine)</td>
+        <td>MIT license, all code visible</td>
+      </tr>
+      <tr>
+        <td>Setup</td>
+        <td>Browser, cloud account</td>
+        <td><code>pip install</code>, runs locally</td>
+      </tr>
+    </table>
+
+    <h2>Where QuantConnect Wins</h2>
+
+    <p>
+      Be honest about this: QuantConnect has a larger data library. Minute-resolution data going back years, futures, options, crypto — all available without you having to source it. If you're running serious institutional-style backtests and need tick data from 2010, QC is the better tool.
+    </p>
+
+    <p>
+      The community is also larger and more active. Their forums have years of answered questions about specific strategy types, execution nuances, and data edge cases. TradeSight's community is smaller.
+    </p>
+
+    <p>
+      QC also has live brokerage integrations for more brokers — Interactive Brokers, TD Ameritrade, and others — while TradeSight currently focuses on Alpaca (paper and live).
+    </p>
+
+    <h2>Where TradeSight Wins</h2>
+
+    <h3>No monthly fee</h3>
+    <p>
+      QuantConnect's free tier caps your backtests. Anything serious — faster backtests, more RAM, live trading — moves you to $8/mo (Quant) or higher. Over a year, that's $96–$600+. TradeSight is $49 once, or free if you clone the repo.
+    </p>
+
+    <div class="price-compare">
+      <div class="price-box">
+        <div style="color: #8b949e; font-size: 0.85rem; margin-bottom: 8px;">QuantConnect (annual)</div>
+        <div class="price-amount" style="color: #f0883e;">$96–$600+</div>
+        <div class="price-label">subscription, billed monthly</div>
+      </div>
+      <div class="price-box highlight">
+        <div style="color: #58a6ff; font-size: 0.85rem; margin-bottom: 8px;">TradeSight</div>
+        <div class="price-amount" style="color: #3fb950;">$49</div>
+        <div class="price-label">one-time, MIT license, yours forever</div>
+      </div>
+    </div>
+
+    <h3>Your code runs on your machine</h3>
+    <p>
+      QuantConnect's Lean engine runs your strategies in their cloud sandbox. That's fine for most people, but if you're working with sensitive ideas or want to integrate with local data sources, you're working against the platform instead of with it.
+    </p>
+    <p>
+      TradeSight runs on your machine. You can inspect every line, modify the execution engine, wire in your own data feeds, and run backtests without internet access.
+    </p>
+
+    <h3>Readable Python, no abstractions</h3>
+    <p>
+      QuantConnect's Python API is a wrapper around their C# Lean engine. You write Python, but the semantics are Lean-flavored — <code>self.AddEquity()</code>, <code>self.SetStartDate()</code>, and a class structure that doesn't look like normal Python code. If you know QC, you know QC. If you don't, there's a learning curve.
+    </p>
+
+    <p>TradeSight strategies look like Python you'd actually write:</p>
+
+    <pre><code>class MACDStrategy:
+    def __init__(self, data: pd.DataFrame):
+        self.data = data
+
+    def generate_signals(self) -> pd.Series:
+        macd = self.data['close'].ewm(span=12).mean() - \
+               self.data['close'].ewm(span=26).mean()
+        signal = macd.ewm(span=9).mean()
+        return (macd > signal).astype(int)</code></pre>
+
+    <p>
+      No base classes to inherit, no magic lifecycle methods, no framework DSL. Just a function that takes price data and returns signals.
+    </p>
+
+    <h3>AI strategy evolution (TradeSight-only)</h3>
+    <p>
+      TradeSight has a feature QuantConnect doesn't: a nightly AI tournament that tests your strategies against each other, generates parameter variations, and surfaces the best performers. You wake up to a ranked list of what worked overnight — without writing any optimization code yourself.
+    </p>
+
+    <div class="callout green">
+      <strong>Example output from a real overnight run:</strong><br>
+      Strategy tournament completed • 9 strategies tested • Winner: RSI(14, 30/70) — Sharpe 2.53 • 89.4% simulated P&amp;L over 6 months backtested data
+    </div>
+
+    <h2>When to Choose QuantConnect</h2>
+
+    <div class="verdict">
+      <div class="verdict-name">QuantConnect <span class="verdict-tag cloud">cloud</span> <span class="verdict-tag paid">subscription</span></div>
+      <p style="color:#c9d1d9; margin: 8px 0 0;">Best if: you need institutional-grade historical data, you want to live trade multiple brokers through one interface, or you're building strategies that require the depth of Lean's execution engine.</p>
+    </div>
+
+    <h2>When to Choose TradeSight</h2>
+
+    <div class="verdict">
+      <div class="verdict-name">TradeSight <span class="verdict-tag local">local</span> <span class="verdict-tag free">one-time</span></div>
+      <p style="color:#c9d1d9; margin: 8px 0 0;">Best if: you write Python, you want to run everything locally, you're working with Alpaca, or you want the AI tournament to automate overnight strategy discovery. $49 once vs. $96+/year.</p>
+    </div>
+
+    <h2>Quick Start</h2>
+
+    <p>If you want to try TradeSight:</p>
+
+    <pre><code># Clone the repo (MIT license — free to use)
+git clone https://github.com/rmbell09-lang/tradesight
+cd tradesight
+pip install -r requirements.txt
+
+# Run a backtest on SPY with MACD strategy
+python backtest.py --symbol SPY --strategy macd --period 180d
+
+# Start the nightly AI tournament
+python tournament.py --symbols SPY,AAPL,NVDA,MSFT --strategies all</code></pre>
+
+    <p>
+      Paper trading connects to Alpaca's free paper trading account. You don't need a brokerage account or real money to test live market behavior.
+    </p>
+
+    <h2>Honest Bottom Line</h2>
+
+    <p>
+      QuantConnect is the more powerful tool for institutional-style quant work. If you need their data library or their broker integrations, use it.
+    </p>
+
+    <p>
+      TradeSight is for Python developers who want a local backtesting + paper trading lab that runs on their machine, doesn't require a subscription, and has the AI tournament to automate overnight strategy optimization. If the QC pricing hurts or you want full code ownership, TradeSight fits better.
+    </p>
+
+    <div class="cta-box">
+      <h3>Try TradeSight</h3>
+      <p style="color: #8b949e; margin-bottom: 20px;">Self-hosted algo trading. One-time payment. Full Python source.</p>
+      <a href="https://qcautonomous.gumroad.com/l/zpkutz" class="cta-btn">Get TradeSight — $49</a>
+      <a href="https://github.com/rmbell09-lang/tradesight" class="cta-btn secondary">View on GitHub</a>
+      <p style="color: #8b949e; font-size: 0.8rem; margin-top: 12px;">MIT license • One-time payment • v2 free for early buyers</p>
+    </div>
+
+    <h2>Related Comparisons</h2>
+    <p>
+      <a href="backtrader-alternative-python-2026.html">Backtrader vs TradeSight — which one actually works in 2026?</a><br>
+      <a href="python-backtesting-libraries-2026.html">Python backtesting libraries compared: 2026 edition</a><br>
+      <a href="paper-trading-bot.html">How TradeSight's paper trading bot works with Alpaca</a>
+    </p>
+
+  </article>
+</div>
+
+<footer>
+  <div class="container">
+    <p>© 2026 TradeSight · <a href="../index.html">Home</a> · <a href="index.html">Blog</a> · <a href="https://github.com/rmbell09-lang/tradesight">GitHub</a> · <a href="https://qcautonomous.gumroad.com/l/zpkutz">Gumroad</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
