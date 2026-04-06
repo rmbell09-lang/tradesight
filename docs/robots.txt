@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://rmbell09-lang.github.io/tradesight/sitemap.xml
