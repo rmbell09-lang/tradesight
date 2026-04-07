@@ -720,6 +720,29 @@ class PaperTrader:
                 except Exception as _ple:
                     self.logger.warning(f"[PositionLimit] Could not check positions for {symbol}: {_ple}")
 
+            # 7-day stop-loss cooldown: block re-entry if symbol hit a stop-loss in the last 7 days
+            # Prevents ADBE-style re-entry loops after getting stopped out
+            if action == 'buy':
+                try:
+                    from datetime import datetime, timedelta
+                    db_path = self.position_manager.data_dir / "positions.db"
+                    cooldown_cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
+                    with sqlite3.connect(db_path) as _cd:
+                        sl_count = _cd.execute(
+                            "SELECT COUNT(*) FROM positions "
+                            "WHERE symbol=? AND status='closed' AND exit_reason='STOP_LOSS' "
+                            "AND exit_time >= ?",
+                            (symbol, cooldown_cutoff)
+                        ).fetchone()[0]
+                    if sl_count > 0:
+                        self.logger.info(
+                            f"[StopLossCooldown] Skipping buy for {symbol}: "
+                            f"stop-loss triggered within last 7 days ({sl_count} time(s))"
+                        )
+                        return False
+                except Exception as _cde:
+                    self.logger.warning(f"[StopLossCooldown] Could not check cooldown for {symbol}: {_cde}")
+
             # Calculate position size
             quantity = self.position_manager.calculate_position_size(symbol, strategy, current_price)
             

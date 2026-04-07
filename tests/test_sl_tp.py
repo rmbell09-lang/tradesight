@@ -282,3 +282,88 @@ if __name__ == '__main__':
     test_fraction_params_match_champion_format()
     print()
     print('All SL/TP tests passed.')
+
+
+
+
+# --- 7-Day Stop-Loss Cooldown Tests (Task 1215) ---
+
+def make_trader_for_cooldown(base_dir):
+    trader = PaperTrader(base_dir=base_dir)
+    trader.alert_manager = None
+    trader.position_manager.calculate_position_size = MagicMock(return_value=1.0)
+    trader.position_manager.add_position = MagicMock(return_value=True)
+    return trader
+
+
+def _seed_closed_stop_loss(db_path, symbol, days_ago):
+    from datetime import datetime, timedelta
+    exit_time = (datetime.utcnow() - timedelta(days=days_ago)).isoformat()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO positions "
+            "(symbol, strategy, side, quantity, entry_price, current_price, "
+            "entry_time, exit_time, exit_price, status, exit_reason) "
+            "VALUES (?, 'RSI Mean Reversion', 'long', 1.0, 100.0, 95.0, "
+            "datetime('now'), ?, 95.0, 'closed', 'STOP_LOSS')",
+            (symbol, exit_time)
+        )
+
+
+def test_stop_loss_cooldown_blocks_reentry():
+    base_dir = tempfile.mkdtemp()
+    try:
+        trader = make_trader_for_cooldown(base_dir)
+        db_path = trader.position_manager.data_dir / 'positions.db'
+        _seed_closed_stop_loss(db_path, 'AMZN', days_ago=3)
+        signal = {
+            'symbol': 'AMZN', 'strategy': 'RSI Mean Reversion',
+            'action': 'buy', 'side': 'long',
+            'current_price': 185.0, 'confidence': 0.75
+        }
+        result = trader.execute_signal(signal)
+        assert result is False, f'Expected False (cooldown active), got {result}'
+    finally:
+        shutil.rmtree(base_dir)
+
+
+def test_stop_loss_cooldown_allows_after_7_days():
+    base_dir = tempfile.mkdtemp()
+    try:
+        trader = make_trader_for_cooldown(base_dir)
+        db_path = trader.position_manager.data_dir / 'positions.db'
+        _seed_closed_stop_loss(db_path, 'NVDA', days_ago=8)
+        mock_order = MagicMock()
+        mock_order.id = 'test-order-123'
+        mock_order.filled_qty = '1.0'
+        mock_order.filled_avg_price = '500.0'
+        trader.alpaca.submit_order = MagicMock(return_value=mock_order)
+        signal = {
+            'symbol': 'NVDA', 'strategy': 'RSI Mean Reversion',
+            'action': 'buy', 'side': 'long',
+            'current_price': 500.0, 'confidence': 0.80
+        }
+        trader.execute_signal(signal)
+        trader.position_manager.calculate_position_size.assert_called_once()
+    finally:
+        shutil.rmtree(base_dir)
+
+
+def test_stop_loss_cooldown_no_prior_history():
+    base_dir = tempfile.mkdtemp()
+    try:
+        trader = make_trader_for_cooldown(base_dir)
+        mock_order = MagicMock()
+        mock_order.id = 'test-order-456'
+        mock_order.filled_qty = '1.0'
+        mock_order.filled_avg_price = '150.0'
+        trader.alpaca.submit_order = MagicMock(return_value=mock_order)
+        signal = {
+            'symbol': 'MSFT', 'strategy': 'RSI Mean Reversion',
+            'action': 'buy', 'side': 'long',
+            'current_price': 150.0, 'confidence': 0.80
+        }
+        trader.execute_signal(signal)
+        trader.position_manager.calculate_position_size.assert_called_once()
+    finally:
+        shutil.rmtree(base_dir)
