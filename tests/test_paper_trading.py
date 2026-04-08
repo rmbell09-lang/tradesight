@@ -434,6 +434,59 @@ class TestPaperTrader:
             assert position[0] == 'closed'
             assert position[1] == 160.0
     
+    def test_buy_order_persists_entry_order_fill_metadata(self):
+        """Entry order_id + fill status should be written to positions DB."""
+        self.trader.alpaca.place_paper_trade = Mock(return_value={
+            'status': 'filled',
+            'order_id': 'ord_entry_123',
+            'fill_price': 151.25,
+        })
+
+        ok = self.trader._execute_buy_order('AAPL', 'RSI Mean Reversion', 'long', 1.0, 151.0)
+        assert ok is True
+
+        db_path = self.trader.position_manager.data_dir / 'positions.db'
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT entry_order_id, entry_fill_status, entry_price FROM positions "
+                "WHERE symbol=? AND strategy=? AND status='open' ORDER BY id DESC LIMIT 1",
+                ('AAPL', 'RSI Mean Reversion')
+            ).fetchone()
+
+        assert row is not None
+        assert row[0] == 'ord_entry_123'
+        assert row[1] == 'filled'
+        assert row[2] == 151.25
+
+    def test_sell_order_persists_exit_order_fill_metadata_and_pnl(self):
+        """Exit order_id + fill status should be recorded and PnL should use fill price."""
+        self.trader.config['min_hold_hours'] = 0
+        self.trader.position_manager.open_position('AAPL', 'RSI Mean Reversion', 'long', 2.0, 100.0)
+
+        self.trader.alpaca.close_full_position = Mock(return_value={
+            'status': 'closed',
+            'order_id': 'ord_exit_456',
+            'fill_price': 110.0,
+        })
+
+        ok = self.trader._execute_sell_order('AAPL', 'RSI Mean Reversion', 109.0)
+        assert ok is True
+
+        db_path = self.trader.position_manager.data_dir / 'positions.db'
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT status, exit_order_id, exit_fill_status, exit_price, realized_pnl FROM positions "
+                "WHERE symbol=? AND strategy=? ORDER BY id DESC LIMIT 1",
+                ('AAPL', 'RSI Mean Reversion')
+            ).fetchone()
+
+        assert row is not None
+        assert row[0] == 'closed'
+        assert row[1] == 'ord_exit_456'
+        assert row[2] == 'closed'
+        assert row[3] == 110.0
+        assert row[4] == 20.0
+
     def test_generate_trading_report(self):
         """Test trading report generation"""
         report = self.trader.generate_trading_report()

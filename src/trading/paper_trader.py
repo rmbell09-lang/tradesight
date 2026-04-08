@@ -817,7 +817,9 @@ class PaperTrader:
                     strategy=strategy,
                     side=side,
                     quantity=quantity,
-                    entry_price=fill_price
+                    entry_price=fill_price,
+                    entry_order_id=order_result.get('order_id'),
+                    entry_fill_status=order_result.get('status', 'filled')
                 )
                 if not success:
                     self.logger.error(f"[BuyOrder] position_manager.open_position FAILED for {symbol}")
@@ -943,8 +945,16 @@ class PaperTrader:
                         pnl = (fill_price - entry_price) * qty if side == "long" else (entry_price - fill_price) * qty
                         conn.execute(
                             "UPDATE positions SET exit_time=?, exit_price=?, realized_pnl=?, "
-                            "status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                            (datetime.now().isoformat(), fill_price, pnl, "closed", pos_id)
+                            "status=?, exit_order_id=?, exit_fill_status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                            (
+                                datetime.now().isoformat(),
+                                fill_price,
+                                pnl,
+                                "closed",
+                                order_result.get('order_id'),
+                                order_result.get('status', 'closed'),
+                                pos_id,
+                            )
                         )
                     conn.commit()
                     self.logger.info(f"Closed {len(open_positions)} local DB position(s) for {symbol} ({strategy})")

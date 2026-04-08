@@ -78,6 +78,8 @@ class PositionManager:
 
         # Initialize database
         self._init_database()
+        # Migrate: add journal columns if missing (Task 25)
+        self._migrate_journal_columns()
         
         # Portfolio parameters
         self.config = {
@@ -140,6 +142,20 @@ class PositionManager:
                     conn.execute("ALTER TABLE positions ADD COLUMN trailing_stop_active INTEGER DEFAULT 0")
                     self.logger.info("Migration: added trailing_stop_active column to positions")
 
+                # Migration: add order/fill verification columns if missing
+                if 'entry_order_id' not in existing_cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN entry_order_id TEXT")
+                    self.logger.info("Migration: added entry_order_id column to positions")
+                if 'entry_fill_status' not in existing_cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN entry_fill_status TEXT DEFAULT 'filled'")
+                    self.logger.info("Migration: added entry_fill_status column to positions")
+                if 'exit_order_id' not in existing_cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN exit_order_id TEXT")
+                    self.logger.info("Migration: added exit_order_id column to positions")
+                if 'exit_fill_status' not in existing_cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN exit_fill_status TEXT")
+                    self.logger.info("Migration: added exit_fill_status column to positions")
+
                 # Migration: add buying_power + balance_synced_at to portfolio_history
                 ph_cols = [row[1] for row in conn.execute("PRAGMA table_info(portfolio_history)").fetchall()]
                 if 'buying_power' not in ph_cols:
@@ -165,7 +181,9 @@ class PositionManager:
             raise
     
     def open_position(self, symbol: str, strategy: str, side: str, 
-                     quantity: float, entry_price: float) -> bool:
+                     quantity: float, entry_price: float,
+                     entry_order_id: Optional[str] = None,
+                     entry_fill_status: str = 'filled') -> bool:
         """Open a new trading position"""
         try:
             position = Position(
@@ -183,10 +201,10 @@ class PositionManager:
                 conn.execute('''
                     INSERT INTO positions 
                     (symbol, strategy, side, quantity, entry_price, current_price, entry_time,
-                     high_water_mark, trailing_stop_active)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     high_water_mark, trailing_stop_active, entry_order_id, entry_fill_status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (symbol, strategy, side, quantity, entry_price, entry_price, 
-                     position.entry_time.isoformat(), entry_price, 0))
+                     position.entry_time.isoformat(), entry_price, 0, entry_order_id, entry_fill_status))
                 
                 conn.commit()
                 
@@ -295,6 +313,95 @@ class PositionManager:
         except Exception as e:
             self.logger.error(f"Failed to update positions: {e}")
     
+
+
+    def _migrate_journal_columns(self):
+        """Add entry_reason and exit_reason columns if they don't exist (Task 25)."""
+        try:
+            db_path = self.data_dir / 'positions.db'
+            with sqlite3.connect(db_path) as conn:
+                # Check existing columns
+                cols = [row[1] for row in conn.execute("PRAGMA table_info(positions)").fetchall()]
+                if 'entry_reason' not in cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN entry_reason TEXT DEFAULT ''")
+                    self.logger.info("[Migration] Added entry_reason column to positions")
+                if 'exit_reason' not in cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN exit_reason TEXT DEFAULT ''")
+                    self.logger.info("[Migration] Added exit_reason column to positions")
+                conn.commit()
+        except Exception as e:
+            self.logger.warning(f"[Migration] Journal columns migration failed: {e}")
+
+    def kelly_position_size(self, symbol: str, strategy: str = None,
+                            min_pct: float = 0.10, max_pct: float = 0.50,
+                            half_kelly: bool = True) -> float:
+        """
+        Calculate position size using Kelly Criterion.
+        
+        f = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
+        
+        Uses historical trade data for the symbol. Falls back to default if 
+        insufficient data (<5 closed trades).
+        
+        Args:
+            symbol: Stock symbol
+            strategy: Strategy name (optional, filters trades)
+            min_pct: Minimum position size as fraction of portfolio
+            max_pct: Maximum position size as fraction of portfolio
+            half_kelly: If True, use f/2 for safety (recommended)
+        
+        Returns:
+            Position size as fraction of portfolio (0.10 to 0.50)
+        """
+        default_size = 0.25  # 25% default
+        
+        try:
+            db_path = self.data_dir / 'positions.db'
+            with sqlite3.connect(db_path) as conn:
+                # Get closed trades for this symbol
+                query = "SELECT realized_pnl, entry_price, quantity FROM positions WHERE symbol=? AND status='closed'"
+                params_list = [symbol]
+                if strategy:
+                    query += " AND strategy=?"
+                    params_list.append(strategy)
+                
+                trades = conn.execute(query, params_list).fetchall()
+                
+                if len(trades) < 5:
+                    return default_size  # Not enough data
+                
+                wins = [t[0] for t in trades if t[0] and t[0] > 0]
+                losses = [t[0] for t in trades if t[0] and t[0] < 0]
+                
+                if not wins or not losses:
+                    return default_size
+                
+                win_rate = len(wins) / len(trades)
+                avg_win = sum(wins) / len(wins)
+                avg_loss = abs(sum(losses) / len(losses))
+                
+                if avg_win <= 0:
+                    return default_size
+                
+                # Kelly formula
+                f = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
+                
+                if half_kelly:
+                    f = f / 2.0
+                
+                # Clamp to min/max
+                f = max(min_pct, min(max_pct, f))
+                
+                self.logger.info(
+                    f"[Kelly] {symbol}: WR={win_rate:.0%} avg_win=${avg_win:.2f} "
+                    f"avg_loss=${avg_loss:.2f} → f={f:.2%}")
+                
+                return round(f, 4)
+                
+        except Exception as e:
+            self.logger.warning(f"[Kelly] Failed for {symbol}: {e}")
+            return default_size
+
     def get_portfolio_state(self) -> PortfolioState:
         """Get current portfolio state and performance"""
         try:
