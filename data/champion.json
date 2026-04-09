@@ -1,0 +1,15 @@
+{
+  "params": {
+    "oversold": 30,
+    "overbought": 65,
+    "position_size": 0.15,
+    "stop_loss_pct": 0.05,
+    "take_profit_pct": 0.12,
+    "max_holding_bars": 0
+  },
+  "backtest_score": 0.549915,
+  "live_avg_pnl": 2.0017,
+  "sessions": 16,
+  "promoted_at": "2026-04-07T20:04:07.782232",
+  "promotion_reason": "Live stats refreshed"
+}
