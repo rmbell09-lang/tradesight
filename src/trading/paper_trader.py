@@ -1159,7 +1159,25 @@ class PaperTrader:
                         f"Entry=${entry_price:.2f} Current=${current_price:.2f} "
                         f"PnL={pnl_pct*100:.2f}% | Closing."
                     )
-                    closed = self._execute_sell_order(symbol, strategy, current_price)
+
+                    emergency_sl_override = (
+                        trigger == 'STOP_LOSS' and
+                        pnl_pct <= -(2.0 * stop_loss_pct)
+                    )
+                    if emergency_sl_override:
+                        self.logger.warning(
+                            "[PDT-OVERRIDE] Emergency stop-loss: loss exceeds 2x SL threshold"
+                        )
+
+                    if emergency_sl_override:
+                        closed = self._execute_sell_order(
+                            symbol,
+                            strategy,
+                            current_price,
+                            force=True
+                        )
+                    else:
+                        closed = self._execute_sell_order(symbol, strategy, current_price)
                     # Trade journal: save exit reason (Task 25)
                     if closed:
                         try:

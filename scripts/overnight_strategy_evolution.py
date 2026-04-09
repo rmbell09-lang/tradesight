@@ -168,7 +168,7 @@ class ParameterTuner:
         # RSI thresholds — expanded for better coverage
         oversold_values  = [22, 25, 28, 30, 33, 35]  # 6 values
         overbought_values = [62, 65, 68, 72, 75, 78]  # 6 values
-        size_values       = [0.25, 0.30, 0.35]        # 3 positions max
+        size_values       = [0.10, 0.15, 0.20, 0.25]  # smaller sizing for diversification
         
         # Risk/reward parameters — TP must be reachable within max_holding_bars on 1H bars.
         # SPY/large-caps move 0.5-2% per day; 10 bars ≈ 1.5 trading days.
@@ -372,7 +372,7 @@ class ParameterTuner:
             try:
                 variant = self.create_rsi_variant(
                     best_params['oversold'], best_params['overbought'],
-                    best_params.get('position_size', 0.35),
+                    best_params.get('position_size', 0.15),
                     best_params.get('stop_loss_pct', 0.05),
                     best_params.get('take_profit_pct', 0.12),
                     best_params.get('max_holding_bars', 0)
@@ -537,10 +537,29 @@ def optimize_winner_strategy(winner: Dict) -> Dict:
         'KO', 'DIS',                         # Consumer staples + media
     ]
 
-    # PRIMARY: yfinance — free, 2 years of 1H history, no API key needed.
-    # Strategy is designed for 1H bars; daily bars suppress signal frequency.
-    if _YFINANCE_AVAILABLE:
-        logger.info("Fetching 2yr 1H bars from Yahoo Finance (primary)...")
+    # PRIMARY: Alpaca 1H when credentials are present.
+    # Strategy is designed for 1H bars and launchd injects Alpaca keys via app-launcher.sh.
+    if alpaca_key and alpaca_secret:
+        logger.info("Fetching 1H bars from Alpaca (primary)...")
+        try:
+            client = AlpacaClient(api_key=alpaca_key, secret_key=alpaca_secret, paper=True)
+            for sym in symbols:
+                try:
+                    df = client.get_historical_data(sym, days=730, timeframe='1Hour')
+                    if df is not None and len(df) >= 50:
+                        training_datasets[sym] = df
+                        logger.info(f"  Alpaca {sym}: {len(df)} 1H bars")
+                except Exception as e:
+                    logger.warning(f"  Alpaca {sym} failed: {e}")
+            if training_datasets:
+                data_source = 'alpaca_1h'
+                logger.info(f"Using Alpaca 1H data ({len(training_datasets)} symbols, strategy designed for 1H)")
+        except Exception as e:
+            logger.warning(f"Alpaca connection failed: {e}")
+
+    # FALLBACK: yfinance 1H if Alpaca unavailable or failed
+    if not training_datasets and _YFINANCE_AVAILABLE:
+        logger.warning("Alpaca unavailable — falling back to Yahoo Finance 1H bars")
         for sym in symbols:
             df = fetch_yfinance_1h(sym)
             if df is not None and len(df) >= 50:
@@ -549,24 +568,6 @@ def optimize_winner_strategy(winner: Dict) -> Dict:
         if training_datasets:
             data_source = 'yfinance_1h'
             logger.info(f"Using yfinance 1H data ({len(training_datasets)} symbols, strategy designed for 1H)")
-
-    # FALLBACK: Alpaca 1Day if yfinance unavailable or failed
-    if not training_datasets and alpaca_key and alpaca_secret:
-        logger.warning("yfinance unavailable — falling back to Alpaca 1Day bars")
-        try:
-            client = AlpacaClient(api_key=alpaca_key, secret_key=alpaca_secret, paper=True)
-            for sym in symbols:
-                try:
-                    df = client.get_historical_data(sym, days=500, timeframe='1Day')
-                    if df is not None and len(df) >= 50:
-                        training_datasets[sym] = df
-                        logger.info(f"  Alpaca {sym}: {len(df)} daily bars")
-                except Exception as e:
-                    logger.warning(f"  Alpaca {sym} failed: {e}")
-            if training_datasets:
-                data_source = 'alpaca_1day'
-        except Exception as e:
-            logger.warning(f"Alpaca connection failed: {e}")
 
     if not training_datasets:
         logger.warning("No market data from any source — using synthetic")
