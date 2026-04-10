@@ -743,16 +743,42 @@ class PaperTrader:
                 except Exception as _cde:
                     self.logger.warning(f"[StopLossCooldown] Could not check cooldown for {symbol}: {_cde}")
 
+            # Minimum cash reserve guard: if buying power falls below 15% of equity, block new buys
+            if action == "buy" and getattr(self, "_alpaca_synced", False) and hasattr(self, "_real_buying_power") and hasattr(self, "_real_equity"):
+                min_cash_reserve = max(0.0, float(self._real_equity) * 0.15)
+                if float(self._real_buying_power) < min_cash_reserve:
+                    self.logger.info(
+                        "[CashReserveGuard] Skipping buy for %s: buying_power=%.2f < 15%% equity reserve (%.2f)" % (
+                            symbol, float(self._real_buying_power), min_cash_reserve
+                        )
+                    )
+                    return False
+
             # Calculate position size
             quantity = self.position_manager.calculate_position_size(symbol, strategy, current_price)
-            
-            # Cap by real Alpaca buying power (prevents "insufficient buying power" errors)
+
+            # Hard cap: each position must be <= 15% of real equity when Alpaca is synced
+            if action == "buy" and getattr(self, "_alpaca_synced", False) and hasattr(self, "_real_equity") and current_price > 0:
+                max_by_equity = (float(self._real_equity) * 0.15) / current_price
+                if quantity > max_by_equity:
+                    self.logger.info(
+                        "[PositionCap] Capping %s qty from %.4f to %.4f (15%% of real equity %.2f)" % (
+                            symbol, quantity, max_by_equity, float(self._real_equity)
+                        )
+                    )
+                    quantity = round(max_by_equity, 6)
+
+            # Cap by real Alpaca buying power (prevents insufficient buying power errors)
             if getattr(self, "_alpaca_synced", False) and hasattr(self, "_real_buying_power"):
                 max_affordable = self._real_buying_power / current_price * 0.95  # 5% safety margin
                 if quantity > max_affordable:
-                    self.logger.info(f"Capping {symbol} qty from {quantity:.4f} to {max_affordable:.4f} (real buying power: ${self._real_buying_power:.2f})")
+                    self.logger.info(
+                        "Capping %s qty from %.4f to %.4f (real buying power: %.2f)" % (
+                            symbol, quantity, max_affordable, float(self._real_buying_power)
+                        )
+                    )
                     quantity = round(max_affordable, 6)
-            
+
             if quantity <= 0:
                 self.logger.info(f"No position size available for {symbol} {strategy}")
                 return False

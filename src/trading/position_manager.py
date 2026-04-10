@@ -84,7 +84,7 @@ class PositionManager:
         # Portfolio parameters
         self.config = {
             'initial_balance': 500.0,    # Starting paper money ($500 realistic account)
-            'max_position_size': 0.40,   # 40% max per position ($200 max on $500)
+            'max_position_size': 0.15,   # 15% max per position (~$75 max on $500)
             'max_strategy_allocation': 0.80,  # 80% max per strategy
             'stop_loss_percent': 0.05,   # 5% stop loss
             'take_profit_percent': 0.06  # 6% take profit (matches champion params)
