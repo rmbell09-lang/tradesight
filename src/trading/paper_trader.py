@@ -445,7 +445,7 @@ class PaperTrader:
                         elif current_histogram < 0 and prev_histogram >= 0:
                             signal = {
                                 'action': 'sell',
-                                'side': 'short',
+                                'side': 'long',
                                 'confidence': 0.70,
                                 'reason': f'MACD bearish crossover (hist: {current_histogram:.4f})'
                             }
@@ -519,7 +519,7 @@ class PaperTrader:
                     elif current_rsi > overbought_thresh:
                         signal = {
                             "action": "sell",
-                            "side": "short",
+                            "side": "long",
                             "confidence": min(0.80, (current_rsi - overbought_thresh) / overbought_thresh + 0.60),
                             "reason": f"RSI overbought: {current_rsi:.1f}"
                         }
@@ -546,7 +546,7 @@ class PaperTrader:
                 elif current_price >= upper_band * 0.98:
                     signal = {
                         'action': 'sell',
-                        'side': 'short',
+                        'side': 'long',
                         'confidence': 0.68,
                         'reason': 'Price near Bollinger upper band'
                     }
@@ -591,7 +591,7 @@ class PaperTrader:
                         elif deviation > 0.01:
                             signal = {
                                 'action': 'sell',
-                                'side': 'short',
+                                'side': 'long',
                                 'confidence': min(0.75, 0.55 + abs(deviation) * 5),
                                 'reason': 'VWAP reversion: price %.1f%% above VWAP $%.2f' % (deviation*100, current_vwap)
                             }
@@ -623,7 +623,7 @@ class PaperTrader:
                             conf = min(0.70, 0.50 + (recent_low - current_price) / range_size * 0.3)
                             signal = {
                                 'action': 'sell',
-                                'side': 'short',
+                                'side': 'long',
                                 'confidence': conf,
                                 'reason': 'ORB breakdown below $%.2f (range=$%.2f)' % (recent_low, range_size)
                             }
@@ -677,7 +677,7 @@ class PaperTrader:
                                 elif z_score > 2.0:
                                     signal = {
                                         'action': 'sell',
-                                        'side': 'short',
+                                        'side': 'long',
                                         'confidence': min(0.70, 0.50 + abs(z_score) * 0.05),
                                         'reason': 'Pairs: %s/%s z=%.2f (overperforming)' % (symbol, paired_symbol, z_score)
                                     }
