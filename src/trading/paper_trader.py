@@ -525,34 +525,51 @@ class PaperTrader:
                         }
         
         elif strategy_name == 'Bollinger Bounce':
-            # Get Bollinger Bands data from indicators_data dict
+            # Bollinger data may come in either shape:
+            # 1) Legacy/DataFrame: indicators[bollinger_bands] with upper_band/lower_band columns
+            # 2) Current dict from TechnicalIndicators.calculate_all(): indicators[bollinger]
             indicators_dict = indicators_data.get("indicators", {})
-            bb_data = indicators_dict.get("bollinger_bands", pd.DataFrame())
-            
+
+            upper_band = float('inf')
+            lower_band = float('-inf')
+
+            bb_dict = indicators_dict.get("bollinger")
+            if isinstance(bb_dict, dict):
+                upper_band = bb_dict.get('upper', upper_band)
+                lower_band = bb_dict.get('lower', lower_band)
+
+            bb_data = indicators_dict.get("bollinger_bands")
             if isinstance(bb_data, pd.DataFrame) and len(bb_data) >= 1:
                 current_bb = bb_data.iloc[-1]
-                upper_band = current_bb.get('upper_band', float('inf')) if hasattr(current_bb, 'get') else current_bb['upper_band']
-                lower_band = current_bb.get('lower_band', float('-inf')) if hasattr(current_bb, 'get') else current_bb['lower_band']
-                
-                # Price near lower band (buy signal)
-                if current_price <= lower_band * 1.02:
-                    signal = {
-                        'action': 'buy',
-                        'side': 'long',
-                        'confidence': 0.72,
-                        'reason': 'Price near Bollinger lower band'
-                    }
-                # Price near upper band (sell signal)
-                elif current_price >= upper_band * 0.98:
-                    signal = {
-                        'action': 'sell',
-                        'side': 'long',
-                        'confidence': 0.68,
-                        'reason': 'Price near Bollinger upper band'
-                    }
-        
+                upper_band = current_bb.get('upper_band', upper_band) if hasattr(current_bb, 'get') else current_bb['upper_band']
+                lower_band = current_bb.get('lower_band', lower_band) if hasattr(current_bb, 'get') else current_bb['lower_band']
+
+            # Normalize values and ignore malformed bands
+            try:
+                upper_band = float(upper_band)
+                lower_band = float(lower_band)
+            except Exception:
+                upper_band = float('inf')
+                lower_band = float('-inf')
+
+            # Price near lower band (buy signal)
+            if pd.notna(lower_band) and current_price <= lower_band * 1.02:
+                signal = {
+                    'action': 'buy',
+                    'side': 'long',
+                    'confidence': 0.72,
+                    'reason': 'Price near Bollinger lower band'
+                }
+            # Price near upper band (sell signal)
+            elif pd.notna(upper_band) and current_price >= upper_band * 0.98:
+                signal = {
+                    'action': 'sell',
+                    'side': 'long',
+                    'confidence': 0.68,
+                    'reason': 'Price near Bollinger upper band'
+                }
+
         elif strategy_name == 'VWAP Reversion':
-            # Task 16a: VWAP Reversion — buy when price drops below VWAP, sell at VWAP
             try:
                 if len(data) >= 20:
                     # Calculate VWAP (cumulative volume-weighted price for today's session)

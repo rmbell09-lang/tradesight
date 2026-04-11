@@ -372,6 +372,43 @@ class TestPaperTrader:
         signal = self.trader.generate_trading_signals('AAPL', 'RSI Mean Reversion')
         assert signal is None, "MTF filter should block RSI buy in bearish daily trend"
     
+    @patch('trading.paper_trader.TechnicalIndicators')
+    def test_generate_trading_signals_bollinger_uses_current_indicator_format(self, mock_indicators):
+        """Bollinger strategy should read indicators['bollinger'] dict produced by TechnicalIndicators."""
+        import pandas as pd
+
+        close_prices = [100.0] * 199 + [95.0]  # Last price near mocked lower band
+        mock_data = pd.DataFrame({
+            'open': [p - 0.5 for p in close_prices],
+            'high': [p + 1.0 for p in close_prices],
+            'low': [p - 1.0 for p in close_prices],
+            'close': close_prices,
+            'volume': [1_000_000] * 200
+        }, index=pd.date_range('2026-01-01', periods=200, freq='1h'))
+
+        self.trader.alpaca.get_historical_data = Mock(return_value=mock_data)
+
+        mock_indicator_instance = Mock()
+        mock_indicators.return_value = mock_indicator_instance
+        mock_indicator_instance.calculate_all.return_value = {
+            'indicators': {
+                'bollinger': {
+                    'upper': 110.0,
+                    'middle': 100.0,
+                    'lower': 94.0,
+                    'position': 0.10,
+                }
+            },
+            'signals': {}
+        }
+
+        signal = self.trader.generate_trading_signals('AAPL', 'Bollinger Bounce')
+
+        assert signal is not None
+        assert signal['action'] == 'buy'
+        assert signal['side'] == 'long'
+        assert 'Bollinger lower band' in signal['reason']
+
     def test_generate_trading_signals_insufficient_data(self):
         """Test signal generation with insufficient data"""
         # Mock insufficient data
