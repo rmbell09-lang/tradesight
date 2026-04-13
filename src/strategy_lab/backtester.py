@@ -155,39 +155,50 @@ class MultiAssetBacktester:
                                data: pd.DataFrame,
                                n_simulations: int = 100) -> MonteCarloResult:
         """
-        Monte Carlo simulation: run the strategy multiple times with
-        randomized data ordering to test robustness.
-        
-        Tests whether strategy performance is due to genuine edge
-        or just luck with specific data ordering.
-        
-        Args:
-            strategy_func: Strategy to test
-            data: OHLCV dataset
-            n_simulations: Number of random simulations
-            
-        Returns:
-            MonteCarloResult with distribution statistics
+        Monte Carlo simulation over realized trade outcomes.
+
+        IMPORTANT: We randomize the *trade sequence*, not OHLCV bars.
+        Shuffling bars destroys indicator continuity and creates synthetic
+        market structure. This simulation instead bootstraps closed-trade
+        returns from the base backtest and replays randomized trade sequences
+        to estimate tail risk and sequence dependence.
         """
         pnl_results = []
         drawdown_results = []
-        
-        for sim in range(n_simulations):
-            # Create shuffled version of data (preserve OHLCV relationships within each bar)
-            shuffled_data = data.sample(frac=1, random_state=sim).copy()
-            shuffled_data.index = data.index  # Restore original time index
-            
-            try:
-                result = self.engine.run_backtest(shuffled_data, strategy_func, f"mc_{sim}")
-                pnl_results.append(result['metrics']['total_pnl_pct'])
-                drawdown_results.append(result['metrics']['max_drawdown'])
-            except Exception:
-                pnl_results.append(0.0)
-                drawdown_results.append(0.0)
-        
-        pnl_array = np.array(pnl_results)
-        dd_array = np.array(drawdown_results)
-        
+
+        try:
+            base_result = self.engine.run_backtest(data, strategy_func, "mc_base")
+            trades = base_result.get('trades', [])
+            trade_returns = [float(t.get('pnl_pct', 0.0)) / 100.0 for t in trades]
+        except Exception:
+            trade_returns = []
+
+        if not trade_returns:
+            pnl_array = np.zeros(n_simulations)
+            dd_array = np.zeros(n_simulations)
+        else:
+            for sim in range(n_simulations):
+                rng = np.random.default_rng(seed=sim)
+                sampled = rng.choice(trade_returns, size=len(trade_returns), replace=True)
+
+                equity = 1.0
+                peak = 1.0
+                max_dd = 0.0
+
+                for trade_r in sampled:
+                    equity *= (1.0 + trade_r)
+                    if equity > peak:
+                        peak = equity
+                    drawdown = (peak - equity) / peak if peak > 0 else 0.0
+                    if drawdown > max_dd:
+                        max_dd = drawdown
+
+                pnl_results.append((equity - 1.0) * 100.0)
+                drawdown_results.append(max_dd * 100.0)
+
+            pnl_array = np.array(pnl_results)
+            dd_array = np.array(drawdown_results)
+
         return MonteCarloResult(
             num_simulations=n_simulations,
             mean_pnl=float(np.mean(pnl_array)),
@@ -201,7 +212,7 @@ class MultiAssetBacktester:
             max_drawdown_mean=float(np.mean(dd_array)),
             max_drawdown_worst=float(np.max(dd_array))
         )
-    
+
     def cross_asset_test(self,
                          strategy_func: Callable,
                          asset_datasets: Dict[str, pd.DataFrame]) -> Dict[str, Dict]:

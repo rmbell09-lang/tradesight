@@ -4,6 +4,7 @@ import sys
 import pytest
 import pandas as pd
 import numpy as np
+from unittest.mock import Mock
 
 sys.path.append('src')
 
@@ -276,6 +277,26 @@ class TestMultiAssetBacktester:
         assert result.num_simulations == 10
         assert 0 <= result.probability_profitable <= 100
         assert result.percentile_5 <= result.percentile_95
+
+    def test_monte_carlo_uses_trade_sequence_not_bar_shuffle(self):
+        fake_result = {
+            'trades': [
+                {'pnl_pct': 5.0},
+                {'pnl_pct': -3.0},
+                {'pnl_pct': 2.0},
+                {'pnl_pct': -1.0},
+            ]
+        }
+        self.backtester.engine.run_backtest = Mock(return_value=fake_result)
+
+        result = self.backtester.monte_carlo_simulation(
+            simple_ma_crossover, self.test_data, n_simulations=25
+        )
+
+        # Backtest runs once to get closed trades; simulations resample trade outcomes.
+        assert self.backtester.engine.run_backtest.call_count == 1
+        assert result.std_pnl > 0
+        assert result.max_drawdown_worst >= 0
     
     def test_cross_asset_test(self):
         datasets = {
