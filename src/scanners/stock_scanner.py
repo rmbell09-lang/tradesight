@@ -11,9 +11,12 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 import json
+import logging
 
 from data.alpaca_client import AlpacaClient, StockQuote
 from scanners.stock_opportunities import StockOpportunityScorer, OpportunityScore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -195,8 +198,8 @@ class StockScanner:
                                 confidence=opportunity.confidence,
                                 reason=f"Scanner score {opportunity.overall_score:.1f}",
                             )
-                        except Exception:
-                            pass
+                        except Exception as alert_err:
+                            logger.warning(f"Alert dispatch failed for {symbol}: {alert_err}")
                 else:
                     print(f"  ❌ {symbol}: Score {opportunity.overall_score:.1f} (below {min_score})")
                 

@@ -495,8 +495,8 @@ class PaperTrader:
                                 'confidence': 0.70,
                                 'reason': f'MACD bearish crossover (hist: {current_histogram:.4f})'
                             }
-            except Exception:
-                pass
+            except Exception as macd_err:
+                self.logger.debug(f"MACD signal calc failed for {symbol}: {macd_err}")
         
         elif strategy_name == 'RSI Mean Reversion':
             # Get RSI data from indicators_data dict
@@ -550,8 +550,8 @@ class PaperTrader:
                                         elif vol_ratio < 0.5:
                                             vol_boost = -0.10  # Very low = reduce confidence
                                             vol_tag = ", LOW vol"
-                            except Exception:
-                                pass  # Volume data unavailable — no adjustment
+                            except Exception as vol_err:
+                                self.logger.debug(f"Volume adjustment unavailable for {symbol}: {vol_err}")
                             
                             base_conf = min(0.80, (oversold_thresh - current_rsi) / oversold_thresh + 0.60)
                             adj_conf = max(0.50, min(0.85, base_conf + vol_boost))
@@ -636,8 +636,8 @@ class PaperTrader:
                                 recent_vol = float(data['volume'].iloc[-1])
                                 avg_vol = float(data['volume'].tail(20).mean())
                                 vol_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
-                            except:
-                                pass
+                            except Exception as vol_err:
+                                self.logger.debug(f"VWAP volume ratio unavailable for {symbol}: {vol_err}")
                             
                             # Higher confidence with bigger deviation and higher volume
                             conf = min(0.80, 0.60 + abs(deviation) * 5)
@@ -923,8 +923,8 @@ class PaperTrader:
                                 "ORDER BY entry_time DESC LIMIT 1",
                                 (entry_reason, symbol, strategy))
                             _jc.commit()
-                    except Exception:
-                        pass  # Column may not exist yet — added in migration
+                    except Exception as journal_err:
+                        self.logger.warning(f"Failed to persist entry_reason for {symbol}: {journal_err}")
                 return success
             
             # Log WHY the order failed
@@ -1101,8 +1101,8 @@ class PaperTrader:
                             quantity=0, price=round(abs(daily_pnl), 2),
                             strategy='circuit_breaker', confidence=daily_pnl / -limit
                         )
-                    except Exception:
-                        pass
+                    except Exception as _gge:
+                        self.logger.debug(f"Circuit-breaker alert dispatch failed: {_gge}")
                 return True
         except Exception as e:
             self.logger.error(f'[CircuitBreaker] _check_daily_loss_limit failed: {e}')
@@ -1278,8 +1278,8 @@ class PaperTrader:
                                     "ORDER BY exit_time DESC LIMIT 1",
                                     (trigger, symbol, strategy))
                                 _jc2.commit()
-                        except Exception:
-                            pass
+                        except Exception as exit_reason_err:
+                            self.logger.warning(f"Failed to persist exit_reason for {symbol}: {exit_reason_err}")
                     if closed:
                         self.logger.info(
                             f"[SL/TP] Closed {symbol} ({strategy}) @ ${current_price:.2f} "
@@ -1435,8 +1435,8 @@ class PaperTrader:
                                     symbol='PORTFOLIO', action='CIRCUIT_BREAKER',
                                     quantity=0, price=round(current_value, 2),
                                     strategy='drawdown_guard', confidence=drawdown)
-                            except Exception:
-                                pass
+                            except Exception as close_gap_err:
+                                self.logger.debug(f"Gap close attempt failed for {symbol}: {close_gap_err}")
             
             if self._circuit_breaker_until and datetime.now() < self._circuit_breaker_until:
                 self.logger.warning(
@@ -1896,8 +1896,8 @@ class PaperTrader:
         finally:
             try:
                 ws.close()
-            except Exception:
-                pass
+            except Exception as stop_err:
+                self.logger.warning(f"Failed to stop trade update monitor cleanly: {stop_err}")
 
     def _start_trade_updates_monitor(self):
         """Start background websocket supervisor with exponential backoff."""

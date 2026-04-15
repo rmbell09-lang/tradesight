@@ -120,7 +120,8 @@ class TradeLogger:
             try:
                 entry_time = datetime.fromisoformat(entry_time_str)
                 hold_minutes = int((datetime.now() - entry_time).total_seconds() / 60)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to parse entry_time for {symbol}/{strategy}: {e}")
                 hold_minutes = 0
 
             conn.execute('''
