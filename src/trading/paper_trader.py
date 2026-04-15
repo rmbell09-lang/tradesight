@@ -1071,9 +1071,6 @@ class PaperTrader:
             self._daily_loss_limit_reached = False
             self._cb_date = today
 
-        if self._daily_loss_limit_reached:
-            return True
-
         limit = self.config.get('daily_loss_limit', 15.0)
         try:
             today_start = datetime.now().replace(
@@ -1081,29 +1078,91 @@ class PaperTrader:
             ).isoformat()
             db_path = self.position_manager.data_dir / 'positions.db'
             with sqlite3.connect(str(db_path)) as conn:
+                # Exclude placeholder/demo exits from daily circuit-breaker P&L.
+                # 1) Demo-mode closures typically have no order_id (status may be 'closed' or NULL)
+                # 2) Price-sanity guard: long exit < 50% of entry, short exit > 150% of entry
                 row = conn.execute(
-                    "SELECT SUM(realized_pnl) FROM positions WHERE status='closed' AND exit_time >= ?",
+                    '''
+                    SELECT SUM(realized_pnl)
+                    FROM positions
+                    WHERE status='closed'
+                      AND exit_time >= ?
+                      AND NOT (
+                            (exit_order_id IS NULL AND exit_fill_status IS NULL)
+                            OR
+                            (exit_order_id IS NULL AND LOWER(COALESCE(exit_fill_status, '')) = 'closed')
+                            OR
+                            (
+                                entry_price > 0 AND exit_price IS NOT NULL AND (
+                                    (LOWER(COALESCE(side, 'long')) = 'long' AND exit_price < entry_price * 0.5)
+                                    OR
+                                    (LOWER(COALESCE(side, 'long')) = 'short' AND exit_price > entry_price * 1.5)
+                                )
+                            )
+                      )
+                    ''',
                     (today_start,)
                 ).fetchone()
-            daily_pnl = float(row[0]) if row and row[0] is not None else 0.0
-            if daily_pnl <= -limit:
-                self._daily_loss_limit_reached = True
-                self._cb_date = today
+
+                excluded = conn.execute(
+                    '''
+                    SELECT symbol, side, entry_price, exit_price, realized_pnl, exit_order_id, exit_fill_status
+                    FROM positions
+                    WHERE status='closed'
+                      AND exit_time >= ?
+                      AND (
+                            (exit_order_id IS NULL AND exit_fill_status IS NULL)
+                            OR
+                            (exit_order_id IS NULL AND LOWER(COALESCE(exit_fill_status, '')) = 'closed')
+                            OR
+                            (
+                                entry_price > 0 AND exit_price IS NOT NULL AND (
+                                    (LOWER(COALESCE(side, 'long')) = 'long' AND exit_price < entry_price * 0.5)
+                                    OR
+                                    (LOWER(COALESCE(side, 'long')) = 'short' AND exit_price > entry_price * 1.5)
+                                )
+                            )
+                      )
+                    ''',
+                    (today_start,)
+                ).fetchall()
+
+            for symbol, side, entry_price, exit_price, realized_pnl, exit_order_id, exit_fill_status in excluded:
+                entry_str = f'{entry_price:.2f}' if entry_price is not None else 'None'
+                exit_str = f'{exit_price:.2f}' if exit_price is not None else 'None'
                 self.logger.warning(
-                    f'[CircuitBreaker] TRIGGERED: daily_pnl={daily_pnl:.2f} <= -{limit:.2f}. '
-                    f'No new entries for the rest of today.'
+                    '[CircuitBreaker] Excluding demo/suspicious close from daily P&L: '
+                    f'{symbol} {side} entry={entry_str} exit={exit_str} pnl={realized_pnl:.2f} '
+                    f'order_id={exit_order_id} fill_status={exit_fill_status}'
                 )
-                if self.alert_manager:
-                    try:
-                        self.alert_manager.fire(
-                            AlertType.TRADE_EXECUTED,
-                            symbol='PORTFOLIO', action='DAILY_LOSS_LIMIT',
-                            quantity=0, price=round(abs(daily_pnl), 2),
-                            strategy='circuit_breaker', confidence=daily_pnl / -limit
-                        )
-                    except Exception as _gge:
-                        self.logger.debug(f"Circuit-breaker alert dispatch failed: {_gge}")
+
+            daily_pnl = float(row[0]) if row and row[0] is not None else 0.0
+            was_reached = self._daily_loss_limit_reached
+            self._daily_loss_limit_reached = daily_pnl <= -limit
+            self._cb_date = today
+
+            if self._daily_loss_limit_reached:
+                if not was_reached:
+                    self.logger.warning(
+                        f'[CircuitBreaker] TRIGGERED: daily_pnl={daily_pnl:.2f} <= -{limit:.2f}. '
+                        f'No new entries for the rest of today.'
+                    )
+                    if self.alert_manager:
+                        try:
+                            self.alert_manager.fire(
+                                AlertType.TRADE_EXECUTED,
+                                symbol='PORTFOLIO', action='DAILY_LOSS_LIMIT',
+                                quantity=0, price=round(abs(daily_pnl), 2),
+                                strategy='circuit_breaker', confidence=daily_pnl / -limit
+                            )
+                        except Exception as _gge:
+                            self.logger.debug(f"Circuit-breaker alert dispatch failed: {_gge}")
                 return True
+
+            if was_reached:
+                self.logger.info(
+                    f'[CircuitBreaker] RESET: daily_pnl={daily_pnl:.2f} above -{limit:.2f}. Entries re-enabled.'
+                )
         except Exception as e:
             self.logger.error(f'[CircuitBreaker] _check_daily_loss_limit failed: {e}')
         return False
