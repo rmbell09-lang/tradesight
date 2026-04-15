@@ -228,11 +228,21 @@ class TestPaperTrader:
     
     def test_initialization(self):
         """Test paper trader initialization"""
-        assert self.trader.base_dir == Path(self.temp_dir)
+        assert self.trader.base_dir == Path(self.temp_dir).resolve()
         assert self.trader.position_manager is not None
         assert self.trader.automation is not None
         assert self.trader.alpaca is not None  # Should be in demo mode
         assert len(self.trader.config['trading_symbols']) > 0
+
+    def test_initialization_normalizes_src_base_dir(self):
+        """Passing project/src should normalize to project root."""
+        src_dir = Path(self.temp_dir) / "src"
+        (src_dir / "trading").mkdir(parents=True, exist_ok=True)
+
+        trader = PaperTrader(base_dir=str(src_dir))
+
+        assert trader.base_dir == Path(self.temp_dir).resolve()
+        assert trader.data_dir == Path(self.temp_dir).resolve() / "data"
     
     @patch('trading.paper_trader.sqlite3.connect')
     def test_get_tournament_winners_empty(self, mock_connect):

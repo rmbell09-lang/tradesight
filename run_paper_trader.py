@@ -39,7 +39,7 @@ def main():
         mode_str = "paper trading"
         print(f"Alpaca keys loaded ({mode_str} mode)")
     
-    base_dir = os.path.join(os.path.dirname(__file__), "src")
+    base_dir = os.path.dirname(__file__)
     trader = PaperTrader(base_dir=base_dir, alpaca_api_key=api_key, alpaca_secret=secret_key)
     
     mode = sys.argv[1] if len(sys.argv) > 1 else "--trade"

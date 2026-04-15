@@ -104,9 +104,15 @@ class PaperTrader:
     
     def __init__(self, base_dir: str = None, alpaca_api_key: str = None, 
                  alpaca_secret: str = None):
-        self.base_dir = Path(base_dir) if base_dir else Path(__file__).resolve().parent.parent.parent
-        self.data_dir = self.base_dir / 'data'
-        self.logs_dir = self.base_dir / 'logs'
+        resolved_base = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parent.parent.parent
+        # Normalize callers that pass project/src instead of project root.
+        # Using different base dirs creates split SQLite state (data/positions.db vs src/data/positions.db)
+        # and can bypass per-symbol entry checks across runs.
+        if resolved_base.name == "src" and (resolved_base / "trading").exists():
+            resolved_base = resolved_base.parent
+        self.base_dir = resolved_base
+        self.data_dir = self.base_dir / "data"
+        self.logs_dir = self.base_dir / "logs"
         
         # Ensure directories exist
         for dir_path in [self.data_dir, self.logs_dir]:
