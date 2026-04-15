@@ -314,8 +314,8 @@ class StrategyAutomation:
                         rounds=results.total_rounds,
                         session_id=session_id,
                     )
-                except Exception:
-                    pass
+                except Exception as alert_err:
+                    self.logger.warning(f"Strategy evolved alert dispatch failed: {alert_err}")
             return session_results
             
         except Exception as e:
@@ -349,6 +349,12 @@ class StrategyAutomation:
                         results_json TEXT
                     )
                 ''')
+                # Migration guard: legacy DBs may lack session_id column
+                existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(tournament_sessions)").fetchall()}
+                if 'session_id' not in existing_cols:
+                    conn.execute("ALTER TABLE tournament_sessions ADD COLUMN session_id TEXT")
+                    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_sessions_session_id ON tournament_sessions(session_id)")
+                    self.logger.warning("Migrated tournament_sessions: added missing session_id column")
                 
                 conn.execute('''
                     CREATE TABLE IF NOT EXISTS strategy_performance (
@@ -441,8 +447,8 @@ class StrategyAutomation:
                                 report_lines.append(f"   ⚠️  Data: SYNTHETIC FALLBACK — results may not reflect real markets")
                             else:
                                 report_lines.append(f"   ✅ Data: real historical walk-forward (no lookahead bias)")
-                        except Exception:
-                            pass
+                        except Exception as parse_err:
+                            self.logger.debug(f"Could not parse session data source for {session_id}: {parse_err}")
                     else:
                         report_lines.append(f"\n❌ Session: {session_id} - FAILED")
                 
