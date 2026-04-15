@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import time
+import threading
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -62,6 +63,40 @@ try:
     _CHAMPION_AVAILABLE = True
 except ImportError:
     _CHAMPION_AVAILABLE = False
+
+
+class ExponentialBackoffWebSocketSupervisor:
+    """Supervises a websocket-style connection with exponential backoff reconnect."""
+
+    def __init__(self, connect_once, logger, initial_backoff: float = 1.0,
+                 max_backoff: float = 60.0, sleeper=time.sleep):
+        self.connect_once = connect_once
+        self.logger = logger
+        self.initial_backoff = max(0.1, float(initial_backoff))
+        self.max_backoff = max(self.initial_backoff, float(max_backoff))
+        self.sleeper = sleeper
+
+    def run(self, stop_event: threading.Event):
+        """Run until stop_event is set.
+
+        connect_once() should block while connected and raise on drop/failure.
+        """
+        delay = self.initial_backoff
+        while not stop_event.is_set():
+            try:
+                self.connect_once(stop_event=stop_event)
+                if stop_event.is_set():
+                    break
+                # Unexpected clean return: treat as dropped connection
+                raise ConnectionError('WebSocket loop exited unexpectedly')
+            except Exception as exc:
+                if stop_event.is_set():
+                    break
+                self.logger.warning(
+                    f'[WS] Connection dropped: {exc}. Reconnecting in {delay:.1f}s')
+                self.sleeper(delay)
+                delay = min(delay * 2, self.max_backoff)
+
 
 
 class PaperTrader:
@@ -143,6 +178,11 @@ class PaperTrader:
         
         # Setup logging
         self._setup_logging()
+
+        # WebSocket trade-update monitor state
+        self._ws_stop_event = None
+        self._ws_thread = None
+        self._ws_supervisor = None
 
         # Load per-cluster params
         self._cluster_params = self._load_clusters()
@@ -1791,10 +1831,107 @@ class PaperTrader:
         except Exception as e:
             self.logger.error("[StaleSync] Failed: %s" % str(e))
 
+    def _trade_updates_connect_once(self, stop_event: threading.Event):
+        """Connect to Alpaca trade_updates stream and block until disconnected.
+
+        Raises on auth/subscribe failure or connection drop so supervisor can reconnect.
+        """
+        if self.alpaca.demo_mode:
+            raise RuntimeError('demo mode: websocket disabled')
+
+        # Lazy import so unit tests don't require websocket-client installed.
+        import websocket
+
+        ws_url = 'wss://paper-api.alpaca.markets/stream'
+        ws = websocket.create_connection(ws_url, timeout=20)
+        ws.settimeout(20)
+        try:
+            ws.send(json.dumps({
+                'action': 'auth',
+                'key': self.alpaca.api_key,
+                'secret': self.alpaca.secret_key,
+            }))
+            auth_resp = json.loads(ws.recv())
+            auth_stream = auth_resp[0].get('stream') if isinstance(auth_resp, list) and auth_resp else auth_resp.get('stream')
+            auth_msg = auth_resp[0].get('data') if isinstance(auth_resp, list) and auth_resp else auth_resp.get('data')
+            if auth_stream != 'authorization' or str(auth_msg).lower() != 'authorized':
+                raise RuntimeError(f'websocket auth failed: {auth_resp}')
+
+            ws.send(json.dumps({'action': 'listen', 'data': {'streams': ['trade_updates']}}))
+            listen_resp = json.loads(ws.recv())
+            payload = listen_resp[0] if isinstance(listen_resp, list) and listen_resp else listen_resp
+            streams = payload.get('data', {}).get('streams', []) if isinstance(payload, dict) else []
+            if 'trade_updates' not in streams:
+                raise RuntimeError(f'trade_updates subscribe failed: {listen_resp}')
+
+            self.logger.info('[WS] Connected to Alpaca trade_updates stream')
+
+            while not stop_event.is_set():
+                raw = ws.recv()
+                if raw is None:
+                    raise ConnectionError('empty websocket frame')
+                event_msg = json.loads(raw)
+                packets = event_msg if isinstance(event_msg, list) else [event_msg]
+                for packet in packets:
+                    if packet.get('stream') != 'trade_updates':
+                        continue
+                    data = packet.get('data', {})
+                    event = data.get('event')
+                    if event in ('fill', 'partial_fill'):
+                        order = data.get('order', {})
+                        self.logger.info(
+                            '[WS] %s %s qty=%s avg=%s side=%s',
+                            event,
+                            order.get('symbol', '?'),
+                            order.get('filled_qty', '?'),
+                            order.get('filled_avg_price', '?'),
+                            order.get('side', '?'),
+                        )
+        finally:
+            try:
+                ws.close()
+            except Exception:
+                pass
+
+    def _start_trade_updates_monitor(self):
+        """Start background websocket supervisor with exponential backoff."""
+        if self.alpaca.demo_mode:
+            self.logger.info('[WS] Demo mode: skipping trade_updates monitor')
+            return
+        if self._ws_thread and self._ws_thread.is_alive():
+            return
+
+        self._ws_stop_event = threading.Event()
+        self._ws_supervisor = ExponentialBackoffWebSocketSupervisor(
+            connect_once=self._trade_updates_connect_once,
+            logger=self.logger,
+            initial_backoff=1.0,
+            max_backoff=60.0,
+        )
+        self._ws_thread = threading.Thread(
+            target=self._ws_supervisor.run,
+            kwargs={'stop_event': self._ws_stop_event},
+            daemon=True,
+            name='alpaca-trade-updates-ws',
+        )
+        self._ws_thread.start()
+        self.logger.info('[WS] trade_updates monitor started')
+
+    def _stop_trade_updates_monitor(self):
+        """Stop websocket supervisor thread if running."""
+        if self._ws_stop_event:
+            self._ws_stop_event.set()
+        if self._ws_thread and self._ws_thread.is_alive():
+            self._ws_thread.join(timeout=3)
+        self._ws_thread = None
+        self._ws_stop_event = None
+
+
     def run_trading_session(self):
         """Run a complete trading session"""
         try:
             self.logger.info("=== Starting TradeSight Paper Trading Session ===")
+            self._start_trade_updates_monitor()
             
             # Sync with Alpaca before doing anything
             self._sync_with_alpaca()
@@ -1868,6 +2005,8 @@ class PaperTrader:
         except Exception as e:
             self.logger.error(f"Trading session failed: {e}")
             return f"Trading session failed: {e}"
+        finally:
+            self._stop_trade_updates_monitor()
 
 
 def run_paper_trader_test():
