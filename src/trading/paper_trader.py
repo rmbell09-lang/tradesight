@@ -1858,9 +1858,11 @@ class PaperTrader:
                 'secret': self.alpaca.secret_key,
             }))
             auth_resp = json.loads(ws.recv())
-            auth_stream = auth_resp[0].get('stream') if isinstance(auth_resp, list) and auth_resp else auth_resp.get('stream')
-            auth_msg = auth_resp[0].get('data') if isinstance(auth_resp, list) and auth_resp else auth_resp.get('data')
-            if auth_stream != 'authorization' or str(auth_msg).lower() != 'authorized':
+            auth_payload = auth_resp[0] if isinstance(auth_resp, list) and auth_resp else auth_resp
+            auth_stream = auth_payload.get('stream') if isinstance(auth_payload, dict) else None
+            auth_data = auth_payload.get('data', {}) if isinstance(auth_payload, dict) else {}
+            auth_status = str(auth_data.get('status', '')).lower() if isinstance(auth_data, dict) else ''
+            if auth_stream != 'authorization' or auth_status != 'authorized':
                 raise RuntimeError(f'websocket auth failed: {auth_resp}')
 
             ws.send(json.dumps({'action': 'listen', 'data': {'streams': ['trade_updates']}}))
