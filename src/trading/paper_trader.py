@@ -103,7 +103,7 @@ class PaperTrader:
     """Orchestrates paper trading with tournament-winning strategies"""
     
     def __init__(self, base_dir: str = None, alpaca_api_key: str = None, 
-                 alpaca_secret: str = None):
+                 alpaca_secret: str = None, initial_balance: float = 500.0):
         resolved_base = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parent.parent.parent
         # Normalize callers that pass project/src instead of project root.
         # Using different base dirs creates split SQLite state (data/positions.db vs src/data/positions.db)
@@ -119,7 +119,7 @@ class PaperTrader:
             dir_path.mkdir(exist_ok=True)
         
         # Initialize components
-        self.position_manager = PositionManager(base_dir=self.base_dir)
+        self.position_manager = PositionManager(base_dir=self.base_dir, initial_balance=initial_balance)
         self.automation = StrategyAutomation(base_dir=self.base_dir)
         
         # Active params — loaded from ChampionTracker (optimizer winning params)

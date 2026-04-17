@@ -62,7 +62,7 @@ class PortfolioState:
 class PositionManager:
     """Manages trading positions and portfolio state"""
     
-    def __init__(self, base_dir: str = None):
+    def __init__(self, base_dir: str = None, initial_balance: float = 500.0):
         self.base_dir = Path(base_dir) if base_dir else Path(__file__).resolve().parent.parent.parent
         self.data_dir = self.base_dir / 'data'
         self.data_dir.mkdir(exist_ok=True)
@@ -83,7 +83,7 @@ class PositionManager:
         
         # Portfolio parameters
         self.config = {
-            'initial_balance': 500.0,    # Starting paper money ($500 realistic account)
+            'initial_balance': float(initial_balance),    # Starting paper money ($500 realistic account)
             'max_position_size': 0.15,   # 15% max per position (~$75 max on $500)
             'max_strategy_allocation': 0.80,  # 80% max per strategy
             'stop_loss_percent': 0.05,   # 5% stop loss

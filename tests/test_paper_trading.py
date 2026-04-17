@@ -51,6 +51,11 @@ class TestPositionManager:
             assert 'positions' in table_names
             assert 'portfolio_history' in table_names
     
+    def test_custom_initial_balance(self):
+        """PositionManager accepts custom initial balance."""
+        pm = PositionManager(base_dir=self.temp_dir, initial_balance=1500.0)
+        assert pm.config['initial_balance'] == 1500.0
+
     def test_open_position_success(self):
         """Test successful position opening"""
         success = self.pm.open_position(
@@ -233,6 +238,11 @@ class TestPaperTrader:
         assert self.trader.automation is not None
         assert self.trader.alpaca is not None  # Should be in demo mode
         assert len(self.trader.config['trading_symbols']) > 0
+
+    def test_initialization_with_custom_initial_balance(self):
+        """PaperTrader forwards custom initial balance to PositionManager."""
+        trader = PaperTrader(base_dir=self.temp_dir, initial_balance=2000.0)
+        assert trader.position_manager.config['initial_balance'] == 2000.0
 
     def test_initialization_normalizes_src_base_dir(self):
         """Passing project/src should normalize to project root."""
