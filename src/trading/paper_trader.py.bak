@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import time
-import threading
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -65,61 +64,21 @@ except ImportError:
     _CHAMPION_AVAILABLE = False
 
 
-class ExponentialBackoffWebSocketSupervisor:
-    """Supervises a websocket-style connection with exponential backoff reconnect."""
-
-    def __init__(self, connect_once, logger, initial_backoff: float = 1.0,
-                 max_backoff: float = 60.0, sleeper=time.sleep):
-        self.connect_once = connect_once
-        self.logger = logger
-        self.initial_backoff = max(0.1, float(initial_backoff))
-        self.max_backoff = max(self.initial_backoff, float(max_backoff))
-        self.sleeper = sleeper
-
-    def run(self, stop_event: threading.Event):
-        """Run until stop_event is set.
-
-        connect_once() should block while connected and raise on drop/failure.
-        """
-        delay = self.initial_backoff
-        while not stop_event.is_set():
-            try:
-                self.connect_once(stop_event=stop_event)
-                if stop_event.is_set():
-                    break
-                # Unexpected clean return: treat as dropped connection
-                raise ConnectionError('WebSocket loop exited unexpectedly')
-            except Exception as exc:
-                if stop_event.is_set():
-                    break
-                self.logger.warning(
-                    f'[WS] Connection dropped: {exc}. Reconnecting in {delay:.1f}s')
-                self.sleeper(delay)
-                delay = min(delay * 2, self.max_backoff)
-
-
-
 class PaperTrader:
     """Orchestrates paper trading with tournament-winning strategies"""
     
     def __init__(self, base_dir: str = None, alpaca_api_key: str = None, 
-                 alpaca_secret: str = None, initial_balance: float = 500.0):
-        resolved_base = Path(base_dir).resolve() if base_dir else Path(__file__).resolve().parent.parent.parent
-        # Normalize callers that pass project/src instead of project root.
-        # Using different base dirs creates split SQLite state (data/positions.db vs src/data/positions.db)
-        # and can bypass per-symbol entry checks across runs.
-        if resolved_base.name == "src" and (resolved_base / "trading").exists():
-            resolved_base = resolved_base.parent
-        self.base_dir = resolved_base
-        self.data_dir = self.base_dir / "data"
-        self.logs_dir = self.base_dir / "logs"
+                 alpaca_secret: str = None):
+        self.base_dir = Path(base_dir) if base_dir else Path(__file__).resolve().parent.parent.parent
+        self.data_dir = self.base_dir / 'data'
+        self.logs_dir = self.base_dir / 'logs'
         
         # Ensure directories exist
         for dir_path in [self.data_dir, self.logs_dir]:
             dir_path.mkdir(exist_ok=True)
         
         # Initialize components
-        self.position_manager = PositionManager(base_dir=self.base_dir, initial_balance=initial_balance)
+        self.position_manager = PositionManager(base_dir=self.base_dir)
         self.automation = StrategyAutomation(base_dir=self.base_dir)
         
         # Active params — loaded from ChampionTracker (optimizer winning params)
@@ -185,29 +144,20 @@ class PaperTrader:
         # Setup logging
         self._setup_logging()
 
-        # WebSocket trade-update monitor state
-        self._ws_stop_event = None
-        self._ws_thread = None
-        self._ws_supervisor = None
-
         # Load per-cluster params
         self._cluster_params = self._load_clusters()
 
         # Earnings calendar filter (Task 24)
-        try:
-            from data.earnings_calendar import is_near_earnings
-            _EARNINGS_AVAILABLE = True
-        except ImportError:
-            _EARNINGS_AVAILABLE = False
+try:
+    from data.earnings_calendar import is_near_earnings
+    _EARNINGS_AVAILABLE = True
+except ImportError:
+    _EARNINGS_AVAILABLE = False
 
-        # Market regime detector (Task 17)
+# Market regime detector (Task 17)
         self._regime_detector = RegimeDetector() if _REGIME_AVAILABLE else None
         self._current_regime = MarketRegime.UNKNOWN if _REGIME_AVAILABLE else None
         self._regime_details = {}
-        self._portfolio_peak = None
-        self._circuit_breaker_until = None
-        self._daily_loss_limit_reached = False  # Task 890 — daily loss circuit breaker
-        self._cb_date = None  # tracks calendar day for daily-loss reset
         
         # Trading parameters
         self.config = {
@@ -241,8 +191,7 @@ class PaperTrader:
                 'energy': ['XOM', 'CVX'],
                 'consumer': ['WMT', 'COST', 'HD', 'KO', 'DIS'],
             },
-            'max_per_correlation_group': 2,
-            'daily_loss_limit': 15.0,  # Task 890 — block new entries if daily P&L <= -$15
+            'max_per_correlation_group': 2
         }
     
     def _setup_logging(self):
@@ -491,12 +440,12 @@ class PaperTrader:
                         elif current_histogram < 0 and prev_histogram >= 0:
                             signal = {
                                 'action': 'sell',
-                                'side': 'long',
+                                'side': 'short',
                                 'confidence': 0.70,
                                 'reason': f'MACD bearish crossover (hist: {current_histogram:.4f})'
                             }
-            except Exception as macd_err:
-                self.logger.debug(f"MACD signal calc failed for {symbol}: {macd_err}")
+            except Exception:
+                pass
         
         elif strategy_name == 'RSI Mean Reversion':
             # Get RSI data from indicators_data dict
@@ -550,8 +499,8 @@ class PaperTrader:
                                         elif vol_ratio < 0.5:
                                             vol_boost = -0.10  # Very low = reduce confidence
                                             vol_tag = ", LOW vol"
-                            except Exception as vol_err:
-                                self.logger.debug(f"Volume adjustment unavailable for {symbol}: {vol_err}")
+                            except Exception:
+                                pass  # Volume data unavailable — no adjustment
                             
                             base_conf = min(0.80, (oversold_thresh - current_rsi) / oversold_thresh + 0.60)
                             adj_conf = max(0.50, min(0.85, base_conf + vol_boost))
@@ -565,57 +514,40 @@ class PaperTrader:
                     elif current_rsi > overbought_thresh:
                         signal = {
                             "action": "sell",
-                            "side": "long",
+                            "side": "short",
                             "confidence": min(0.80, (current_rsi - overbought_thresh) / overbought_thresh + 0.60),
                             "reason": f"RSI overbought: {current_rsi:.1f}"
                         }
         
         elif strategy_name == 'Bollinger Bounce':
-            # Bollinger data may come in either shape:
-            # 1) Legacy/DataFrame: indicators[bollinger_bands] with upper_band/lower_band columns
-            # 2) Current dict from TechnicalIndicators.calculate_all(): indicators[bollinger]
+            # Get Bollinger Bands data from indicators_data dict
             indicators_dict = indicators_data.get("indicators", {})
-
-            upper_band = float('inf')
-            lower_band = float('-inf')
-
-            bb_dict = indicators_dict.get("bollinger")
-            if isinstance(bb_dict, dict):
-                upper_band = bb_dict.get('upper', upper_band)
-                lower_band = bb_dict.get('lower', lower_band)
-
-            bb_data = indicators_dict.get("bollinger_bands")
+            bb_data = indicators_dict.get("bollinger_bands", pd.DataFrame())
+            
             if isinstance(bb_data, pd.DataFrame) and len(bb_data) >= 1:
                 current_bb = bb_data.iloc[-1]
-                upper_band = current_bb.get('upper_band', upper_band) if hasattr(current_bb, 'get') else current_bb['upper_band']
-                lower_band = current_bb.get('lower_band', lower_band) if hasattr(current_bb, 'get') else current_bb['lower_band']
-
-            # Normalize values and ignore malformed bands
-            try:
-                upper_band = float(upper_band)
-                lower_band = float(lower_band)
-            except Exception:
-                upper_band = float('inf')
-                lower_band = float('-inf')
-
-            # Price near lower band (buy signal)
-            if pd.notna(lower_band) and current_price <= lower_band * 1.02:
-                signal = {
-                    'action': 'buy',
-                    'side': 'long',
-                    'confidence': 0.72,
-                    'reason': 'Price near Bollinger lower band'
-                }
-            # Price near upper band (sell signal)
-            elif pd.notna(upper_band) and current_price >= upper_band * 0.98:
-                signal = {
-                    'action': 'sell',
-                    'side': 'long',
-                    'confidence': 0.68,
-                    'reason': 'Price near Bollinger upper band'
-                }
-
+                upper_band = current_bb.get('upper_band', float('inf')) if hasattr(current_bb, 'get') else current_bb['upper_band']
+                lower_band = current_bb.get('lower_band', float('-inf')) if hasattr(current_bb, 'get') else current_bb['lower_band']
+                
+                # Price near lower band (buy signal)
+                if current_price <= lower_band * 1.02:
+                    signal = {
+                        'action': 'buy',
+                        'side': 'long',
+                        'confidence': 0.72,
+                        'reason': 'Price near Bollinger lower band'
+                    }
+                # Price near upper band (sell signal)
+                elif current_price >= upper_band * 0.98:
+                    signal = {
+                        'action': 'sell',
+                        'side': 'short',
+                        'confidence': 0.68,
+                        'reason': 'Price near Bollinger upper band'
+                    }
+        
         elif strategy_name == 'VWAP Reversion':
+            # Task 16a: VWAP Reversion — buy when price drops below VWAP, sell at VWAP
             try:
                 if len(data) >= 20:
                     # Calculate VWAP (cumulative volume-weighted price for today's session)
@@ -636,8 +568,8 @@ class PaperTrader:
                                 recent_vol = float(data['volume'].iloc[-1])
                                 avg_vol = float(data['volume'].tail(20).mean())
                                 vol_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
-                            except Exception as vol_err:
-                                self.logger.debug(f"VWAP volume ratio unavailable for {symbol}: {vol_err}")
+                            except:
+                                pass
                             
                             # Higher confidence with bigger deviation and higher volume
                             conf = min(0.80, 0.60 + abs(deviation) * 5)
@@ -654,7 +586,7 @@ class PaperTrader:
                         elif deviation > 0.01:
                             signal = {
                                 'action': 'sell',
-                                'side': 'long',
+                                'side': 'short',
                                 'confidence': min(0.75, 0.55 + abs(deviation) * 5),
                                 'reason': 'VWAP reversion: price %.1f%% above VWAP $%.2f' % (deviation*100, current_vwap)
                             }
@@ -686,7 +618,7 @@ class PaperTrader:
                             conf = min(0.70, 0.50 + (recent_low - current_price) / range_size * 0.3)
                             signal = {
                                 'action': 'sell',
-                                'side': 'long',
+                                'side': 'short',
                                 'confidence': conf,
                                 'reason': 'ORB breakdown below $%.2f (range=$%.2f)' % (recent_low, range_size)
                             }
@@ -740,78 +672,19 @@ class PaperTrader:
                                 elif z_score > 2.0:
                                     signal = {
                                         'action': 'sell',
-                                        'side': 'long',
+                                        'side': 'short',
                                         'confidence': min(0.70, 0.50 + abs(z_score) * 0.05),
                                         'reason': 'Pairs: %s/%s z=%.2f (overperforming)' % (symbol, paired_symbol, z_score)
                                     }
             except Exception as _pe:
                 self.logger.debug(f"Pairs calculation failed for {symbol}: {_pe}")
 
-        elif strategy_name == 'Confluence':
-            # Task 1303: Multi-indicator confluence strategy
-            # Uses TechnicalIndicators.calculate_all() confluence_score + signal agreement
-            try:
-                conf_score = indicators_data.get('confluence_score', 0.0)
-                signals = indicators_data.get('signals', {})
-
-                # Count agreeing signals (same approach as scanner.detect_confluence)
-                positive = sum([
-                    1 if signals.get('rsi', 0) >= 0 else 0,
-                    1 if signals.get('macd', 0) > 0 else 0,
-                    1 if float(signals.get('bollinger', 0)) > 0 else 0,
-                    1 if signals.get('supertrend', 0) > 0 else 0,
-                    1 if signals.get('vwap', 0) > 0 else 0,
-                ])
-                negative = sum([
-                    1 if signals.get('rsi', 0) < 0 else 0,
-                    1 if signals.get('macd', 0) < 0 else 0,
-                    1 if float(signals.get('bollinger', 0)) < 0 else 0,
-                    1 if signals.get('supertrend', 0) < 0 else 0,
-                    1 if signals.get('vwap', 0) < 0 else 0,
-                ])
-
-                rsi_val = indicators_data.get('indicators', {}).get('rsi', 50)
-
-                # BUY: confluence_score > 0.2 AND at least 3/5 signals positive
-                if conf_score > 0.2 and positive >= 3:
-                    # Multi-timeframe filter: skip buys in daily downtrends
-                    if daily_trend == 'bearish':
-                        self.logger.info(
-                            f"[MTF] Skipping Confluence buy for {symbol}: daily trend bearish")
-                    else:
-                        # Confidence scales with confluence score and signal agreement
-                        base_conf = 0.55 + conf_score * 0.25 + (positive - 3) * 0.05
-                        signal = {
-                            'action': 'buy',
-                            'side': 'long',
-                            'confidence': min(0.85, base_conf),
-                            'reason': (f"Confluence bullish: score={conf_score:.3f}, "
-                                      f"{positive}/5 signals positive, RSI={rsi_val:.1f}")
-                        }
-
-                # SELL: confluence_score < -0.2 AND at least 3/5 signals negative
-                elif conf_score < -0.2 and negative >= 3:
-                    base_conf = 0.55 + abs(conf_score) * 0.25 + (negative - 3) * 0.05
-                    signal = {
-                        'action': 'sell',
-                        'side': 'long',
-                        'confidence': min(0.80, base_conf),
-                        'reason': (f"Confluence bearish: score={conf_score:.3f}, "
-                                  f"{negative}/5 signals negative, RSI={rsi_val:.1f}")
-                    }
-            except Exception as _ce:
-                self.logger.debug(f"Confluence calculation failed for {symbol}: {_ce}")
-
-                # Add more strategy implementations as needed...
+        # Add more strategy implementations as needed...
         
         return signal
     
     def execute_signal(self, signal: Dict) -> bool:
         """Execute a trading signal"""
-        # Task 890: daily loss circuit breaker guard
-        if getattr(self, '_daily_loss_limit_reached', False):
-            self.logger.info('[CircuitBreaker] Daily loss limit active — execute_signal blocked.')
-            return False
         try:
             symbol = signal['symbol']
             strategy = signal['strategy']
@@ -838,73 +711,18 @@ class PaperTrader:
                 except Exception as _ple:
                     self.logger.warning(f"[PositionLimit] Could not check positions for {symbol}: {_ple}")
 
-            # 7-day stop-loss cooldown: block re-entry if symbol hit a stop-loss in the last 7 days
-            # Prevents ADBE-style re-entry loops after getting stopped out
-            if action == 'buy':
-                try:
-                    from datetime import datetime, timedelta
-                    db_path = self.position_manager.data_dir / "positions.db"
-                    cooldown_cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
-                    with sqlite3.connect(db_path) as _cd:
-                        sl_count = _cd.execute(
-                            "SELECT COUNT(*) FROM positions "
-                            "WHERE symbol=? AND status='closed' AND exit_reason='STOP_LOSS' "
-                            "AND exit_time >= ?",
-                            (symbol, cooldown_cutoff)
-                        ).fetchone()[0]
-                    if sl_count > 0:
-                        self.logger.info(
-                            f"[StopLossCooldown] Skipping buy for {symbol}: "
-                            f"stop-loss triggered within last 7 days ({sl_count} time(s))"
-                        )
-                        return False
-                except Exception as _cde:
-                    self.logger.warning(f"[StopLossCooldown] Could not check cooldown for {symbol}: {_cde}")
-
-            # Minimum cash reserve guard: if buying power falls below 15% of equity, block new buys
-            if action == "buy" and getattr(self, "_alpaca_synced", False) and hasattr(self, "_real_buying_power") and hasattr(self, "_real_equity"):
-                min_cash_reserve = max(0.0, float(self._real_equity) * 0.15)
-                if float(self._real_buying_power) < min_cash_reserve:
-                    self.logger.info(
-                        "[CashReserveGuard] Skipping buy for %s: buying_power=%.2f < 15%% equity reserve (%.2f)" % (
-                            symbol, float(self._real_buying_power), min_cash_reserve
-                        )
-                    )
-                    return False
-
             # Calculate position size
             quantity = self.position_manager.calculate_position_size(symbol, strategy, current_price)
-
-            # Hard cap: each position must be <= 15% of real equity when Alpaca is synced
-            if action == "buy" and getattr(self, "_alpaca_synced", False) and hasattr(self, "_real_equity") and current_price > 0:
-                max_by_equity = (float(self._real_equity) * 0.15) / current_price
-                if quantity > max_by_equity:
-                    self.logger.info(
-                        "[PositionCap] Capping %s qty from %.4f to %.4f (15%% of real equity %.2f)" % (
-                            symbol, quantity, max_by_equity, float(self._real_equity)
-                        )
-                    )
-                    quantity = round(max_by_equity, 6)
-
-            # Cap by real Alpaca buying power (prevents insufficient buying power errors)
+            
+            # Cap by real Alpaca buying power (prevents "insufficient buying power" errors)
             if getattr(self, "_alpaca_synced", False) and hasattr(self, "_real_buying_power"):
                 max_affordable = self._real_buying_power / current_price * 0.95  # 5% safety margin
                 if quantity > max_affordable:
-                    self.logger.info(
-                        "Capping %s qty from %.4f to %.4f (real buying power: %.2f)" % (
-                            symbol, quantity, max_affordable, float(self._real_buying_power)
-                        )
-                    )
+                    self.logger.info(f"Capping {symbol} qty from {quantity:.4f} to {max_affordable:.4f} (real buying power: ${self._real_buying_power:.2f})")
                     quantity = round(max_affordable, 6)
-
+            
             if quantity <= 0:
                 self.logger.info(f"No position size available for {symbol} {strategy}")
-                return False
-
-            # Alpaca minimum order: notional must be >= $1
-            notional = quantity * current_price
-            if notional < 1.0:
-                self.logger.info(f"Order too small for {symbol}: ${notional:.2f} notional < $1.00 minimum. Skipping.")
                 return False
             
             # Execute the trade
@@ -961,9 +779,7 @@ class PaperTrader:
                     strategy=strategy,
                     side=side,
                     quantity=quantity,
-                    entry_price=fill_price,
-                    entry_order_id=order_result.get('order_id'),
-                    entry_fill_status=order_result.get('status', 'filled')
+                    entry_price=fill_price
                 )
                 if not success:
                     self.logger.error(f"[BuyOrder] position_manager.open_position FAILED for {symbol}")
@@ -978,8 +794,8 @@ class PaperTrader:
                                 "ORDER BY entry_time DESC LIMIT 1",
                                 (entry_reason, symbol, strategy))
                             _jc.commit()
-                    except Exception as journal_err:
-                        self.logger.warning(f"Failed to persist entry_reason for {symbol}: {journal_err}")
+                    except Exception:
+                        pass  # Column may not exist yet — added in migration
                 return success
             
             # Log WHY the order failed
@@ -1089,16 +905,8 @@ class PaperTrader:
                         pnl = (fill_price - entry_price) * qty if side == "long" else (entry_price - fill_price) * qty
                         conn.execute(
                             "UPDATE positions SET exit_time=?, exit_price=?, realized_pnl=?, "
-                            "status=?, exit_order_id=?, exit_fill_status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                            (
-                                datetime.now().isoformat(),
-                                fill_price,
-                                pnl,
-                                "closed",
-                                order_result.get('order_id'),
-                                order_result.get('status', 'closed'),
-                                pos_id,
-                            )
+                            "status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                            (datetime.now().isoformat(), fill_price, pnl, "closed", pos_id)
                         )
                     conn.commit()
                     self.logger.info(f"Closed {len(open_positions)} local DB position(s) for {symbol} ({strategy})")
@@ -1112,115 +920,6 @@ class PaperTrader:
         except Exception as e:
             self.logger.error(f"Failed to execute sell order for {symbol}: {e}", exc_info=True)
             return False
-
-    def _check_daily_loss_limit(self) -> bool:
-        """
-        Task 890 — Daily loss circuit breaker.
-        Returns True (and sets flag) if today's realized P&L has hit the configured limit.
-        Resets automatically at midnight ET.
-        Does NOT block _check_stop_loss_take_profit — existing positions keep their protection.
-        """
-        # Midnight reset
-        today = datetime.now().date()
-        if self._cb_date is not None and self._cb_date != today:
-            self._daily_loss_limit_reached = False
-            self._cb_date = today
-
-        limit = self.config.get('daily_loss_limit', 15.0)
-        try:
-            today_start = datetime.now().replace(
-                hour=0, minute=0, second=0, microsecond=0
-            ).isoformat()
-            db_path = self.position_manager.data_dir / 'positions.db'
-            with sqlite3.connect(str(db_path)) as conn:
-                # Exclude placeholder/demo exits from daily circuit-breaker P&L.
-                # 1) Demo-mode closures typically have no order_id (status may be 'closed' or NULL)
-                # 2) Price-sanity guard: long exit < 50% of entry, short exit > 150% of entry
-                row = conn.execute(
-                    '''
-                    SELECT SUM(realized_pnl)
-                    FROM positions
-                    WHERE status='closed'
-                      AND exit_time >= ?
-                      AND NOT (
-                            (exit_order_id IS NULL AND exit_fill_status IS NULL)
-                            OR
-                            (exit_order_id IS NULL AND LOWER(COALESCE(exit_fill_status, '')) = 'closed')
-                            OR
-                            (
-                                entry_price > 0 AND exit_price IS NOT NULL AND (
-                                    (LOWER(COALESCE(side, 'long')) = 'long' AND exit_price < entry_price * 0.5)
-                                    OR
-                                    (LOWER(COALESCE(side, 'long')) = 'short' AND exit_price > entry_price * 1.5)
-                                )
-                            )
-                      )
-                    ''',
-                    (today_start,)
-                ).fetchone()
-
-                excluded = conn.execute(
-                    '''
-                    SELECT symbol, side, entry_price, exit_price, realized_pnl, exit_order_id, exit_fill_status
-                    FROM positions
-                    WHERE status='closed'
-                      AND exit_time >= ?
-                      AND (
-                            (exit_order_id IS NULL AND exit_fill_status IS NULL)
-                            OR
-                            (exit_order_id IS NULL AND LOWER(COALESCE(exit_fill_status, '')) = 'closed')
-                            OR
-                            (
-                                entry_price > 0 AND exit_price IS NOT NULL AND (
-                                    (LOWER(COALESCE(side, 'long')) = 'long' AND exit_price < entry_price * 0.5)
-                                    OR
-                                    (LOWER(COALESCE(side, 'long')) = 'short' AND exit_price > entry_price * 1.5)
-                                )
-                            )
-                      )
-                    ''',
-                    (today_start,)
-                ).fetchall()
-
-            for symbol, side, entry_price, exit_price, realized_pnl, exit_order_id, exit_fill_status in excluded:
-                entry_str = f'{entry_price:.2f}' if entry_price is not None else 'None'
-                exit_str = f'{exit_price:.2f}' if exit_price is not None else 'None'
-                self.logger.warning(
-                    '[CircuitBreaker] Excluding demo/suspicious close from daily P&L: '
-                    f'{symbol} {side} entry={entry_str} exit={exit_str} pnl={realized_pnl:.2f} '
-                    f'order_id={exit_order_id} fill_status={exit_fill_status}'
-                )
-
-            daily_pnl = float(row[0]) if row and row[0] is not None else 0.0
-            was_reached = self._daily_loss_limit_reached
-            self._daily_loss_limit_reached = daily_pnl <= -limit
-            self._cb_date = today
-
-            if self._daily_loss_limit_reached:
-                if not was_reached:
-                    self.logger.warning(
-                        f'[CircuitBreaker] TRIGGERED: daily_pnl={daily_pnl:.2f} <= -{limit:.2f}. '
-                        f'No new entries for the rest of today.'
-                    )
-                    if self.alert_manager:
-                        try:
-                            self.alert_manager.fire(
-                                AlertType.TRADE_EXECUTED,
-                                symbol='PORTFOLIO', action='DAILY_LOSS_LIMIT',
-                                quantity=0, price=round(abs(daily_pnl), 2),
-                                strategy='circuit_breaker', confidence=daily_pnl / -limit
-                            )
-                        except Exception as _gge:
-                            self.logger.debug(f"Circuit-breaker alert dispatch failed: {_gge}")
-                return True
-
-            if was_reached:
-                self.logger.info(
-                    f'[CircuitBreaker] RESET: daily_pnl={daily_pnl:.2f} above -{limit:.2f}. Entries re-enabled.'
-                )
-        except Exception as e:
-            self.logger.error(f'[CircuitBreaker] _check_daily_loss_limit failed: {e}')
-        return False
 
     def _check_stop_loss_take_profit(self):
         """
@@ -1362,25 +1061,7 @@ class PaperTrader:
                         f"Entry=${entry_price:.2f} Current=${current_price:.2f} "
                         f"PnL={pnl_pct*100:.2f}% | Closing."
                     )
-
-                    emergency_sl_override = (
-                        trigger == 'STOP_LOSS' and
-                        pnl_pct <= -(2.0 * stop_loss_pct)
-                    )
-                    if emergency_sl_override:
-                        self.logger.warning(
-                            "[PDT-OVERRIDE] Emergency stop-loss: loss exceeds 2x SL threshold"
-                        )
-
-                    if emergency_sl_override:
-                        closed = self._execute_sell_order(
-                            symbol,
-                            strategy,
-                            current_price,
-                            force=True
-                        )
-                    else:
-                        closed = self._execute_sell_order(symbol, strategy, current_price)
+                    closed = self._execute_sell_order(symbol, strategy, current_price)
                     # Trade journal: save exit reason (Task 25)
                     if closed:
                         try:
@@ -1392,8 +1073,8 @@ class PaperTrader:
                                     "ORDER BY exit_time DESC LIMIT 1",
                                     (trigger, symbol, strategy))
                                 _jc2.commit()
-                        except Exception as exit_reason_err:
-                            self.logger.warning(f"Failed to persist exit_reason for {symbol}: {exit_reason_err}")
+                        except Exception:
+                            pass
                     if closed:
                         self.logger.info(
                             f"[SL/TP] Closed {symbol} ({strategy}) @ ${current_price:.2f} "
@@ -1503,11 +1184,6 @@ class PaperTrader:
 
             # CHECK STOP LOSS / TAKE PROFIT FIRST — before any new signals
             self._check_stop_loss_take_profit()
-
-            # DAILY LOSS CIRCUIT BREAKER (Task 890) — block new entries if daily P&L too negative
-            if self._check_daily_loss_limit():
-                self.logger.warning('[CircuitBreaker] Daily loss limit reached -- no new entries today.')
-                return
             
             # Get winning strategies
             winning_strategies = self.get_latest_tournament_winners()
@@ -1516,8 +1192,7 @@ class PaperTrader:
                 # FALLBACK: Use built-in strategies with champion params when no tournament winners
                 self.logger.info("No recent tournament winners — using fallback strategies with champion params")
                 winning_strategies = [
-                    # RSI Mean Reversion DISABLED: 0% win rate over 4 trades (Mar 31). Re-enable after 30-day data review.
-                    ('Confluence', 0.65),
+                    ('RSI Mean Reversion', 0.60),
                     ('MACD Crossover', 0.60),
                     ('Bollinger Bounce', 0.55),
                     ('VWAP Reversion', 0.55),
@@ -1550,8 +1225,8 @@ class PaperTrader:
                                     symbol='PORTFOLIO', action='CIRCUIT_BREAKER',
                                     quantity=0, price=round(current_value, 2),
                                     strategy='drawdown_guard', confidence=drawdown)
-                            except Exception as close_gap_err:
-                                self.logger.debug(f"Gap close attempt failed for {symbol}: {close_gap_err}")
+                            except Exception:
+                                pass
             
             if self._circuit_breaker_until and datetime.now() < self._circuit_breaker_until:
                 self.logger.warning(
@@ -1952,109 +1627,10 @@ class PaperTrader:
         except Exception as e:
             self.logger.error("[StaleSync] Failed: %s" % str(e))
 
-    def _trade_updates_connect_once(self, stop_event: threading.Event):
-        """Connect to Alpaca trade_updates stream and block until disconnected.
-
-        Raises on auth/subscribe failure or connection drop so supervisor can reconnect.
-        """
-        if self.alpaca.demo_mode:
-            raise RuntimeError('demo mode: websocket disabled')
-
-        # Lazy import so unit tests don't require websocket-client installed.
-        import websocket
-
-        ws_url = 'wss://paper-api.alpaca.markets/stream'
-        ws = websocket.create_connection(ws_url, timeout=20)
-        ws.settimeout(20)
-        try:
-            ws.send(json.dumps({
-                'action': 'auth',
-                'key': self.alpaca.api_key,
-                'secret': self.alpaca.secret_key,
-            }))
-            auth_resp = json.loads(ws.recv())
-            auth_payload = auth_resp[0] if isinstance(auth_resp, list) and auth_resp else auth_resp
-            auth_stream = auth_payload.get('stream') if isinstance(auth_payload, dict) else None
-            auth_data = auth_payload.get('data', {}) if isinstance(auth_payload, dict) else {}
-            auth_status = str(auth_data.get('status', '')).lower() if isinstance(auth_data, dict) else ''
-            if auth_stream != 'authorization' or auth_status != 'authorized':
-                raise RuntimeError(f'websocket auth failed: {auth_resp}')
-
-            ws.send(json.dumps({'action': 'listen', 'data': {'streams': ['trade_updates']}}))
-            listen_resp = json.loads(ws.recv())
-            payload = listen_resp[0] if isinstance(listen_resp, list) and listen_resp else listen_resp
-            streams = payload.get('data', {}).get('streams', []) if isinstance(payload, dict) else []
-            if 'trade_updates' not in streams:
-                raise RuntimeError(f'trade_updates subscribe failed: {listen_resp}')
-
-            self.logger.info('[WS] Connected to Alpaca trade_updates stream')
-
-            while not stop_event.is_set():
-                raw = ws.recv()
-                if raw is None:
-                    raise ConnectionError('empty websocket frame')
-                event_msg = json.loads(raw)
-                packets = event_msg if isinstance(event_msg, list) else [event_msg]
-                for packet in packets:
-                    if packet.get('stream') != 'trade_updates':
-                        continue
-                    data = packet.get('data', {})
-                    event = data.get('event')
-                    if event in ('fill', 'partial_fill'):
-                        order = data.get('order', {})
-                        self.logger.info(
-                            '[WS] %s %s qty=%s avg=%s side=%s',
-                            event,
-                            order.get('symbol', '?'),
-                            order.get('filled_qty', '?'),
-                            order.get('filled_avg_price', '?'),
-                            order.get('side', '?'),
-                        )
-        finally:
-            try:
-                ws.close()
-            except Exception as stop_err:
-                self.logger.warning(f"Failed to stop trade update monitor cleanly: {stop_err}")
-
-    def _start_trade_updates_monitor(self):
-        """Start background websocket supervisor with exponential backoff."""
-        if self.alpaca.demo_mode:
-            self.logger.info('[WS] Demo mode: skipping trade_updates monitor')
-            return
-        if self._ws_thread and self._ws_thread.is_alive():
-            return
-
-        self._ws_stop_event = threading.Event()
-        self._ws_supervisor = ExponentialBackoffWebSocketSupervisor(
-            connect_once=self._trade_updates_connect_once,
-            logger=self.logger,
-            initial_backoff=1.0,
-            max_backoff=60.0,
-        )
-        self._ws_thread = threading.Thread(
-            target=self._ws_supervisor.run,
-            kwargs={'stop_event': self._ws_stop_event},
-            daemon=True,
-            name='alpaca-trade-updates-ws',
-        )
-        self._ws_thread.start()
-        self.logger.info('[WS] trade_updates monitor started')
-
-    def _stop_trade_updates_monitor(self):
-        """Stop websocket supervisor thread if running."""
-        if self._ws_stop_event:
-            self._ws_stop_event.set()
-        if self._ws_thread and self._ws_thread.is_alive():
-            self._ws_thread.join(timeout=3)
-        self._ws_thread = None
-        self._ws_stop_event = None
-
-
     def run_trading_session(self):
         """Run a complete trading session"""
         try:
             self.logger.info("=== Starting TradeSight Paper Trading Session ===")
-            self._start_trade_updates_monitor()
             
             # Sync with Alpaca before doing anything
             self._sync_with_alpaca()
@@ -2128,8 +1704,6 @@ class PaperTrader:
         except Exception as e:
             self.logger.error(f"Trading session failed: {e}")
             return f"Trading session failed: {e}"
-        finally:
-            self._stop_trade_updates_monitor()
 
 
 def run_paper_trader_test():
@@ -2141,7 +1715,7 @@ def run_paper_trader_test():
     
     try:
         # Initialize paper trader
-        import config; trader = PaperTrader(base_dir=temp_dir, alpaca_api_key=config.ALPACA_API_KEY, alpaca_secret=config.ALPACA_SECRET_KEY)
+        trader = PaperTrader(base_dir=temp_dir)
         
         print("✅ Paper trader initialized")
         

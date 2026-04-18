@@ -8,8 +8,8 @@
     "max_holding_bars": 0
   },
   "backtest_score": 0.549915,
-  "live_avg_pnl": 2.0017,
-  "sessions": 16,
-  "promoted_at": "2026-04-07T20:04:07.782232",
+  "live_avg_pnl": -3.5039,
+  "sessions": 21,
+  "promoted_at": "2026-04-17T20:00:35.428659",
   "promotion_reason": "Live stats refreshed"
 }

@@ -61,9 +61,11 @@ class BacktestEngine:
     {'action': 'buy'/'sell'/'hold', 'size': 1.0, 'stop_loss': price, 'take_profit': price}
     """
     
-    def __init__(self, initial_balance: float = 500.0, fee_rate: float = 0.001):
+    def __init__(self, initial_balance: float = 500.0, fee_rate: float = 0.001,
+                 slippage_pct: float = 0.0005):
         self.initial_balance = initial_balance
         self.fee_rate = fee_rate  # 0.1% per trade
+        self.slippage_pct = slippage_pct  # 0.05% default slippage per trade
         self.reset()
     
     def reset(self):
@@ -202,6 +204,16 @@ class BacktestEngine:
         # Volume SMA for volume confirmation
         df['volume_sma_20'] = df['volume'].rolling(20).mean()
         
+        # VWAP (rolling 20-bar volume-weighted average price) for VWAP Reversion strategy
+        typical_price = (df['high'] + df['low'] + df['close']) / 3
+        cumvol = df['volume'].rolling(20).sum()
+        cumtp = (typical_price * df['volume']).rolling(20).sum()
+        df['vwap_20'] = cumtp / cumvol
+        
+        # Opening range (5-bar high/low) for ORB strategy
+        df['range_high_5'] = df['high'].rolling(5).max()
+        df['range_low_5'] = df['low'].rolling(5).min()
+        
         return df
     
     def _execute_signal(self, signal: Dict, bar: pd.Series, bar_index: int):
@@ -217,9 +229,14 @@ class BacktestEngine:
                 self._close_position(pos, bar['close'], bar_index, "signal")
     
     def _open_position(self, direction: str, signal: Dict, bar: pd.Series, bar_index: int):
-        """Open new position"""
+        """Open new position with slippage modeling"""
         size = signal.get('size', 1.0)
-        entry_price = bar['close']
+        raw_price = bar['close']
+        # Apply slippage: worse fill for the trader
+        if direction == 'long':
+            entry_price = raw_price * (1 + self.slippage_pct)
+        else:
+            entry_price = raw_price * (1 - self.slippage_pct)
         
         # Fixed dollar position sizing based on INITIAL balance, not current balance.
         # Using self.balance * size compounds gains exponentially and inflates backtest PnL.
@@ -278,9 +295,15 @@ class BacktestEngine:
                     continue
     
     def _close_position(self, position: Dict, exit_price: float, bar_index: int, reason: str):
-        """Close position and record trade"""
+        """Close position and record trade with slippage"""
         if position not in self.positions:
             return
+        
+        # Apply slippage to exit: worse fill for the trader
+        if position['direction'] == 'long':
+            exit_price = exit_price * (1 - self.slippage_pct)
+        else:
+            exit_price = exit_price * (1 + self.slippage_pct)
         
         # Calculate final PnL
         if position['direction'] == 'long':
@@ -495,5 +518,75 @@ def _rsi_mean_reversion_impl(data: pd.DataFrame, index: int, positions: List,
     # Sell signal: RSI overbought
     if current['rsi'] > overbought and positions:
         return {'action': 'close'}
+    
+    return None
+
+
+def vwap_reversion(data: pd.DataFrame, index: int, positions: List) -> Optional[Dict]:
+    """VWAP Reversion strategy — buy below VWAP, sell above"""
+    if index < 50:
+        return None
+    
+    current = data.iloc[index]
+    vwap = current.get('vwap_20')
+    
+    if vwap is None or pd.isna(vwap) or vwap <= 0:
+        return None
+    
+    price = current['close']
+    deviation = (price - vwap) / vwap
+    
+    # Buy when price drops 1%+ below VWAP
+    if deviation < -0.01 and not positions:
+        return {
+            'action': 'buy',
+            'size': 0.5,
+            'stop_loss': price * 0.97,
+            'take_profit': vwap  # Target: return to VWAP
+        }
+    
+    # Close when price returns to VWAP
+    if positions and abs(deviation) < 0.003:
+        return {'action': 'close'}
+    
+    return None
+
+
+def opening_range_breakout(data: pd.DataFrame, index: int, positions: List) -> Optional[Dict]:
+    """Opening Range Breakout — buy breakout above range, sell breakdown"""
+    if index < 50:
+        return None
+    
+    current = data.iloc[index]
+    prev = data.iloc[index - 1]
+    range_high = current.get('range_high_5')
+    range_low = current.get('range_low_5')
+    
+    if range_high is None or range_low is None or pd.isna(range_high) or pd.isna(range_low):
+        return None
+    
+    price = current['close']
+    range_size = range_high - range_low
+    
+    if range_size <= 0:
+        return None
+    
+    # Breakout above range
+    if price > range_high and prev['close'] <= range_high and not positions:
+        return {
+            'action': 'buy',
+            'size': 0.5,
+            'stop_loss': range_low,  # Stop at range low
+            'take_profit': price + range_size  # Target: range extension
+        }
+    
+    # Breakdown below range
+    if price < range_low and prev['close'] >= range_low and not positions:
+        return {
+            'action': 'sell',
+            'size': 0.5,
+            'stop_loss': range_high,
+            'take_profit': price - range_size
+        }
     
     return None
