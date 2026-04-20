@@ -12,6 +12,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 import json
 
+from .slippage import SlippageModel
+
 
 @dataclass
 class Trade:
@@ -62,10 +64,12 @@ class BacktestEngine:
     """
     
     def __init__(self, initial_balance: float = 500.0, fee_rate: float = 0.001,
-                 slippage_pct: float = 0.0005):
+                 slippage_pct: float = 0.0005,
+                 slippage_model: SlippageModel = None):
         self.initial_balance = initial_balance
         self.fee_rate = fee_rate  # 0.1% per trade
         self.slippage_pct = slippage_pct  # 0.05% default slippage per trade
+        self.slippage_model = slippage_model  # Advanced model (overrides slippage_pct when set)
         self.reset()
     
     def reset(self):
@@ -76,6 +80,8 @@ class BacktestEngine:
         self.equity_curve = []
         self.peak_equity = self.initial_balance
         self.max_drawdown = 0.0
+        self._last_atr = 0.0
+        self._last_avg_volume = 0.0
     
     def run_backtest(self, 
                      data: pd.DataFrame, 
@@ -119,6 +125,15 @@ class BacktestEngine:
                 self._execute_signal(pending_signal, entry_bar, i)
                 pending_signal = None
             
+            # Capture market context for slippage model
+            if self.slippage_model is not None:
+                self._last_atr = current_bar.get('atr_14', 0.0) if hasattr(current_bar, 'get') else getattr(current_bar, 'atr_14', 0.0)
+                self._last_avg_volume = current_bar.get('volume_sma_20', 0.0) if hasattr(current_bar, 'get') else getattr(current_bar, 'volume_sma_20', 0.0)
+                if self._last_atr != self._last_atr:  # NaN check
+                    self._last_atr = 0.0
+                if self._last_avg_volume != self._last_avg_volume:
+                    self._last_avg_volume = 0.0
+
             # Update open positions with current bar (checks SL/TP at close)
             self._update_positions(current_bar)
             
@@ -157,13 +172,16 @@ class BacktestEngine:
         # Calculate metrics
         metrics = self._calculate_metrics(data, asset_name)
         
-        return {
+        result = {
             'metrics': asdict(metrics),
             'trades': [asdict(trade) for trade in self.closed_trades],
             'equity_curve': self.equity_curve,
             'final_balance': self.balance,
             'asset_name': asset_name
         }
+        if self.slippage_model is not None:
+            result['slippage_model'] = self.slippage_model.summary()
+        return result
     
     def _add_indicators(self, data: pd.DataFrame) -> pd.DataFrame:
         """Add basic technical indicators for strategy use"""
@@ -233,10 +251,21 @@ class BacktestEngine:
         size = signal.get('size', 1.0)
         raw_price = bar['close']
         # Apply slippage: worse fill for the trader
-        if direction == 'long':
-            entry_price = raw_price * (1 + self.slippage_pct)
+        if self.slippage_model is not None:
+            # Use advanced model with volume + volatility context
+            atr = self._last_atr or 0.0
+            avg_vol = self._last_avg_volume or 1_000_000.0
+            order_shares = (self.initial_balance * size) / raw_price if raw_price > 0 else 0
+            entry_price = self.slippage_model.apply(
+                raw_price, direction,
+                order_shares=order_shares,
+                avg_daily_volume=avg_vol,
+                atr=atr)
         else:
-            entry_price = raw_price * (1 - self.slippage_pct)
+            if direction == 'long':
+                entry_price = raw_price * (1 + self.slippage_pct)
+            else:
+                entry_price = raw_price * (1 - self.slippage_pct)
         
         # Fixed dollar position sizing based on INITIAL balance, not current balance.
         # Using self.balance * size compounds gains exponentially and inflates backtest PnL.
@@ -300,10 +329,21 @@ class BacktestEngine:
             return
         
         # Apply slippage to exit: worse fill for the trader
-        if position['direction'] == 'long':
-            exit_price = exit_price * (1 - self.slippage_pct)
+        if self.slippage_model is not None:
+            atr = self._last_atr or 0.0
+            avg_vol = self._last_avg_volume or 1_000_000.0
+            order_shares = position['position_value'] / exit_price if exit_price > 0 else 0
+            close_dir = 'sell' if position['direction'] == 'long' else 'buy'
+            exit_price = self.slippage_model.apply(
+                exit_price, close_dir,
+                order_shares=order_shares,
+                avg_daily_volume=avg_vol,
+                atr=atr)
         else:
-            exit_price = exit_price * (1 + self.slippage_pct)
+            if position['direction'] == 'long':
+                exit_price = exit_price * (1 - self.slippage_pct)
+            else:
+                exit_price = exit_price * (1 + self.slippage_pct)
         
         # Calculate final PnL
         if position['direction'] == 'long':
