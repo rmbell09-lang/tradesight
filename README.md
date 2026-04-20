@@ -17,6 +17,10 @@
 
 TradeSight is a self-hosted Python app that runs AI-powered strategy tournaments overnight, backtests technical indicators, and executes paper trades via Alpaca — all from a local web dashboard.
 
+<p align="center">
+  <img src="docs/demo.svg" alt="TradeSight Demo — Paper Trading Report" width="800">
+</p>
+
 ---
 
 ## 🤔 Who Is This For?
