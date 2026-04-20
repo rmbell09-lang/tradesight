@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tradesight"
-version = "1.0.0"
+version = "1.1.0"
 description = "Self-hosted AI trading strategy lab — backtest, paper trade, run AI tournaments overnight."
 readme = "README.md"
 license = {text = "MIT"}
