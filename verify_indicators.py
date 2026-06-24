@@ -5,7 +5,13 @@ Opus Verification Script for Technical Indicators Engine
 
 import sys
 import os
-sys.path.append('/Volumes/Crucial X10/TradeSight/src/indicators')
+
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT / "src" / "indicators"))
+
+
 
 from technical_indicators import TechnicalIndicators
 import pandas as pd
