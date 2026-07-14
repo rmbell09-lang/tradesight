@@ -482,6 +482,59 @@ class AlpacaClient:
             logging.getLogger("AlpacaClient").warning(f"get_order exception: {e}")
             return {'error': str(e)}
 
+    def get_orders(self, status: str = 'all', limit: int = 100, after: str = None) -> list:
+        """Return paper-broker orders for the evidence dashboard.
+
+        This endpoint is read-only. Demo mode deliberately returns no generated
+        orders so synthetic activity can never look broker-confirmed.
+        """
+        if self.demo_mode:
+            return []
+        params = {
+            'status': status if status in ('open', 'closed', 'all') else 'all',
+            'limit': max(1, min(int(limit or 100), 500)),
+            'direction': 'desc',
+            'nested': 'true',
+        }
+        if after:
+            params['after'] = after
+        try:
+            response = requests.get(
+                f"{self.base_url}/v2/orders",
+                headers=self.headers,
+                params=params,
+                timeout=10,
+            )
+            if response.status_code == 200:
+                payload = response.json()
+                return payload if isinstance(payload, list) else []
+            return {'error': response.text, 'status_code': response.status_code}
+        except Exception as e:
+            return {'error': str(e)}
+
+    def get_account_activities(self, activity_types: str = 'FILL', page_size: int = 100) -> list:
+        """Return read-only Alpaca account activities used as broker fill proof."""
+        if self.demo_mode:
+            return []
+        params = {
+            'activity_types': activity_types,
+            'page_size': max(1, min(int(page_size or 100), 100)),
+            'direction': 'desc',
+        }
+        try:
+            response = requests.get(
+                f"{self.base_url}/v2/account/activities",
+                headers=self.headers,
+                params=params,
+                timeout=10,
+            )
+            if response.status_code == 200:
+                payload = response.json()
+                return payload if isinstance(payload, list) else []
+            return {'error': response.text, 'status_code': response.status_code}
+        except Exception as e:
+            return {'error': str(e)}
+
     def get_account(self) -> dict:
         """Get Alpaca account info (cash, buying power, equity, positions value)."""
         if self.demo_mode:

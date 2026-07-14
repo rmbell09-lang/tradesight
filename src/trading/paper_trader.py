@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from data.alpaca_client import AlpacaClient
 from trading.position_manager import PositionManager, PortfolioState
 from trading.accounting_truth import load_epoch, reconcile_accounting
+from trading.runtime_risk import OperationalRiskGate
 from automation.strategy_automation import StrategyAutomation
 from strategy_lab.tournament import get_builtin_strategies
 from indicators.technical_indicators import TechnicalIndicators
@@ -122,6 +123,7 @@ class PaperTrader:
         # Initialize components
         self.position_manager = PositionManager(base_dir=self.base_dir, initial_balance=initial_balance)
         self.automation = StrategyAutomation(base_dir=self.base_dir)
+        self.operational_risk_gate = OperationalRiskGate(self.base_dir)
         
         # Active params — loaded from ChampionTracker (optimizer winning params)
         self.active_params: Dict = {}
@@ -1198,6 +1200,26 @@ class PaperTrader:
             side = signal['side']
             current_price = signal['current_price']
             confidence = signal['confidence']
+            runtime_decision = self.operational_risk_gate.evaluate(
+                action,
+                signal_observed_at=signal.get('timestamp'),
+            )
+            if not runtime_decision.allowed:
+                self.logger.error(
+                    '[OperationalRisk] New entry suspended for %s/%s: %s',
+                    symbol, strategy, ','.join(runtime_decision.reasons)
+                )
+                if self.alert_manager:
+                    try:
+                        self.alert_manager.fire_safety(
+                            AlertType.TRADING_SUSPENDED,
+                            symbol=symbol,
+                            strategy=strategy,
+                            reasons=runtime_decision.reasons,
+                        )
+                    except Exception as alert_err:
+                        self.logger.warning('Safety alert recording failed: %s', alert_err)
+                return False
             learning = signal.get('learning_adjustment') or self._get_learning_adjustment(symbol, strategy)
             if action == 'buy' and not learning.get('tradeable', True):
                 self.logger.info(
@@ -1321,7 +1343,12 @@ class PaperTrader:
             # Execute the trade
             if action == 'buy':
                 success = self._execute_buy_order(symbol, strategy, side, quantity, current_price,
-                                                   entry_reason=signal.get('reason', ''))
+                                                   entry_reason=signal.get('reason', ''),
+                                                   signal_context=signal,
+                                                   sizing_reason=(
+                                                       'position sizing after portfolio, buying-power, '
+                                                       'correlation, and learning guards'
+                                                   ))
             else:  # sell/close
                 success = self._execute_sell_order(symbol, strategy, current_price)
             
@@ -1350,7 +1377,9 @@ class PaperTrader:
             return False
     
     def _execute_buy_order(self, symbol: str, strategy: str, side: str, 
-                          quantity: float, price: float, entry_reason: str = '') -> bool:
+                          quantity: float, price: float, entry_reason: str = '',
+                          signal_context: Optional[Dict] = None,
+                          sizing_reason: str = '') -> bool:
         """Execute a buy order with trade journal entry"""
         try:
             # Place order with Alpaca (or simulate in demo mode)
@@ -1378,23 +1407,33 @@ class PaperTrader:
                         or order_result.get('id')
                         or order_result.get('client_order_id')
                     ),
-                    entry_fill_status=order_result.get('status', 'filled')
+                    entry_fill_status=order_result.get('status', 'filled'),
+                    entry_reason=entry_reason,
+                    entry_confidence=(signal_context or {}).get('confidence'),
+                    market_regime=(
+                        self._current_regime.value
+                        if getattr(self, '_current_regime', None) is not None
+                        and hasattr(self._current_regime, 'value')
+                        else 'UNKNOWN'
+                    ),
+                    signal_observed_at=(signal_context or {}).get('timestamp'),
+                    stop_loss_price=round(fill_price * (1 - self.position_manager.config['stop_loss_percent']), 6),
+                    take_profit_price=round(fill_price * (1 + self.position_manager.config['take_profit_percent']), 6),
+                    sizing_reason=sizing_reason,
+                    signal_snapshot={
+                        key: (signal_context or {}).get(key)
+                        for key in ('action', 'side', 'confidence', 'reason', 'timestamp', 'learning_adjustment')
+                    },
+                    risk_snapshot={
+                        'quantity': quantity,
+                        'notional': round(quantity * fill_price, 6),
+                        'max_position_size': self.position_manager.config.get('max_position_size'),
+                        'daily_loss_limit': self.config.get('daily_loss_limit'),
+                        'max_concurrent_trades': self.config.get('max_concurrent_trades'),
+                    },
                 )
                 if not success:
                     self.logger.error(f"[BuyOrder] position_manager.open_position FAILED for {symbol}")
-                else:
-                    # Trade journal: save entry reason (Task 25)
-                    try:
-                        db_path = self.position_manager.data_dir / "positions.db"
-                        with sqlite3.connect(db_path) as _jc:
-                            _jc.execute(
-                                "UPDATE positions SET entry_reason=? "
-                                "WHERE symbol=? AND strategy=? AND status='open' "
-                                "ORDER BY entry_time DESC LIMIT 1",
-                                (entry_reason, symbol, strategy))
-                            _jc.commit()
-                    except Exception as journal_err:
-                        self.logger.warning(f"Failed to persist entry_reason for {symbol}: {journal_err}")
                 return success
             
             # Log WHY the order failed

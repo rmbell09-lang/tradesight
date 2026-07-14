@@ -88,6 +88,30 @@ class AlertManager:
             logger.debug(f"Alert {alert_type.value} recorded locally (no channels delivered)")
         return success
 
+    def fire_safety(self, alert_type: AlertType, **kwargs) -> bool:
+        """Always preserve a critical safety event locally.
+
+        External email/webhook delivery still respects explicit channel
+        configuration. This guarantees that disabled outbound channels cannot
+        erase the evidence that trading was suspended or a risk fault occurred.
+        """
+        payload = self._build_payload(alert_type, kwargs)
+        payload['severity'] = kwargs.get('severity', 'critical')
+        payload['local_recorded'] = True
+        outbound_enabled = bool(self.config.get('alerts_enabled', False))
+        payload['outbound_delivery_configured'] = bool(
+            outbound_enabled and (
+                self.config.get('email_enabled', False)
+                or self.config.get('webhook_enabled', False)
+            )
+        )
+        self._record(payload)
+        if not outbound_enabled:
+            logger.warning("Safety alert recorded locally; outbound alerts disabled: %s", alert_type.value)
+            return False
+        subject, body = self._format_message(alert_type, payload)
+        return any((self._email.send(subject, body), self._webhook.send(payload)))
+
     def get_recent_alerts(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Return the most-recent alerts (newest first)."""
         with self._lock:
@@ -103,6 +127,10 @@ class AlertManager:
             return {
                 'total': len(self._history),
                 'by_type': counts,
+                'critical_local_records': sum(
+                    1 for entry in self._history if entry.get('severity') == 'critical'
+                ),
+                'local_safety_recording': True,
                 'alerts_enabled': self.config.get('alerts_enabled', False),
                 'email_enabled': self.config.get('email_enabled', False),
                 'webhook_enabled': self.config.get('webhook_enabled', False),

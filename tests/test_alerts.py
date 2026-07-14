@@ -38,7 +38,13 @@ class TestAlertType:
         assert AlertType.STRATEGY_EVOLVED.value == 'strategy_evolved'
 
     def test_enum_count(self):
-        assert len(AlertType) == 4
+        required_safety_types = {
+            'broker_disconnected', 'stale_market_data', 'accounting_drift',
+            'unexpected_position', 'duplicate_order', 'missed_exit',
+            'optimizer_failure', 'risk_limit_breach', 'service_failure',
+            'trading_suspended',
+        }
+        assert required_safety_types.issubset({item.value for item in AlertType})
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +192,20 @@ class TestAlertManager:
         am = AlertManager(config=self._disabled_config())
         result = am.fire(AlertType.SIGNAL_FIRED, symbol='AAPL', action='buy')
         assert result is False
+
+    def test_safety_alert_is_recorded_locally_when_outbound_disabled(self):
+        am = AlertManager(config=self._disabled_config())
+        delivered = am.fire_safety(
+            AlertType.TRADING_SUSPENDED,
+            symbol='SPY', reasons=['accounting_not_verified'],
+        )
+        alerts = am.get_recent_alerts()
+        assert delivered is False
+        assert len(alerts) == 1
+        assert alerts[0]['type'] == 'trading_suspended'
+        assert alerts[0]['severity'] == 'critical'
+        assert alerts[0]['local_recorded'] is True
+        assert am.get_alert_stats()['local_safety_recording'] is True
 
     def test_fire_records_history_when_disabled(self):
         """Even with alerts disabled, no history is recorded (disabled = silent)."""

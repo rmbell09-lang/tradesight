@@ -177,6 +177,22 @@ class PositionManager:
                     conn.execute("ALTER TABLE positions ADD COLUMN verified_realized_pnl REAL")
                     self.logger.info("Migration: added verified_realized_pnl column to positions")
 
+                # Signal/risk evidence for the user-facing "Why This Trade?" view.
+                evidence_columns = {
+                    'entry_confidence': 'REAL',
+                    'market_regime': 'TEXT',
+                    'signal_observed_at': 'TEXT',
+                    'stop_loss_price': 'REAL',
+                    'take_profit_price': 'REAL',
+                    'sizing_reason': 'TEXT',
+                    'signal_snapshot_json': 'TEXT',
+                    'risk_snapshot_json': 'TEXT',
+                }
+                for column, definition in evidence_columns.items():
+                    if column not in existing_cols:
+                        conn.execute("ALTER TABLE positions ADD COLUMN %s %s" % (column, definition))
+                        self.logger.info("Migration: added %s column to positions", column)
+
                 # Migration: add buying_power + balance_synced_at to portfolio_history
                 ph_cols = [row[1] for row in conn.execute("PRAGMA table_info(portfolio_history)").fetchall()]
                 if 'buying_power' not in ph_cols:
@@ -211,7 +227,16 @@ class PositionManager:
     def open_position(self, symbol: str, strategy: str, side: str, 
                      quantity: float, entry_price: float,
                      entry_order_id: Optional[str] = None,
-                     entry_fill_status: str = 'filled') -> bool:
+                     entry_fill_status: str = 'filled',
+                     entry_reason: str = '',
+                     entry_confidence: Optional[float] = None,
+                     market_regime: Optional[str] = None,
+                     signal_observed_at: Optional[str] = None,
+                     stop_loss_price: Optional[float] = None,
+                     take_profit_price: Optional[float] = None,
+                     sizing_reason: str = '',
+                     signal_snapshot: Optional[Dict] = None,
+                     risk_snapshot: Optional[Dict] = None) -> bool:
         """Open a new trading position"""
         try:
             position = Position(
@@ -229,10 +254,17 @@ class PositionManager:
                 conn.execute('''
                     INSERT INTO positions 
                     (symbol, strategy, side, quantity, entry_price, current_price, entry_time,
-                     high_water_mark, trailing_stop_active, entry_order_id, entry_fill_status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     high_water_mark, trailing_stop_active, entry_order_id, entry_fill_status,
+                     entry_reason, entry_confidence, market_regime, signal_observed_at,
+                     stop_loss_price, take_profit_price, sizing_reason,
+                     signal_snapshot_json, risk_snapshot_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (symbol, strategy, side, quantity, entry_price, entry_price, 
-                     position.entry_time.isoformat(), entry_price, 0, entry_order_id, entry_fill_status))
+                     position.entry_time.isoformat(), entry_price, 0, entry_order_id, entry_fill_status,
+                     entry_reason, entry_confidence, market_regime, signal_observed_at,
+                     stop_loss_price, take_profit_price, sizing_reason,
+                     json.dumps(signal_snapshot or {}, sort_keys=True, default=str),
+                     json.dumps(risk_snapshot or {}, sort_keys=True, default=str)))
                 
                 conn.commit()
                 

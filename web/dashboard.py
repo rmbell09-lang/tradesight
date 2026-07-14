@@ -4,7 +4,8 @@ TradeSight Unified Dashboard
 Paper-trading control surface with explicit data provenance.
 """
 
-from flask import Flask, render_template, jsonify, request, abort
+from flask import Flask, render_template, jsonify, request, abort, make_response
+from functools import wraps
 import sqlite3
 import json
 from datetime import datetime, timedelta, timezone
@@ -58,10 +59,15 @@ from trading.accounting_truth import (
     load_epoch,
     reconcile_accounting,
 )
+from trading.trade_evidence import TradeEvidenceService
+from trading.runtime_risk import OperationalRiskGate
+from security.operator_guard import OperatorGuard
 from data.alpaca_client import AlpacaClient
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_operator_guard = OperatorGuard(PROJECT_ROOT)
+_runtime_risk_gate = OperationalRiskGate(PROJECT_ROOT)
 APP_STARTED_AT = datetime.now().astimezone()
 APP_STARTED_MONOTONIC = time.monotonic()
 POLYMARKET_STALE_AFTER = timedelta(hours=24)
@@ -230,6 +236,21 @@ def get_accounting_reconciliation(force=False):
 def get_strategy_registry():
     """Read the real optimizer/tournament/champion evidence projection."""
     return OptimizerRegistry(PROJECT_ROOT).snapshot()
+
+
+def operator_control(action_name):
+    """Require loopback token authentication and CSRF for control mutations."""
+    def decorate(func):
+        @wraps(func)
+        def wrapped(*args, **kwargs):
+            allowed, reason = _operator_guard.validate(request)
+            if not allowed:
+                _operator_guard.audit(action_name, 'denied', request, {'reason': reason})
+                status = 401 if 'session' in reason else 403
+                return jsonify({'error': reason, 'operator_auth_required': True}), status
+            return func(*args, **kwargs)
+        return wrapped
+    return decorate
 
 
 def get_db_connection():
@@ -609,6 +630,29 @@ def paper_trading_status():
     return jsonify(sanitize_for_json(status))
 
 
+@app.route('/api/paper-trading/evidence')
+def paper_trading_evidence():
+    """Broker positions, order lifecycle, fill activity, and local trade proof."""
+    client, credential_source, error = _paper_broker_client()
+    service = TradeEvidenceService(PROJECT_ROOT, broker_client=client)
+    payload = service.snapshot(limit=request.args.get('limit', 100))
+    payload['credential_source'] = credential_source
+    if error:
+        payload.setdefault('errors', []).append(error)
+        payload['status'] = 'UNAVAILABLE'
+        payload['provenance']['kind'] = 'UNAVAILABLE'
+    return jsonify(sanitize_for_json(payload))
+
+
+@app.route('/api/paper-trading/trades/<int:position_id>/why')
+def paper_trade_explanation(position_id):
+    """Explain a recorded position without inventing missing historical context."""
+    explanation = TradeEvidenceService(PROJECT_ROOT).why_trade(position_id)
+    if not explanation:
+        return jsonify({'error': 'Trade record not found'}), 404
+    return jsonify(sanitize_for_json(explanation))
+
+
 @app.route('/api/accounting/reconciliation')
 def accounting_reconciliation():
     """Current read-only broker/local accounting comparison."""
@@ -616,6 +660,7 @@ def accounting_reconciliation():
 
 
 @app.route('/api/accounting/epoch', methods=['POST'])
+@operator_control('accounting_epoch_establish')
 def accounting_epoch():
     """Establish the one-time paper accounting baseline from current broker truth."""
     if request.remote_addr not in ('127.0.0.1', '::1', None):
@@ -928,6 +973,78 @@ def tournament_history():
 # Alerts API routes (Phase 5.1)
 # ===========================================================================
 
+@app.route('/api/security/operator-session', methods=['GET'])
+def operator_session_status():
+    return jsonify(_operator_guard.status(request))
+
+
+@app.route('/api/security/operator-session', methods=['POST'])
+def operator_session_create():
+    session, error = _operator_guard.authenticate(request)
+    if error:
+        return jsonify({'error': error}), 401
+    response = make_response(jsonify({
+        'authenticated': True,
+        'csrf_token': session['csrf'],
+        'expires_at': session['expires_at'],
+    }))
+    response.set_cookie(
+        _operator_guard.COOKIE_NAME,
+        session['id'],
+        httponly=True,
+        samesite='Strict',
+        secure=False,
+        max_age=_operator_guard.session_ttl_seconds,
+    )
+    return response
+
+
+@app.route('/api/security/operator-session', methods=['DELETE'])
+@operator_control('operator_session_revoke')
+def operator_session_delete():
+    _operator_guard.revoke(request)
+    response = make_response(jsonify({'authenticated': False}))
+    response.delete_cookie(_operator_guard.COOKIE_NAME)
+    return response
+
+
+@app.route('/api/security/risk-status')
+def security_risk_status():
+    accounting = get_accounting_reconciliation()
+    alert_stats = (
+        _dashboard_alert_manager.get_alert_stats()
+        if _DASHBOARD_ALERTS_AVAILABLE and _dashboard_alert_manager
+        else {'alerts_enabled': False, 'local_safety_recording': False}
+    )
+    runtime = _runtime_risk_gate.status()
+    accounting_status = accounting.get('status') or 'UNAVAILABLE'
+    outbound_ready = bool(
+        alert_stats.get('alerts_enabled')
+        and (alert_stats.get('email_enabled') or alert_stats.get('webhook_enabled'))
+    )
+    mandatory = {
+        'paper_only': True,
+        'operator_controls_protected': True,
+        'csrf_protected': True,
+        'audit_chain_valid': _operator_guard.verify_audit_chain().get('valid', False),
+        'local_safety_alerts': bool(alert_stats.get('local_safety_recording')),
+        'accounting_verified': accounting_status == 'VERIFIED',
+        'outbound_alert_channel': outbound_ready,
+    }
+    return jsonify(sanitize_for_json({
+        'schema': 'tradesight_risk_posture.v1',
+        'status': 'READY' if all(mandatory.values()) else 'DEGRADED',
+        'mandatory_controls': mandatory,
+        'runtime': runtime,
+        'operator': _operator_guard.status(request),
+        'audit_chain': _operator_guard.verify_audit_chain(),
+        'alerts': alert_stats,
+        'accounting_status': accounting_status,
+        'new_entries_allowed': not runtime.get('new_entries_suspended', True),
+        'exits_always_allowed': True,
+        'live_trading_allowed': False,
+    }))
+
 @app.route('/api/alerts/recent')
 def alerts_recent():
     """Return recent alert history."""
@@ -959,6 +1076,7 @@ def alerts_config_get():
 
 
 @app.route('/api/alerts/config', methods=['POST'])
+@operator_control('alerts_config_save')
 def alerts_config_save():
     """Save alerts configuration."""
     if not _DASHBOARD_ALERTS_AVAILABLE:
@@ -973,11 +1091,17 @@ def alerts_config_save():
         # Refresh the in-process alert manager config
         if _dashboard_alert_manager:
             _dashboard_alert_manager.config.update(_ALERTS_CONFIG)
+        _operator_guard.audit('alerts_config_save', 'success', request, {
+            'alerts_enabled': bool(data.get('alerts_enabled')),
+            'email_enabled': bool(data.get('email_enabled')),
+            'webhook_enabled': bool(data.get('webhook_enabled')),
+        })
         return jsonify({'status': 'saved'})
     return jsonify({'error': 'Failed to save config'}), 500
 
 
 @app.route('/api/alerts/test', methods=['POST'])
+@operator_control('alerts_test')
 def alerts_test():
     """Send a test alert through all configured channels."""
     if not _DASHBOARD_ALERTS_AVAILABLE or not _dashboard_alert_manager:
@@ -990,99 +1114,146 @@ def alerts_test():
             score=99.9,
             reason='Dashboard test alert',
         )
+        _operator_guard.audit('alerts_test', 'success', request, {'delivered': bool(fired)})
         return jsonify({'sent': fired})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 
+@app.route('/api/security/manual-suspension', methods=['POST'])
+@operator_control('manual_suspension_enable')
+def manual_suspension_enable():
+    body = request.get_json(silent=True) or {}
+    if body.get('confirm') != 'SUSPEND_PAPER_ENTRIES':
+        return jsonify({'error': 'Explicit SUSPEND_PAPER_ENTRIES confirmation required'}), 400
+    payload = {
+        'schema': 'tradesight_manual_suspension.v1',
+        'created_at': datetime.now(timezone.utc).isoformat(),
+        'reason': body.get('reason') or 'Operator initiated safety suspension',
+        'new_entries_suspended': True,
+        'exits_allowed': True,
+    }
+    path = PROJECT_ROOT / 'state' / 'trading-manual-suspension.json'
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n')
+    temporary.replace(path)
+    _operator_guard.audit('manual_suspension_enable', 'success', request, {'reason': payload['reason']})
+    if _dashboard_alert_manager:
+        _dashboard_alert_manager.fire_safety(_AlertType.TRADING_SUSPENDED, reasons=[payload['reason']])
+    return jsonify(payload), 201
+
+
+@app.route('/api/security/manual-suspension', methods=['DELETE'])
+@operator_control('manual_suspension_clear')
+def manual_suspension_clear():
+    body = request.get_json(silent=True) or {}
+    if body.get('confirm') != 'RESUME_PAPER_ENTRIES':
+        return jsonify({'error': 'Explicit RESUME_PAPER_ENTRIES confirmation required'}), 400
+    path = PROJECT_ROOT / 'state' / 'trading-manual-suspension.json'
+    if path.exists():
+        path.unlink()
+    _operator_guard.audit('manual_suspension_clear', 'success', request, {})
+    return jsonify({'new_entries_suspended': False, 'exits_allowed': True})
+
+
 @app.route('/api/emergency/close-all-positions', methods=['POST'])
+@operator_control('emergency_close_all_paper_positions')
 def emergency_close_all_positions():
-    """Close all open Alpaca positions and sync local DB. Emergency use only."""
+    """Submit paper-broker closes without fabricating local fill completion."""
     try:
-        import sys
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/src')
-        from data.alpaca_client import AlpacaClient
         from trading.position_manager import PositionManager
-        from datetime import datetime
-        import sqlite3
 
-        api_key, secret_key, credential_source = load_alpaca_credentials()
-        if not api_key or not secret_key:
-            return jsonify({"error": "Alpaca credentials unavailable"}), 500
-        client = AlpacaClient(api_key=api_key, secret_key=secret_key, paper=True)
-        if client.demo_mode:
-            return jsonify({'error': 'Alpaca not authenticated (demo mode)'}), 500
+        body = request.get_json(silent=True) or {}
+        if body.get('confirm') != 'CLOSE_ALL_PAPER_POSITIONS':
+            return jsonify({'error': 'Explicit CLOSE_ALL_PAPER_POSITIONS confirmation required'}), 400
 
-        # Get all open Alpaca positions
-        import requests
-        r = requests.get(f"{client.base_url}/v2/positions", headers=client.headers, timeout=10)
-        if r.status_code != 200:
-            return jsonify({'error': f'Failed to fetch Alpaca positions: {r.text}'}), 500
-
-        alpaca_positions = r.json()
+        client, credential_source, error = _paper_broker_client()
+        if error:
+            return jsonify({'error': error}), 503
+        alpaca_positions = client.get_remote_positions()
+        if isinstance(alpaca_positions, dict) and alpaca_positions.get('error'):
+            return jsonify({'error': alpaca_positions['error']}), 503
         closed = []
         errors = []
 
         for pos in alpaca_positions:
             symbol = pos.get('symbol')
             qty = float(pos.get('qty', 0))
-            avg_price = float(pos.get('avg_entry_price', 0))
-            current_price = float(pos.get('current_price', 0) or avg_price)
-
             result = client.close_full_position(symbol)
             if 'error' not in result:
-                fill_price = result.get('fill_price') or current_price
-                closed.append({'symbol': symbol, 'qty': qty, 'fill_price': fill_price})
+                closed.append({
+                    'symbol': symbol,
+                    'qty': qty,
+                    'order_id': result.get('order_id'),
+                    'broker_status': result.get('status'),
+                    'fill_price': result.get('fill_price'),
+                })
             else:
                 errors.append({'symbol': symbol, 'error': result.get('error')})
 
-        # Clear all open local DB positions
-        pm = PositionManager()
+        # Preserve local rows as open until broker fill reconciliation confirms
+        # the exit. Marking them closed here would fabricate fills and P&L.
+        pm = PositionManager(base_dir=PROJECT_ROOT)
         db_path = pm.data_dir / 'positions.db'
         with sqlite3.connect(db_path) as conn:
-            open_rows = conn.execute(
-                "SELECT COUNT(*) FROM positions WHERE status='open'"
-            ).fetchone()[0]
-            conn.execute(
-                "UPDATE positions SET status='closed', exit_time=?, exit_price=0, realized_pnl=0, "
-                "updated_at=CURRENT_TIMESTAMP WHERE status='open'",
-                (datetime.now().isoformat(),)
-            )
+            for item in closed:
+                conn.execute(
+                    "UPDATE positions SET exit_order_id=COALESCE(?,exit_order_id), "
+                    "exit_fill_status=?, exit_reason='emergency_operator_close', "
+                    "updated_at=CURRENT_TIMESTAMP WHERE symbol=? AND status='open'",
+                    (item.get('order_id'), item.get('broker_status') or 'pending_emergency_close', item['symbol'])
+                )
             conn.commit()
 
-        return jsonify({
-            'closed_alpaca': closed,
-            'errors': errors,
-            'db_positions_cleared': open_rows,
-            'credential_source': credential_source,
+        suspension_path = PROJECT_ROOT / 'state' / 'trading-manual-suspension.json'
+        suspension_path.write_text(json.dumps({
+            'schema': 'tradesight_manual_suspension.v1',
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'reason': 'Emergency close-all invoked; review required before new entries',
+            'new_entries_suspended': True,
+            'exits_allowed': True,
+        }, indent=2, sort_keys=True) + '\n')
+        _operator_guard.audit('emergency_close_all_paper_positions', 'partial' if errors else 'success', request, {
+            'symbols_submitted': [item['symbol'] for item in closed],
+            'error_count': len(errors),
+            'local_rows_fabricated_closed': 0,
         })
+        if _dashboard_alert_manager:
+            _dashboard_alert_manager.fire_safety(
+                _AlertType.TRADING_SUSPENDED,
+                reasons=['Emergency close-all invoked'],
+                symbols=[item['symbol'] for item in closed],
+            )
+        payload = {
+            'broker_close_submissions': closed,
+            'errors': errors,
+            'local_rows_fabricated_closed': 0,
+            'new_entries_suspended': True,
+            'credential_source': credential_source,
+        }
+        return jsonify(payload), (207 if errors else 200)
     except Exception as e:
+        _operator_guard.audit('emergency_close_all_paper_positions', 'error', request, {'error': str(e)})
         return jsonify({'error': str(e)}), 500
 
 
 
 @app.route('/api/emergency/restore-positions', methods=['POST'])
+@operator_control('emergency_restore_paper_positions')
 def emergency_restore_positions():
     """Fetch open Alpaca positions and restore them to local DB for SL/TP tracking."""
     try:
-        import sys
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/src')
         from trading.position_manager import PositionManager
-        from datetime import datetime
-        import sqlite3, requests
 
-        api_key, secret_key, credential_source = load_alpaca_credentials()
-        if not api_key or not secret_key:
-            return jsonify({'error': 'Alpaca credentials unavailable'}), 500
-
-        headers = {'APCA-API-KEY-ID': api_key, 'APCA-API-SECRET-KEY': secret_key}
-        r = requests.get('https://paper-api.alpaca.markets/v2/positions', headers=headers, timeout=10)
-        if r.status_code != 200:
-            return jsonify({'error': f'Alpaca fetch failed: {r.text}'}), 500
-
-        alpaca_positions = r.json()
-        pm = PositionManager()
+        body = request.get_json(silent=True) or {}
+        if body.get('confirm') != 'RESTORE_PAPER_POSITIONS':
+            return jsonify({'error': 'Explicit RESTORE_PAPER_POSITIONS confirmation required'}), 400
+        client, credential_source, error = _paper_broker_client()
+        if error:
+            return jsonify({'error': error}), 503
+        alpaca_positions = client.get_remote_positions()
+        pm = PositionManager(base_dir=PROJECT_ROOT)
         db_path = pm.data_dir / 'positions.db'
         restored = []
 
@@ -1095,25 +1266,41 @@ def emergency_restore_positions():
 
                 # Check if already in DB
                 existing = conn.execute(
-                    "SELECT id FROM positions WHERE symbol=? AND strategy=? AND status=?",
-                    (symbol, 'RSI Mean Reversion', 'open')
+                    "SELECT id FROM positions WHERE symbol=? AND status='open'",
+                    (symbol,)
                 ).fetchone()
 
                 if not existing:
                     conn.execute(
-                        "INSERT INTO positions (symbol, strategy, side, quantity, entry_price, current_price, status, entry_time, updated_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, 'open', ?, CURRENT_TIMESTAMP)",
-                        (symbol, 'RSI Mean Reversion', side, qty, entry_price, entry_price, datetime.now().isoformat())
+                        "INSERT INTO positions (symbol, strategy, side, quantity, entry_price, current_price, "
+                        "status, entry_time, entry_fill_status, verification_status, verification_reason, "
+                        "entry_reason, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                        (symbol, 'Broker Recovered / Unattributed', side, abs(qty), entry_price, entry_price,
+                         datetime.now(timezone.utc).isoformat(), 'broker_position_confirmed',
+                         'broker_position_confirmed', 'Restored directly from current Alpaca paper position',
+                         'Emergency broker restore; original strategy attribution unavailable')
                     )
-                    restored.append({'symbol': symbol, 'qty': qty, 'entry_price': entry_price})
-                    conn.commit()
+                    restored.append({'symbol': symbol, 'qty': abs(qty), 'entry_price': entry_price,
+                                     'strategy': 'Broker Recovered / Unattributed'})
+            conn.commit()
 
+        _operator_guard.audit('emergency_restore_paper_positions', 'success', request, {
+            'restored_symbols': [item['symbol'] for item in restored],
+            'broker_position_count': len(alpaca_positions),
+        })
+        if restored and _dashboard_alert_manager:
+            _dashboard_alert_manager.fire_safety(
+                _AlertType.UNEXPECTED_POSITION,
+                symbols=[item['symbol'] for item in restored],
+                action='broker_restore',
+            )
         return jsonify({
             'restored': restored,
             'alpaca_positions': len(alpaca_positions),
             'credential_source': credential_source,
         })
     except Exception as e:
+        _operator_guard.audit('emergency_restore_paper_positions', 'error', request, {'error': str(e)})
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

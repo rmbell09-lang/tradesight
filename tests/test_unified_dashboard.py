@@ -103,10 +103,18 @@ def test_strategy_lab_connects_real_evidence_and_refuses_synthetic_run():
 
     assert DEMO_TOOLS_ENABLED is False
     stats = get_strategy_lab_stats()
-    assert stats['available'] is True
-    assert stats['winner']
-    assert stats['champion']['stage'] == 'CHAMPION'
-    assert stats['provenance']['kind'] == 'REAL'
+    if stats['available']:
+        assert stats['winner']
+        assert stats['champion']['stage'] == 'CHAMPION'
+        assert stats['provenance']['kind'] == 'REAL'
+    else:
+        # A clean checkout intentionally has no ignored runtime optimizer DB or
+        # reports. A tracked frozen champion may still be visible, but the app
+        # must not invent a current tournament winner or claim full availability.
+        assert stats['winner'] is None
+        assert stats['latest_tournament'] == {}
+        assert stats['latest_optimizer']['report_path'] is None
+        assert stats['provenance']['kind'] == 'UNAVAILABLE'
     assert stats['provenance']['message'] == 'Synthetic results are excluded'
 
     client = app.test_client()

@@ -523,15 +523,33 @@
                         <th>Symbol</th>
                         <th>Strategy</th>
                         <th>Side</th>
-                        <th>Entry Price</th>
+                        <th>Broker Qty</th>
+                        <th>Entry</th>
                         <th>Current</th>
                         <th>P&L</th>
-                        <th>Duration</th>
+                        <th>Proof</th>
+                        <th>Decision</th>
                     </tr>
                 </thead>
                 <tbody id="paper-positions">
-                    <tr><td colspan="7" class="loading-msg">Checking local position count...</td></tr>
+                    <tr><td colspan="9" class="loading-msg">Loading broker-confirmed positions...</td></tr>
                 </tbody>
+            </table>
+        </div>
+
+        <div class="table-card">
+            <div class="table-header"><h2>🔄 Broker Order Lifecycle</h2><span class="badge badge-blue" id="paper-order-truth">PAPER BROKER</span></div>
+            <table>
+                <thead><tr><th>Submitted</th><th>Symbol</th><th>Side</th><th>Qty / Filled</th><th>Status</th><th>Fill Price</th><th>Order ID</th></tr></thead>
+                <tbody id="paper-orders"><tr><td colspan="7" class="loading-msg">Loading Alpaca paper orders...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="table-card">
+            <div class="table-header"><h2>✅ Broker Fill Activity</h2><span class="badge badge-blue">BROKER FILL</span></div>
+            <table>
+                <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Quantity</th><th>Price</th><th>Order ID</th></tr></thead>
+                <tbody id="paper-fills"><tr><td colspan="6" class="loading-msg">Loading Alpaca fill activity...</td></tr></tbody>
             </table>
         </div>
 
@@ -546,12 +564,21 @@
                         <th>Price</th>
                         <th>P&L</th>
                         <th>Strategy</th>
+                        <th>Proof</th>
+                        <th>Decision</th>
                     </tr>
                 </thead>
                 <tbody id="paper-history">
-                    <tr><td colspan="6" class="loading-msg">Checking local trade count...</td></tr>
+                    <tr><td colspan="8" class="loading-msg">Loading preserved trade evidence...</td></tr>
                 </tbody>
             </table>
+        </div>
+
+        <div class="table-card" id="why-trade-card">
+            <div class="table-header"><h2>🧠 Why This Trade?</h2><span class="badge badge-yellow" id="why-trade-proof">SELECT A TRADE</span></div>
+            <div id="why-trade-detail" style="padding:18px;color:#94a3b8;line-height:1.65;">
+                Choose a broker-matched position or preserved trade to see the recorded strategy, signal reason, regime, risk, sizing, order IDs, and verification state. Missing historical evidence is shown as missing—not guessed.
+            </div>
         </div>
 
         <div class="table-card">
@@ -660,6 +687,24 @@
     </div>
   </div>
 
+  <div class="table-card" style="margin-bottom:24px;">
+    <div class="table-header">
+      <h2>🛡️ Operational Risk Controls</h2>
+      <span class="badge badge-red" id="risk-posture-badge">CHECKING</span>
+    </div>
+    <div style="padding:16px;">
+      <div id="risk-control-summary" class="truth-banner">Loading accounting, suspension, alert-delivery, CSRF, and audit-chain status...</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
+        <button type="button" class="btn-test" onclick="unlockOperatorControls()">🔐 Unlock Operator Controls</button>
+        <button type="button" class="btn-small" onclick="setPaperSuspension(true)">Suspend New Entries</button>
+        <button type="button" class="btn-small" onclick="setPaperSuspension(false)">Resume New Entries</button>
+        <button type="button" class="btn-small" onclick="emergencyClosePaperPositions()" style="border-color:#ef4444;color:#ef4444;">Emergency Close PAPER Positions</button>
+        <button type="button" class="btn-small" onclick="restorePaperPositions()">Restore from Broker</button>
+      </div>
+      <div id="operator-control-status" style="margin-top:10px;color:#94a3b8;font-size:.86em;">Locked. Mutating actions require the local operator token, a short-lived HttpOnly session, CSRF, same-origin, explicit confirmation, and an audit receipt.</div>
+    </div>
+  </div>
+
   <div class="grid-2">
     <!-- Recent alerts history -->
     <div class="table-card">
@@ -736,6 +781,7 @@
 
 <script>
     let activeTab = 'markets';
+    let operatorCsrfToken = null;
 
     // Update clock
     setInterval(() => {
@@ -769,10 +815,15 @@
         return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
     }
     function pnlClass(n) { return n > 0 ? 'positive' : n < 0 ? 'negative' : ''; }
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>'"]/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+        })[ch]);
+    }
     function truthClass(kind) {
-        if (kind === 'REAL' || kind === 'VERIFIED') return 'badge-green';
-        if (kind === 'PAPER') return 'badge-blue';
-        if (kind === 'UNVERIFIED' || kind === 'DEMO') return 'badge-yellow';
+        if (kind === 'REAL' || kind === 'VERIFIED' || kind === 'READY' || kind === 'BROKER_VERIFIED' || kind === 'BROKER_POSITION_CONFIRMED' || kind === 'BROKER_ORDER_FINAL' || kind === 'BROKER_FILL_ACTIVITY') return 'badge-green';
+        if (kind === 'PAPER' || kind === 'BROKER_ORDER_NONFINAL') return 'badge-blue';
+        if (kind === 'UNVERIFIED' || kind === 'DEMO' || kind === 'LEGACY_UNVERIFIED' || kind === 'POST_EPOCH_UNVERIFIED') return 'badge-yellow';
         return 'badge-red';
     }
     function truthBadge(p) {
@@ -1001,7 +1052,10 @@
 
     // ===== PAPER TRADING =====
     function loadPaperTrading() {
-        fetch('/api/paper-trading/status').then(r => r.json()).then(d => {
+        Promise.all([
+            fetch('/api/paper-trading/status').then(r => r.json()),
+            fetch('/api/paper-trading/evidence?limit=100').then(r => r.json()),
+        ]).then(([d, evidence]) => {
             const accounting = d.accounting || {};
             const broker = accounting.broker || {};
             const local = accounting.local || {};
@@ -1079,18 +1133,104 @@
                 el.className = `badge ${truthClass(d.provenance && d.provenance.kind)}`;
                 el.textContent = d.provenance && d.provenance.kind ? d.provenance.kind : 'UNKNOWN';
             });
-            document.getElementById('paper-positions').innerHTML = d.open_positions > 0
-                ? `<tr><td colspan="7" class="empty-msg">${d.open_positions} current position record(s) reconcile at the accounting level; order/fill detail arrives in package 5</td></tr>`
-                : '<tr><td colspan="7" class="empty-msg">No locally tracked open positions</td></tr>';
-            document.getElementById('paper-history').innerHTML = d.closed_positions > 0
-                ? `<tr><td colspan="6" class="empty-msg">${d.closed_positions} preserved closed record(s); full broker-ID history arrives in package 5</td></tr>`
-                : '<tr><td colspan="6" class="empty-msg">No locally tracked closed records</td></tr>';
+
+            const positions = evidence.positions || [];
+            positionTruth.className = `badge ${truthClass(evidence.status)}`;
+            positionTruth.textContent = evidence.status || 'UNAVAILABLE';
+            document.getElementById('paper-positions').innerHTML = positions.length ? positions.map(p => `
+                <tr>
+                    <td><strong>${escapeHtml(p.symbol)}</strong></td>
+                    <td>${escapeHtml(p.strategy)}</td>
+                    <td>${escapeHtml(p.side)}</td>
+                    <td>${fmt(p.quantity, 4)}</td>
+                    <td>${fmtMoney(p.avg_entry_price)}</td>
+                    <td>${fmtMoney(p.current_price)}</td>
+                    <td class="${pnlClass(p.unrealized_pnl)}">${fmtMoney(p.unrealized_pnl)} (${fmt(p.unrealized_pnl_pct)}%)</td>
+                    <td><span class="badge ${truthClass(p.evidence)}">${escapeHtml(p.evidence)}</span></td>
+                    <td>${p.local_position_id ? `<button class="btn-small" onclick="loadWhyTrade(${Number(p.local_position_id)})">Why?</button>` : '<span class="badge badge-red">UNATTRIBUTED</span>'}</td>
+                </tr>`).join('') : '<tr><td colspan="9" class="empty-msg">No broker paper positions</td></tr>';
+
+            const orders = evidence.orders || [];
+            document.getElementById('paper-orders').innerHTML = orders.length ? orders.map(o => `
+                <tr>
+                    <td>${o.submitted_at ? new Date(o.submitted_at).toLocaleString() : '--'}</td>
+                    <td><strong>${escapeHtml(o.symbol)}</strong></td>
+                    <td>${escapeHtml(o.side)}</td>
+                    <td>${fmt(o.quantity, 4)} / ${fmt(o.filled_quantity, 4)}</td>
+                    <td><span class="badge ${truthClass(o.evidence)}">${escapeHtml(o.status)}</span></td>
+                    <td>${fmtMoney(o.filled_avg_price)}</td>
+                    <td><code title="${escapeHtml(o.id)}">${escapeHtml(String(o.id || '--').slice(0, 12))}</code></td>
+                </tr>`).join('') : '<tr><td colspan="7" class="empty-msg">No broker order records returned</td></tr>';
+
+            const fills = evidence.fills || [];
+            document.getElementById('paper-fills').innerHTML = fills.length ? fills.map(f => `
+                <tr>
+                    <td>${f.transaction_time ? new Date(f.transaction_time).toLocaleString() : '--'}</td>
+                    <td><strong>${escapeHtml(f.symbol)}</strong></td>
+                    <td>${escapeHtml(f.side)}</td>
+                    <td>${fmt(f.quantity, 4)}</td>
+                    <td>${fmtMoney(f.price)}</td>
+                    <td><code title="${escapeHtml(f.order_id)}">${escapeHtml(String(f.order_id || '--').slice(0, 12))}</code></td>
+                </tr>`).join('') : '<tr><td colspan="6" class="empty-msg">No broker fill activities returned</td></tr>';
+
+            const history = evidence.closed_trades || [];
+            historyTruth.className = `badge ${truthClass(history.some(t => t.evidence === 'BROKER_VERIFIED') ? 'VERIFIED' : 'UNVERIFIED')}`;
+            historyTruth.textContent = history.some(t => t.evidence === 'BROKER_VERIFIED') ? 'MIXED EVIDENCE' : 'UNVERIFIED';
+            document.getElementById('paper-history').innerHTML = history.length ? history.map(t => `
+                <tr>
+                    <td>${t.exit_time ? new Date(t.exit_time).toLocaleString() : (t.entry_time ? new Date(t.entry_time).toLocaleString() : '--')}</td>
+                    <td><strong>${escapeHtml(t.symbol)}</strong></td>
+                    <td>${escapeHtml(t.side)}</td>
+                    <td>${fmtMoney(t.exit_price || t.entry_price)}</td>
+                    <td class="${pnlClass(t.verified_realized_pnl ?? t.realized_pnl)}">${t.evidence === 'BROKER_VERIFIED' ? fmtMoney(t.verified_realized_pnl) : fmtMoney(t.realized_pnl) + ' local'}</td>
+                    <td>${escapeHtml(t.strategy)}</td>
+                    <td><span class="badge ${truthClass(t.evidence)}">${escapeHtml(t.evidence)}</span></td>
+                    <td><button class="btn-small" onclick="loadWhyTrade(${Number(t.id)})">Why?</button></td>
+                </tr>`).join('') : '<tr><td colspan="8" class="empty-msg">No preserved closed records</td></tr>';
+
+            if ((evidence.local_only_positions || []).length) {
+                document.getElementById('accounting-truth-banner').innerHTML += ` <strong>${evidence.local_only_positions.length} local-only position(s) are hidden from the broker position table.</strong>`;
+            }
         }).catch(err => {
             const credentialBadge = document.getElementById('paper-credential-status');
             if (credentialBadge) {
                 credentialBadge.className = 'badge badge-red';
                 credentialBadge.textContent = 'Status unavailable';
             }
+        });
+    }
+
+    function loadWhyTrade(positionId) {
+        const detail = document.getElementById('why-trade-detail');
+        detail.textContent = 'Loading recorded decision evidence...';
+        fetch(`/api/paper-trading/trades/${Number(positionId)}/why`).then(r => r.json()).then(d => {
+            if (d.error) throw new Error(d.error);
+            const proof = document.getElementById('why-trade-proof');
+            proof.className = `badge ${truthClass(d.provenance)}`;
+            proof.textContent = d.provenance || 'UNVERIFIED';
+            const reasons = (d.decision && d.decision.reasons) || [];
+            const broker = d.broker_evidence || {};
+            const risk = d.risk || {};
+            detail.innerHTML = `
+                <div class="grid-2">
+                    <div>
+                        <h3 style="color:#f8fafc;margin-bottom:8px;">${escapeHtml(d.symbol)} · ${escapeHtml(d.strategy)}</h3>
+                        <p><strong>Recorded reason:</strong> ${reasons.map(escapeHtml).join(' · ')}</p>
+                        <p><strong>Confidence:</strong> ${fmt(d.decision && d.decision.confidence)} · <strong>Regime:</strong> ${escapeHtml(d.decision && d.decision.market_regime)}</p>
+                        <p><strong>Signal time:</strong> ${d.decision && d.decision.signal_observed_at ? new Date(d.decision.signal_observed_at).toLocaleString() : 'Not recorded'}</p>
+                        <p><strong>Sizing:</strong> ${escapeHtml(risk.sizing_reason)}</p>
+                    </div>
+                    <div>
+                        <p><strong>Quantity / entry:</strong> ${fmt(risk.quantity, 4)} @ ${fmtMoney(risk.entry_price)}</p>
+                        <p><strong>Stop / target:</strong> ${fmtMoney(risk.stop_loss_price)} / ${fmtMoney(risk.take_profit_price)}</p>
+                        <p><strong>Entry order:</strong> <code>${escapeHtml(broker.entry_order_id || 'missing')}</code> · ${escapeHtml(broker.entry_fill_status || 'unknown')}</p>
+                        <p><strong>Exit order:</strong> <code>${escapeHtml(broker.exit_order_id || 'not exited / missing')}</code> · ${escapeHtml(broker.exit_fill_status || 'unknown')}</p>
+                        <p><strong>Verification:</strong> ${escapeHtml(broker.verification_status || 'unknown')} · ${escapeHtml(broker.verification_reason || '')}</p>
+                    </div>
+                </div>`;
+            document.getElementById('why-trade-card').scrollIntoView({behavior:'smooth', block:'nearest'});
+        }).catch(err => {
+            detail.textContent = `Unable to load explanation: ${err}`;
         });
     }
 
@@ -1110,7 +1250,8 @@
             fetch('/api/alerts/stats').then(r => r.json()).catch(() => ({})),
             fetch('/api/alerts/recent').then(r => r.json()).catch(() => ({alerts: []})),
             fetch('/api/alerts/config').then(r => r.json()).catch(() => ({})),
-        ]).then(([stats, recent, cfg]) => {
+            fetch('/api/security/risk-status').then(r => r.json()).catch(() => ({})),
+        ]).then(([stats, recent, cfg, risk]) => {
             document.getElementById('alerts-total').textContent = stats.total || 0;
             document.getElementById('alerts-enabled-val').textContent = stats.alerts_enabled ? 'On' : 'Off';
             document.getElementById('alerts-email-val').textContent = cfg.email_enabled ? 'On' : 'Off';
@@ -1120,12 +1261,25 @@
             document.getElementById('alerts-history').innerHTML = alerts.length ? alerts.map(a => `
                 <tr>
                     <td>${new Date(a.timestamp || Date.now()).toLocaleString()}</td>
-                    <td><span class="alert-type-${String(a.alert_type || '').toLowerCase()}">${a.alert_type || '--'}</span></td>
-                    <td>${a.symbol || '--'}</td>
-                    <td>${a.action || '--'}</td>
-                    <td>${a.message || a.reason || '--'}</td>
+                    <td><span class="alert-type-${String(a.type || '').toLowerCase()}">${escapeHtml(a.type || '--')}</span></td>
+                    <td>${escapeHtml(a.symbol || a.action || (a.reasons || []).join(' · ') || a.message || a.reason || '--')}</td>
                 </tr>
-            `).join('') : '<tr><td colspan="5" class="empty-msg">No alerts yet</td></tr>';
+            `).join('') : '<tr><td colspan="3" class="empty-msg">No alerts yet</td></tr>';
+
+            const posture = document.getElementById('risk-posture-badge');
+            posture.className = `badge ${truthClass(risk.status)}`;
+            posture.textContent = risk.status || 'UNAVAILABLE';
+            const controls = risk.mandatory_controls || {};
+            const runtime = risk.runtime || {};
+            document.getElementById('risk-control-summary').innerHTML = `
+                <strong>New entries: ${risk.new_entries_allowed ? 'ALLOWED' : 'SUSPENDED'}.</strong>
+                Exits remain allowed. Accounting ${escapeHtml(risk.accounting_status || 'UNKNOWN')} ·
+                operator auth ${controls.operator_controls_protected ? 'protected' : 'missing'} ·
+                CSRF ${controls.csrf_protected ? 'protected' : 'missing'} ·
+                audit chain ${controls.audit_chain_valid ? 'valid' : 'invalid'} ·
+                local safety alerts ${controls.local_safety_alerts ? 'active' : 'missing'} ·
+                outbound alert channel ${controls.outbound_alert_channel ? 'ready' : 'not configured'}
+                ${runtime.manual_suspension ? ' · MANUAL SUSPENSION ACTIVE' : ''}`;
 
             setChecked('cfg-alerts-enabled', cfg.alerts_enabled);
             setChecked('cfg-email-enabled', cfg.email_enabled);
@@ -1158,7 +1312,7 @@
         };
         fetch('/api/alerts/config', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: controlHeaders(),
             body: JSON.stringify(payload),
         }).then(r => r.json()).then(data => {
             status.textContent = data.error ? `Error: ${data.error}` : 'Saved';
@@ -1172,7 +1326,7 @@
 
     function testAlert() {
         const status = document.getElementById('alerts-save-status');
-        fetch('/api/alerts/test', { method: 'POST' }).then(r => r.json()).then(data => {
+        fetch('/api/alerts/test', { method: 'POST', headers: controlHeaders() }).then(r => r.json()).then(data => {
             status.textContent = data.error ? `Error: ${data.error}` : 'Test alert sent';
             status.style.color = data.error ? '#ef4444' : '#22c55e';
             loadAlertsData();
@@ -1180,6 +1334,71 @@
             status.textContent = `Error: ${err}`;
             status.style.color = '#ef4444';
         });
+    }
+
+    function controlHeaders() {
+        const headers = {'Content-Type': 'application/json'};
+        if (operatorCsrfToken) headers['X-CSRF-Token'] = operatorCsrfToken;
+        return headers;
+    }
+
+    function setOperatorStatus(message, ok=false) {
+        const status = document.getElementById('operator-control-status');
+        status.textContent = message;
+        status.style.color = ok ? '#22c55e' : '#f59e0b';
+    }
+
+    function unlockOperatorControls() {
+        const token = window.prompt('Enter the local operator token from state/operator-control-token. It is never stored in the browser.');
+        if (!token) return;
+        fetch('/api/security/operator-session', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({operator_token: token}),
+        }).then(async r => ({ok:r.ok, data:await r.json()})).then(result => {
+            if (!result.ok) throw new Error(result.data.error || 'Authorization failed');
+            operatorCsrfToken = result.data.csrf_token;
+            setOperatorStatus('Operator controls unlocked for this short browser session.', true);
+            loadAlertsData();
+        }).catch(err => setOperatorStatus(`Unlock failed: ${err}`));
+    }
+
+    function controlRequest(url, method, confirmation, payload={}) {
+        if (!operatorCsrfToken) {
+            setOperatorStatus('Unlock operator controls first.');
+            return Promise.reject(new Error('operator controls locked'));
+        }
+        return fetch(url, {
+            method, headers: controlHeaders(),
+            body: JSON.stringify({...payload, confirm: confirmation}),
+        }).then(async r => {
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+            return data;
+        });
+    }
+
+    function setPaperSuspension(enabled) {
+        const phrase = enabled ? 'SUSPEND_PAPER_ENTRIES' : 'RESUME_PAPER_ENTRIES';
+        if (window.prompt(`Type ${phrase} to continue`) !== phrase) return;
+        controlRequest('/api/security/manual-suspension', enabled ? 'POST' : 'DELETE', phrase)
+            .then(() => { setOperatorStatus(enabled ? 'New paper entries suspended. Exits remain allowed.' : 'Manual suspension cleared.', true); loadAlertsData(); })
+            .catch(err => setOperatorStatus(`Control failed: ${err}`));
+    }
+
+    function emergencyClosePaperPositions() {
+        const phrase = 'CLOSE_ALL_PAPER_POSITIONS';
+        if (window.prompt(`This submits broker PAPER closes and suspends new entries. Type ${phrase}`) !== phrase) return;
+        controlRequest('/api/emergency/close-all-positions', 'POST', phrase)
+            .then(data => { setOperatorStatus(`${(data.broker_close_submissions || []).length} PAPER close submission(s) sent; local rows remain pending fill proof.`, true); loadPaperTrading(); loadAlertsData(); })
+            .catch(err => setOperatorStatus(`Emergency close failed: ${err}`));
+    }
+
+    function restorePaperPositions() {
+        const phrase = 'RESTORE_PAPER_POSITIONS';
+        if (window.prompt(`Type ${phrase} to import missing broker paper positions without inventing strategy attribution`) !== phrase) return;
+        controlRequest('/api/emergency/restore-positions', 'POST', phrase)
+            .then(data => { setOperatorStatus(`${(data.restored || []).length} broker position(s) restored as unattributed.`, true); loadPaperTrading(); loadAlertsData(); })
+            .catch(err => setOperatorStatus(`Restore failed: ${err}`));
     }
 
     // ===== SYSTEM =====
