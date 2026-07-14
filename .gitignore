@@ -56,3 +56,10 @@ dashboard.log
 dashboard_new.log
 data/
 !data/.gitkeep
+
+# Generated runtime evidence and local recovery artifacts
+reports/*.json
+reports/*.txt
+state/
+.trash/
+*.bak-*

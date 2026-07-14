@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "canonical_path": "/Users/luckyai/Projects/TradeSight",
+  "canonical_branch": "canonical/tradesight-20260714",
+  "remote_url": "https://github.com/rmbell09-lang/tradesight.git",
+  "paper_only": true,
+  "services": [
+    "com.luckyai.tradesight-server",
+    "com.luckyai.tradesight-paper-trader",
+    "com.luckyai.tradesight-optimizer"
+  ],
+  "launch_agent_files": [
+    "/Users/luckyai/Library/LaunchAgents/com.luckyai.tradesight-server.plist",
+    "/Users/luckyai/Library/LaunchAgents/com.luckyai.tradesight-paper-trader.plist",
+    "/Users/luckyai/Library/LaunchAgents/com.luckyai.tradesight-optimizer.plist"
+  ],
+  "known_noncanonical_copies": [
+    "/Users/luckyai/TradeSight",
+    "/Volumes/66/Projects/TradeSight",
+    "/Volumes/66/TradeSight"
+  ],
+  "prechange_backup": "/Users/luckyai/Backups/TradeSight/pre-packages-1-2-20260714-1142ET",
+  "established_at": "2026-07-14T11:42:00-04:00"
+}
