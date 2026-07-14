@@ -6,6 +6,7 @@ import sys
 import json
 import glob
 import logging
+import fcntl
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent.parent
@@ -46,15 +47,41 @@ def get_latest_optimization_params():
 
 
 def main():
-    api_key = os.environ.get('ALPACA_API_KEY', '')
-    secret_key = os.environ.get('ALPACA_SECRET_KEY', '') or os.environ.get('ALPACA_SECRET', '')
+    lock_path = BASE_DIR / 'logs' / 'paper_trader.lock'
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = open(lock_path, 'w')
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_file.write(str(os.getpid()))
+        lock_file.flush()
+    except BlockingIOError:
+        logger.warning('Another paper trader session is already running; skipping overlapping launch')
+        return
+
+    api_key = ''
+    secret_key = ''
+    credential_source = 'missing'
+    try:
+        from config import ALPACA_API_KEY, ALPACA_SECRET_KEY
+        api_key = ALPACA_API_KEY or ''
+        secret_key = ALPACA_SECRET_KEY or ''
+        if api_key and secret_key:
+            credential_source = 'TradeSight config'
+    except Exception as key_err:
+        logger.warning(f'Could not load Alpaca keys from TradeSight TradeSight config: {key_err}')
+
+    if not api_key or not secret_key:
+        api_key = os.environ.get('ALPACA_API_KEY', '')
+        secret_key = os.environ.get('ALPACA_SECRET_KEY', '') or os.environ.get('ALPACA_SECRET', '')
+        if api_key and secret_key:
+            credential_source = 'environment'
 
     if not api_key or not secret_key:
         logger.error('Alpaca API keys not set — cannot run paper trader')
         sys.exit(1)
 
     logger.info('=== TradeSight Paper Trader Starting ===')
-    logger.info(f'API key: {api_key[:8]}...')
+    logger.info(f'Alpaca credentials loaded from {credential_source}')
 
     from trading.paper_trader import PaperTrader
 

@@ -17,6 +17,7 @@ import pandas as pd
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from automation.strategy_automation import StrategyAutomation
+from strategy_lab.backtest import BacktestEngine
 
 
 def _make_fake_ohlcv(n=300):
@@ -118,6 +119,57 @@ class TestStrategyAutomation:
             # Must NOT be labelled synthetic when real data is available
             assert 'SYNTHETIC' not in name
 
+    @patch('automation.strategy_automation.StrategyTournament')
+    @patch('automation.strategy_automation.get_builtin_strategies')
+    def test_tournament_registers_champion_rsi_full_params(self, mock_builtin, mock_tournament_cls):
+        """Champion RSI tournament entry should preserve every optimizer param."""
+        champion_path = self.automation.data_dir / 'champion.json'
+        champion_path.write_text('''{
+          "params": {
+            "oversold": 25,
+            "overbought": 75,
+            "position_size": 0.22,
+            "stop_loss_pct": 0.06,
+            "take_profit_pct": 0.13,
+            "max_holding_bars": 10,
+            "use_atr": false,
+            "trend_buffer": 0.95,
+            "volume_min_ratio": 0.8
+          }
+        }''')
+
+        fake_tournament = MagicMock()
+        fake_tournament.entries = []
+        fake_tournament.run_tournament.return_value = MagicMock(
+            winner='RSI_Champion_os25_ob75',
+            winner_avg_score=1.0,
+            total_rounds=1,
+            total_strategies_entered=1,
+            final_survivors=['RSI_Champion_os25_ob75'],
+            top_3=[],
+            elimination_log=[],
+        )
+        mock_tournament_cls.return_value = fake_tournament
+        mock_builtin.return_value = {}
+
+        fake_df = _make_fake_ohlcv(300)
+        self.automation.create_tournament_datasets = MagicMock(return_value=[('Round_1', fake_df)])
+
+        self.automation.run_tournament_session('full-param-check')
+
+        registered = fake_tournament.register_strategy.call_args_list
+        champion_calls = [c for c in registered if c.args[0] == 'RSI_Champion_os25_ob75']
+        assert champion_calls
+        strategy = champion_calls[0].args[1]
+
+        engine = BacktestEngine()
+        data = engine._add_indicators(fake_df.copy())
+        idx = len(data) - 1
+        data.iloc[idx, data.columns.get_loc('rsi')] = 20.0
+        data.iloc[idx, data.columns.get_loc('sma_50')] = data.iloc[idx]['close'] / 0.90
+        assert strategy(data, idx, []) is None
+        assert strategy(data, idx, [{'entry_index': idx - 10}]) == {'action': 'close'}
+
     @patch('automation.strategy_automation.AlpacaClient')
     def test_create_tournament_datasets_synthetic_fallback(self, mock_alpaca_cls):
         """Dataset creation falls back to synthetic when Alpaca is unavailable"""
@@ -153,6 +205,55 @@ class TestStrategyAutomation:
     # ------------------------------------------------------------------
     # Storage + report tests (unchanged from original)
     # ------------------------------------------------------------------
+
+    def test_store_session_results_migrates_legacy_schema(self):
+        """Legacy tournament DBs should be upgraded before current inserts run"""
+        db_path = self.automation.data_dir / 'tournament_history.db'
+        with sqlite3.connect(db_path) as conn:
+            conn.execute('''
+                CREATE TABLE tournament_sessions (
+                    id INTEGER PRIMARY KEY,
+                    start_time TEXT NOT NULL,
+                    end_time TEXT,
+                    status TEXT DEFAULT "completed",
+                    winner TEXT,
+                    winner_avg_score REAL,
+                    rounds INTEGER DEFAULT 3,
+                    strategies_tested INTEGER DEFAULT 4,
+                    notes TEXT
+                )
+            ''')
+            conn.commit()
+
+        results = {
+            'session_id': 'legacy_session_001',
+            'start_time': '2026-04-26T20:00:00',
+            'end_time': '2026-04-26T20:30:00',
+            'duration_seconds': 1800.0,
+            'winner': 'RSI Mean Reversion',
+            'winner_avg_score': 0.25,
+            'total_rounds': 3,
+            'total_strategies': 6,
+            'final_survivors': 2,
+            'participants': [],
+        }
+
+        self.automation.store_session_results(results)
+
+        with sqlite3.connect(db_path) as conn:
+            cols = {row[1] for row in conn.execute('PRAGMA table_info(tournament_sessions)').fetchall()}
+            assert {'session_id', 'duration_seconds', 'total_rounds', 'total_strategies', 'final_survivors', 'results_json'} <= cols
+            stored = conn.execute(
+                'SELECT session_id, duration_seconds, total_rounds, total_strategies, final_survivors FROM tournament_sessions WHERE session_id = ?',
+                (results['session_id'],)
+            ).fetchone()
+            assert stored == (
+                results['session_id'],
+                results['duration_seconds'],
+                results['total_rounds'],
+                results['total_strategies'],
+                results['final_survivors'],
+            )
 
     def test_store_session_results_success(self):
         """Test storing successful session results"""

@@ -267,6 +267,38 @@ def test_hwm_updates_when_price_rises():
         shutil.rmtree(base_dir)
 
 
+def test_hwm_ignores_suspicious_quote_spike():
+    """A single large quote spike should not ratchet the trailing-stop HWM."""
+    base_dir = tempfile.mkdtemp()
+    try:
+        trader = make_trader_with_position(
+            base_dir, 'COST', 'RSI Mean Reversion',
+            entry_price=900.0, high_water_mark=910.0, trailing_stop_active=1
+        )
+        trader.active_params = {
+            'stop_loss_pct': 0.05,
+            'take_profit_pct': 0.12,
+            'trailing_stop_pct': 0.03,
+        }
+        mock_quote = MagicMock()
+        mock_quote.last = 1100.0  # >20% jump from HWM, should be ignored
+        trader.alpaca.get_quote = MagicMock(return_value=mock_quote)
+        trader._execute_sell_order = MagicMock(return_value=True)
+
+        trader._check_stop_loss_take_profit()
+
+        db_path = Path(base_dir) / 'data' / 'positions.db'
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT high_water_mark FROM positions WHERE symbol='COST'"
+            ).fetchone()
+        assert abs(row[0] - 910.0) < 0.01, f"Expected HWM to stay 910.0, got {row[0]}"
+        trader._execute_sell_order.assert_called_once()
+        print('PASS: hwm_ignores_suspicious_quote_spike')
+    finally:
+        shutil.rmtree(base_dir)
+
+
 def test_trailing_stop_pct_from_champion_params():
     """trailing_stop_pct should be read from active_params (default 3%)."""
     base_dir = tempfile.mkdtemp()
@@ -311,6 +343,7 @@ if __name__ == '__main__':
     test_trailing_stop_replaces_fixed_tp()
     test_stop_loss_overrides_trailing_stop()
     test_hwm_updates_when_price_rises()
+    test_hwm_ignores_suspicious_quote_spike()
     test_trailing_stop_pct_from_champion_params()
     print()
     print("All trailing stop tests passed.")

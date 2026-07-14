@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tradesight"
-version = "1.1.0"
+version = "1.1.2"
 description = "Self-hosted AI trading strategy lab — backtest, paper trade, run AI tournaments overnight."
 readme = "README.md"
 license = {text = "MIT"}
@@ -32,6 +32,9 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Office/Business :: Financial :: Investment",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
 ]
 requires-python = ">=3.10"
 dependencies = [

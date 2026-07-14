@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TradeSight - AI Trading Intelligence</title>
+    <link rel="icon" href="data:,">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -51,6 +52,8 @@
             display: flex;
             border-bottom: 2px solid #2d3748;
             padding: 0 24px;
+            max-width: 100%;
+            overflow-x: auto;
         }
         .tab-btn {
             background: none;
@@ -63,6 +66,7 @@
             border-bottom: 2px solid transparent;
             margin-bottom: -2px;
             transition: all 0.2s;
+            flex: 0 0 auto;
         }
         .tab-btn:hover { color: #f1f5f9; }
         .tab-btn.active {
@@ -152,8 +156,9 @@
             background: #1a2035;
             border: 1px solid #2d3748;
             border-radius: 8px;
-            overflow: hidden;
+            overflow-x: auto;
             margin-bottom: 24px;
+            max-width: 100%;
         }
         .table-card .table-header {
             padding: 16px 20px;
@@ -272,6 +277,48 @@
         }
         @media (max-width: 900px) {
             .grid-2 { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 640px) {
+            .header {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 8px;
+                padding: 14px 16px;
+            }
+            .header .status {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .tab-bar {
+                padding: 0 12px;
+            }
+            .tab-btn {
+                padding: 12px 14px;
+            }
+            .content {
+                padding: 16px;
+                overflow-x: hidden;
+            }
+            table {
+                min-width: 680px;
+            }
+            .settings-row {
+                align-items: stretch;
+                flex-direction: column;
+                gap: 4px;
+            }
+            .settings-input {
+                width: 100%;
+            }
+            .winner-banner {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 16px;
+            }
+            .winner-banner .stats-mini {
+                width: 100%;
+                justify-content: space-between;
+            }
         }
 
         /* Scrollbar */
@@ -502,7 +549,7 @@
             <p style="color: #94a3b8; font-size: 0.9em; line-height: 1.6;">
                 Paper trading uses tournament-winning strategies with live market data via Alpaca.<br>
                 <strong>Symbols:</strong> AAPL, MSFT, GOOGL, AMZN, TSLA, NVDA, META, NFLX<br>
-                <strong>Status:</strong> <span class="badge badge-yellow">Demo Mode — No API keys configured</span>
+                <strong>Status:</strong> <span class="badge badge-yellow" id="paper-credential-status">Checking credentials...</span>
             </p>
         </div>
     </div>
@@ -681,8 +728,8 @@
     function loadTabData(name) {
         if (name === 'markets') loadMarkets();
         else if (name === 'strategy-lab') loadStrategyLab();
+        else if (name === 'paper-trading') loadPaperTrading();
         else if (name === 'system') loadSystem();
-        // paper-trading is mostly static until API keys configured
     }
 
     function fmt(n, dec=1) {
@@ -798,16 +845,13 @@
                 btn.disabled = false;
                 document.getElementById('tournament-status-msg').textContent = d.has_results ? '✅ Results available' : '';
             }
-        }).catch(() => {});
-
-        // Load latest results if available
-        fetch('/api/strategy-lab/results').then(r => {
-            if (!r.ok) return null;
-            return r.json();
-        }).then(data => {
-            if (!data || data.error) return;
-            lastTournamentData = data;
-            renderTournamentResults(data);
+            if (d.has_results) {
+                fetch('/api/strategy-lab/results').then(r => r.json()).then(data => {
+                    if (!data || data.error) return;
+                    lastTournamentData = data;
+                    renderTournamentResults(data);
+                }).catch(() => {});
+            }
         }).catch(() => {});
 
         // Load history
@@ -902,13 +946,144 @@
         });
     }
 
+    // ===== PAPER TRADING =====
+    function loadPaperTrading() {
+        fetch('/api/paper-trading/status').then(r => r.json()).then(d => {
+            const credentialBadge = document.getElementById('paper-credential-status');
+            if (credentialBadge) {
+                credentialBadge.className = 'badge ' + (d.credentials_configured ? 'badge-green' : 'badge-yellow');
+                credentialBadge.textContent = d.credentials_configured
+                    ? `Paper mode — credentials from ${d.credential_source}`
+                    : 'Paper mode — credentials unavailable';
+            }
+
+            document.getElementById('paper-stats').innerHTML = `
+                <div class="card">
+                    <h3>Mode</h3>
+                    <div class="value blue">${(d.mode || 'paper').toUpperCase()}</div>
+                    <div class="sub">${d.credentials_configured ? 'Credentials loaded' : 'No credentials'}</div>
+                </div>
+                <div class="card">
+                    <h3>Open Positions</h3>
+                    <div class="value blue">${d.open_positions || 0}</div>
+                    <div class="sub">Tracked locally</div>
+                </div>
+                <div class="card">
+                    <h3>Closed Positions</h3>
+                    <div class="value">${d.closed_positions || 0}</div>
+                    <div class="sub">Trade history</div>
+                </div>
+                <div class="card">
+                    <h3>Total Realized P&L</h3>
+                    <div class="value ${pnlClass(d.total_realized_pnl)}">${fmtMoney(d.total_realized_pnl || 0)}</div>
+                    <div class="sub">Paper account tracking</div>
+                </div>`;
+        }).catch(err => {
+            const credentialBadge = document.getElementById('paper-credential-status');
+            if (credentialBadge) {
+                credentialBadge.className = 'badge badge-red';
+                credentialBadge.textContent = 'Status unavailable';
+            }
+        });
+    }
+
+    // ===== ALERTS =====
+    function setChecked(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.checked = !!value;
+    }
+
+    function setValue(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.value = value ?? '';
+    }
+
+    function loadAlertsData() {
+        Promise.all([
+            fetch('/api/alerts/stats').then(r => r.json()).catch(() => ({})),
+            fetch('/api/alerts/recent').then(r => r.json()).catch(() => ({alerts: []})),
+            fetch('/api/alerts/config').then(r => r.json()).catch(() => ({})),
+        ]).then(([stats, recent, cfg]) => {
+            document.getElementById('alerts-total').textContent = stats.total || 0;
+            document.getElementById('alerts-enabled-val').textContent = stats.alerts_enabled ? 'On' : 'Off';
+            document.getElementById('alerts-email-val').textContent = cfg.email_enabled ? 'On' : 'Off';
+            document.getElementById('alerts-webhook-val').textContent = cfg.webhook_enabled ? 'On' : 'Off';
+
+            const alerts = Array.isArray(recent.alerts) ? recent.alerts : [];
+            document.getElementById('alerts-history').innerHTML = alerts.length ? alerts.map(a => `
+                <tr>
+                    <td>${new Date(a.timestamp || Date.now()).toLocaleString()}</td>
+                    <td><span class="alert-type-${String(a.alert_type || '').toLowerCase()}">${a.alert_type || '--'}</span></td>
+                    <td>${a.symbol || '--'}</td>
+                    <td>${a.action || '--'}</td>
+                    <td>${a.message || a.reason || '--'}</td>
+                </tr>
+            `).join('') : '<tr><td colspan="5" class="empty-msg">No alerts yet</td></tr>';
+
+            setChecked('cfg-alerts-enabled', cfg.alerts_enabled);
+            setChecked('cfg-email-enabled', cfg.email_enabled);
+            setChecked('cfg-smtp-tls', cfg.smtp_use_tls);
+            setChecked('cfg-webhook-enabled', cfg.webhook_enabled);
+            setValue('cfg-smtp-host', cfg.smtp_host);
+            setValue('cfg-smtp-port', cfg.smtp_port || 587);
+            setValue('cfg-smtp-user', cfg.smtp_username);
+            setValue('cfg-smtp-pass', cfg.smtp_password);
+            setValue('cfg-email-from', cfg.email_from);
+            setValue('cfg-email-to', Array.isArray(cfg.email_to) ? cfg.email_to.join(', ') : cfg.email_to);
+            setValue('cfg-webhook-url', cfg.webhook_url);
+        });
+    }
+
+    function saveAlertsConfig() {
+        const status = document.getElementById('alerts-save-status');
+        const payload = {
+            alerts_enabled: document.getElementById('cfg-alerts-enabled').checked,
+            email_enabled: document.getElementById('cfg-email-enabled').checked,
+            smtp_host: document.getElementById('cfg-smtp-host').value,
+            smtp_port: Number(document.getElementById('cfg-smtp-port').value || 587),
+            smtp_use_tls: document.getElementById('cfg-smtp-tls').checked,
+            smtp_username: document.getElementById('cfg-smtp-user').value,
+            smtp_password: document.getElementById('cfg-smtp-pass').value,
+            email_from: document.getElementById('cfg-email-from').value,
+            email_to: document.getElementById('cfg-email-to').value.split(',').map(s => s.trim()).filter(Boolean),
+            webhook_enabled: document.getElementById('cfg-webhook-enabled').checked,
+            webhook_url: document.getElementById('cfg-webhook-url').value,
+        };
+        fetch('/api/alerts/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        }).then(r => r.json()).then(data => {
+            status.textContent = data.error ? `Error: ${data.error}` : 'Saved';
+            status.style.color = data.error ? '#ef4444' : '#22c55e';
+            loadAlertsData();
+        }).catch(err => {
+            status.textContent = `Error: ${err}`;
+            status.style.color = '#ef4444';
+        });
+    }
+
+    function testAlert() {
+        const status = document.getElementById('alerts-save-status');
+        fetch('/api/alerts/test', { method: 'POST' }).then(r => r.json()).then(data => {
+            status.textContent = data.error ? `Error: ${data.error}` : 'Test alert sent';
+            status.style.color = data.error ? '#ef4444' : '#22c55e';
+            loadAlertsData();
+        }).catch(err => {
+            status.textContent = `Error: ${err}`;
+            status.style.color = '#ef4444';
+        });
+    }
+
     // ===== SYSTEM =====
     function loadSystem() {
         const endpoints = [
+            {url: '/health', name: 'Dashboard Health'},
             {url: '/api/polymarket/stats', name: 'Polymarket Stats'},
             {url: '/api/polymarket/opportunities', name: 'Polymarket Opportunities'},
             {url: '/api/stocks/stats', name: 'Stock Stats'},
             {url: '/api/stocks/opportunities', name: 'Stock Opportunities'},
+            {url: '/api/paper-trading/status', name: 'Paper Trading Status'},
             {url: '/api/strategy-lab/stats', name: 'Strategy Lab Stats'},
             {url: '/api/strategy-lab/status', name: 'Tournament Status'},
             {url: '/api/strategy-lab/history', name: 'Tournament History'},
@@ -933,7 +1108,8 @@
             fetch('/api/polymarket/stats').then(r => r.json()).catch(() => ({})),
             fetch('/api/stocks/stats').then(r => r.json()).catch(() => ({})),
             fetch('/api/strategy-lab/stats').then(r => r.json()).catch(() => ({})),
-        ]).then(([poly, stocks, strat]) => {
+            fetch('/api/paper-trading/status').then(r => r.json()).catch(() => ({})),
+        ]).then(([poly, stocks, strat, paper]) => {
             document.getElementById('module-stats').innerHTML = `
                 <tr>
                     <td>Polymarket Scanner</td>
@@ -952,8 +1128,8 @@
                 </tr>
                 <tr>
                     <td>Paper Trading</td>
-                    <td><span class="badge badge-yellow">Demo</span></td>
-                    <td>No API keys configured</td>
+                    <td><span class="badge ${paper.credentials_configured ? 'badge-green' : 'badge-yellow'}">${paper.credentials_configured ? 'Paper Ready' : 'Credentials Missing'}</span></td>
+                    <td>${paper.open_positions || 0} open / ${paper.closed_positions || 0} closed positions</td>
                 </tr>`;
         });
     }
@@ -961,6 +1137,7 @@
     // Initial load
     document.addEventListener('DOMContentLoaded', () => {
         loadMarkets();
+        loadPaperTrading();
         document.getElementById('header-time').textContent = new Date().toLocaleTimeString();
     });
 

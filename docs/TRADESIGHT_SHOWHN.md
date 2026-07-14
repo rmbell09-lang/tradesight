@@ -27,7 +27,7 @@ The best RSI Mean Reversion strategy it's evolved so far: 89.4% P&L with a 2.53 
 
 **What's included:**
 - Full Python source (MIT license)
-- Web dashboard at localhost:5001 (markets, tournaments, paper trades)
+- Web dashboard at localhost:5000 (markets, tournaments, paper trades)
 - Polymarket prediction markets + US equities scanner
 - 15+ technical indicators applied automatically
 - Paper trading via Alpaca's free API (fake money, real P&L tracking)

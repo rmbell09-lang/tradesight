@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from trading.position_manager import PositionManager, Position, PortfolioState
 from trading.paper_trader import PaperTrader
+from trading.feedback_tracker import FeedbackTracker
 
 
 class TestPositionManager:
@@ -515,6 +516,57 @@ class TestPaperTrader:
         assert row[1] == 'filled'
         assert row[2] == 151.25
 
+
+    def test_trade_logger_empty_analysis_is_not_appended_to_positions_report(self):
+        """Do not append contradictory 'No closed trades yet' when positions DB has closes."""
+        self.trader.position_manager.open_position('AAPL', 'Confluence', 'long', 1.0, 100.0)
+        self.trader.position_manager.close_position('AAPL', 'Confluence', 105.0)
+
+        report = self.trader.generate_trading_report()
+        report = self.trader._append_trade_logger_analysis(report, days=30)
+
+        assert 'Recently Closed Trades' in report or 'Closed Trades' in report
+        assert 'No closed trades yet' not in report
+
+    def test_unverified_closed_trades_are_labeled_in_report(self):
+        """Positions without broker exit fill metadata should be explicit, not blended as verified."""
+        self.trader.position_manager.open_position('AAPL', 'Confluence', 'long', 1.0, 100.0)
+        self.trader.position_manager.close_position('AAPL', 'Confluence', 105.0)
+
+        report = self.trader.generate_trading_report()
+
+        assert 'Local/Unverified Closed Trades' in report
+        assert 'missing broker exit fill' in report
+
+    def test_paper_trader_does_not_block_close_with_min_hold_guard(self):
+        """Paper trading should allow protective/discretionary closes without a fake PDT block."""
+        self.trader.position_manager.open_position('AAPL', 'RSI Mean Reversion', 'long', 2.0, 100.0)
+
+        self.trader.alpaca.close_full_position = Mock(return_value={
+            'status': 'closed',
+            'order_id': 'ord_exit_paper',
+            'fill_price': 110.0,
+        })
+
+        ok = self.trader._execute_sell_order('AAPL', 'RSI Mean Reversion', 109.0)
+        assert ok is True
+
+    def test_live_mode_still_respects_min_hold_guard(self):
+        """If min-hold enforcement is explicitly enabled, a fresh position should stay open."""
+        self.trader.config['enforce_min_hold_hours'] = True
+        self.trader.config['min_hold_hours'] = 24
+        self.trader.position_manager.open_position('AAPL', 'RSI Mean Reversion', 'long', 2.0, 100.0)
+
+        self.trader.alpaca.close_full_position = Mock(return_value={
+            'status': 'closed',
+            'order_id': 'ord_exit_blocked',
+            'fill_price': 110.0,
+        })
+
+        ok = self.trader._execute_sell_order('AAPL', 'RSI Mean Reversion', 109.0)
+        assert ok is False
+        self.trader.alpaca.close_full_position.assert_not_called()
+
     def test_sell_order_persists_exit_order_fill_metadata_and_pnl(self):
         """Exit order_id + fill status should be recorded and PnL should use fill price."""
         self.trader.config['min_hold_hours'] = 0
@@ -543,6 +595,131 @@ class TestPaperTrader:
         assert row[2] == 'closed'
         assert row[3] == 110.0
         assert row[4] == 20.0
+
+    def test_broker_verified_close_without_order_id_gets_synthetic_exit_reference(self):
+        """Alpaca close-position success can lack order id; do not mark it suspicious/local."""
+        self.trader.config['min_hold_hours'] = 0
+        self.trader.position_manager.open_position('KO', 'RSI Mean Reversion', 'long', 2.0, 80.0)
+
+        self.trader.alpaca.close_full_position = Mock(return_value={
+            'status': 'closed',
+            'fill_price': 82.0,
+            'symbol': 'KO',
+            'broker_verified': True,
+        })
+
+        ok = self.trader._execute_sell_order('KO', 'RSI Mean Reversion', 81.5)
+        assert ok is True
+
+        db_path = self.trader.position_manager.data_dir / 'positions.db'
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT status, exit_order_id, exit_fill_status, exit_price, realized_pnl FROM positions "
+                "WHERE symbol=? AND strategy=? ORDER BY id DESC LIMIT 1",
+                ('KO', 'RSI Mean Reversion')
+            ).fetchone()
+
+        assert row is not None
+        assert row[0] == 'closed'
+        assert row[1].startswith('alpaca_close_position:KO:')
+        assert row[2] == 'closed'
+        assert row[3] == 82.0
+        assert row[4] == 4.0
+
+    def test_pending_exit_order_does_not_fake_close_local_position(self):
+        """accepted/pending_new broker exits stay open until fill reconciliation."""
+        self.trader.config['min_hold_hours'] = 0
+        self.trader.position_manager.open_position('COST', 'RSI Mean Reversion', 'long', 1.0, 900.0)
+
+        self.trader.alpaca.close_full_position = Mock(return_value={
+            'status': 'pending_new',
+            'order_id': 'ord_exit_pending',
+            'fill_price': None,
+        })
+
+        ok = self.trader._execute_sell_order('COST', 'RSI Mean Reversion', 905.0)
+        assert ok is False
+        assert self.trader._last_close_blocked == ('COST', 'RSI Mean Reversion', 'EXIT_PENDING')
+
+        db_path = self.trader.position_manager.data_dir / 'positions.db'
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT status, exit_order_id, exit_fill_status, exit_price FROM positions "
+                "WHERE symbol='COST' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+
+        assert row == ('open', 'ord_exit_pending', 'pending_new', None)
+
+    def test_broker_fill_reconcile_closes_position_and_clears_trade_logger_open(self):
+        """End-of-run reconciliation should align positions.db and trades.db."""
+        self.trader.config['min_hold_hours'] = 0
+        self.trader.position_manager.open_position('WMT', 'RSI Mean Reversion', 'long', 2.0, 70.0)
+        db_path = self.trader.position_manager.data_dir / 'positions.db'
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE positions SET exit_order_id='ord_wmt_exit', exit_fill_status='pending_new' "
+                "WHERE symbol='WMT'"
+            )
+            conn.commit()
+
+        self.trader.alpaca.demo_mode = False
+        self.trader.alpaca.get_order = Mock(return_value={
+            'id': 'ord_wmt_exit',
+            'status': 'filled',
+            'filled_avg_price': '72.50',
+        })
+
+        reconciled = self.trader._reconcile_exit_fills(remote_symbols={'WMT'})
+        assert reconciled == 1
+
+        with sqlite3.connect(db_path) as conn:
+            pos = conn.execute(
+                "SELECT status, exit_price, realized_pnl, exit_fill_status FROM positions WHERE symbol='WMT'"
+            ).fetchone()
+        assert pos == ('closed', 72.5, 5.0, 'filled')
+
+        trades_db = self.trader.position_manager.trade_logger.db_path
+        with sqlite3.connect(trades_db) as conn:
+            open_count = conn.execute(
+                "SELECT COUNT(*) FROM open_trades WHERE symbol='WMT'"
+            ).fetchone()[0]
+            closed_count = conn.execute(
+                "SELECT COUNT(*) FROM trades WHERE symbol='WMT'"
+            ).fetchone()[0]
+        assert open_count == 0
+        assert closed_count == 1
+
+    def test_symbol_cooldown_blocks_recent_close_and_losing_trailing_stop(self):
+        """Same-symbol churn should be blocked after recent or losing protective exits."""
+        db_path = self.trader.position_manager.data_dir / 'positions.db'
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO positions (symbol, strategy, side, quantity, entry_price, current_price, "
+                "entry_time, exit_time, exit_price, realized_pnl, status, exit_reason) "
+                "VALUES ('CVX', 'RSI Mean Reversion', 'long', 1, 100, 100, ?, ?, 99, -1, 'closed', 'TRAILING_STOP')",
+                (
+                    (datetime.now() - timedelta(days=2)).isoformat(),
+                    (datetime.now() - timedelta(days=2)).isoformat(),
+                )
+            )
+            conn.commit()
+
+        assert self.trader._is_symbol_in_cooldown('CVX') is True
+
+    def test_accounting_divergence_warning_appears_in_report(self):
+        """Report should warn when local P&L and broker equity disagree."""
+        self.trader.position_manager.open_position('AAPL', 'Confluence', 'long', 1.0, 100.0)
+        self.trader.position_manager.close_position('AAPL', 'Confluence', 120.0)
+        self.trader.position_manager.persist_balance_sync(
+            buying_power=500.0,
+            equity=502.0,
+            positions_value=0.0,
+        )
+
+        report = self.trader.generate_trading_report()
+
+        assert 'Accounting Reconciliation Warning' in report
+        assert 'Treat broker equity as source of truth' in report
 
     def test_generate_trading_report(self):
         """Test trading report generation"""
@@ -737,3 +914,136 @@ if __name__ == '__main__':
     # Run integration test when called directly
     success = run_paper_trading_integration_test()
     sys.exit(0 if success else 1)
+
+
+def test_tournament_winner_score_threshold_is_separate_from_signal_confidence(tmp_path):
+    """Low composite tournament scores should still qualify instead of forcing fallback params."""
+    trader = PaperTrader(base_dir=str(tmp_path))
+    db_path = trader.automation.data_dir / 'tournament_history.db'
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute('''CREATE TABLE tournament_sessions (
+            session_id TEXT, start_time TEXT, status TEXT, winner TEXT, winner_avg_score REAL
+        )''')
+        conn.execute(
+            "INSERT INTO tournament_sessions VALUES (?,?,?,?,?)",
+            ('s1', datetime.now().isoformat(), 'completed', 'MACD Crossover', 0.02),
+        )
+    trader.config['min_strategy_confidence'] = 0.55
+    trader.config['min_tournament_winner_score'] = 0.0
+
+    assert trader.get_latest_tournament_winners(days=7) == [('MACD Crossover', 0.02)]
+
+
+def test_tiny_tournament_winner_score_is_rejected_by_default(tmp_path):
+    """Zero/tiny tournament scores should not trade just because they won."""
+    trader = PaperTrader(base_dir=str(tmp_path))
+    db_path = trader.automation.data_dir / 'tournament_history.db'
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute('''CREATE TABLE tournament_sessions (
+            session_id TEXT, start_time TEXT, status TEXT, winner TEXT, winner_avg_score REAL
+        )''')
+        conn.execute(
+            "INSERT INTO tournament_sessions VALUES (?,?,?,?,?)",
+            ('s1', datetime.now().isoformat(), 'completed', 'MACD Crossover', 0.001),
+        )
+
+    assert trader.config['min_tournament_winner_score'] == 0.01
+    assert trader.get_latest_tournament_winners(days=7) == []
+
+
+def test_gap_up_at_capacity_closes_profitable_position(tmp_path):
+    """A large profitable gap-up should trigger a capacity-freeing paper close."""
+    import pandas as pd
+    trader = PaperTrader(base_dir=str(tmp_path))
+    trader.config['max_concurrent_trades'] = 1
+    trader.position_manager.open_position('AAPL', 'MACD Crossover', 'long', 1.0, 100.0)
+
+    quote = Mock()
+    quote.last = 110.0
+    trader.alpaca.get_quote = Mock(return_value=quote)
+    trader.alpaca.get_historical_data = Mock(return_value=pd.DataFrame({'close': [100.0, 104.0]}))
+    trader._execute_sell_order = Mock(return_value=True)
+
+    trader._check_premarket_gaps()
+
+    trader._execute_sell_order.assert_called_once_with('AAPL', 'MACD Crossover', 110.0, force=True)
+
+
+def test_trade_level_feedback_blocks_negative_symbol_strategy(tmp_path):
+    tracker = FeedbackTracker(base_dir=str(tmp_path))
+    params = {'oversold': 30, 'overbought': 65, 'position_size': 0.15}
+
+    for idx in range(5):
+        tracker.record_closed_trade(
+            params=params,
+            symbol='META',
+            strategy='Confluence',
+            side='long',
+            entry_price=100.0,
+            exit_price=96.0,
+            quantity=1.0,
+            pnl_dollars=-4.0,
+            exit_reason='STOP_LOSS',
+            source='test',
+            source_id=str(idx),
+        )
+
+    adjustment = tracker.get_execution_adjustment('META', 'Confluence')
+
+    assert adjustment['tradeable'] is False
+    assert adjustment['confidence_multiplier'] == 0.0
+    assert adjustment['size_multiplier'] == 0.0
+    assert adjustment['sample_size'] == 5
+
+
+def test_paper_trader_applies_learning_size_multiplier_to_buys(tmp_path):
+    trader = PaperTrader(base_dir=str(tmp_path))
+    trader.feedback = Mock()
+    trader.feedback.get_execution_adjustment.return_value = {
+        'tradeable': True,
+        'confidence_multiplier': 1.0,
+        'size_multiplier': 0.5,
+        'reason': 'reduced by learned weak edge',
+    }
+    trader.position_manager.calculate_position_size = Mock(return_value=10.0)
+    trader._execute_buy_order = Mock(return_value=True)
+
+    ok = trader.execute_signal({
+        'symbol': 'SPY',
+        'strategy': 'MACD Crossover',
+        'action': 'buy',
+        'side': 'long',
+        'current_price': 100.0,
+        'confidence': 0.8,
+    })
+
+    assert ok is True
+    trader._execute_buy_order.assert_called_once()
+    assert trader._execute_buy_order.call_args.args[3] == 5.0
+
+
+def test_learning_block_does_not_block_sell_signal(tmp_path):
+    trader = PaperTrader(base_dir=str(tmp_path))
+    trader.feedback = Mock()
+    trader.feedback.get_execution_adjustment.return_value = {
+        'tradeable': False,
+        'confidence_multiplier': 0.0,
+        'size_multiplier': 0.0,
+        'reason': 'blocked by learned negative edge',
+    }
+    trader.position_manager.calculate_position_size = Mock(return_value=1.0)
+    trader._execute_sell_order = Mock(return_value=True)
+
+    ok = trader.execute_signal({
+        'symbol': 'SPY',
+        'strategy': 'MACD Crossover',
+        'action': 'sell',
+        'side': 'long',
+        'current_price': 100.0,
+        'confidence': 0.8,
+    })
+
+    assert ok is True
+    trader._execute_sell_order.assert_called_once_with('SPY', 'MACD Crossover', 100.0)

@@ -110,9 +110,28 @@ class StrategyAutomation:
         Returns None if fetch fails (caller falls back to synthetic data).
         """
         try:
-            client = AlpacaClient()
+            try:
+                from config import ALPACA_API_KEY, ALPACA_SECRET_KEY
+                api_key = ALPACA_API_KEY or None
+                secret_key = ALPACA_SECRET_KEY or None
+            except Exception:
+                api_key = os.environ.get('ALPACA_API_KEY')
+                secret_key = os.environ.get('ALPACA_SECRET_KEY')
+
+            client = AlpacaClient(
+                api_key=api_key,
+                secret_key=secret_key,
+                paper=True,
+            )
             data = client.get_historical_data(symbol, days=days, timeframe='1Day')
+            source = getattr(data, 'attrs', {}).get('data_source') if data is not None else None
+            if source in ('demo_mode', 'demo_fallback'):
+                self.logger.warning(
+                    f"Rejected {source} data for {symbol}: {getattr(data, 'attrs', {}).get('fallback_reason', 'no reason')}"
+                )
+                return None
             if data is not None and len(data) >= 50:
+                data.attrs['data_source'] = 'alpaca_1d'
                 self.logger.info(f"Fetched {len(data)} bars for {symbol}")
                 return data
             else:
@@ -232,7 +251,7 @@ class StrategyAutomation:
             try:
                 import json as _json
                 from pathlib import Path as _Path
-                _champ_path = _Path(__file__).resolve().parent.parent.parent / 'data' / 'champion.json'
+                _champ_path = self.data_dir / 'champion.json'
                 if _champ_path.exists():
                     with open(_champ_path) as _cf:
                         _champ = _json.load(_cf)
@@ -244,6 +263,10 @@ class StrategyAutomation:
                             position_size=_p.get('position_size', 0.6),
                             stop_loss_pct=_p.get('stop_loss_pct', 0.07),
                             take_profit_pct=_p.get('take_profit_pct', 0.08),
+                            max_holding_bars=_p.get('max_holding_bars', 0),
+                            use_atr=_p.get('use_atr', False),
+                            trend_buffer=_p.get('trend_buffer', 0.0),
+                            volume_min_ratio=_p.get('volume_min_ratio', 0.0),
                         )
                         _variant_name = f"RSI_Champion_os{_p['oversold']}_ob{_p['overbought']}"
                         tournament.register_strategy(_variant_name, _champ_rsi)
@@ -349,12 +372,21 @@ class StrategyAutomation:
                         results_json TEXT
                     )
                 ''')
-                # Migration guard: legacy DBs may lack session_id column
+                # Migration guard: legacy DBs may be missing columns used by current inserts
                 existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(tournament_sessions)").fetchall()}
-                if 'session_id' not in existing_cols:
-                    conn.execute("ALTER TABLE tournament_sessions ADD COLUMN session_id TEXT")
-                    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_sessions_session_id ON tournament_sessions(session_id)")
-                    self.logger.warning("Migrated tournament_sessions: added missing session_id column")
+                required_columns = {
+                    'session_id': 'TEXT',
+                    'duration_seconds': 'REAL',
+                    'total_rounds': 'INTEGER',
+                    'total_strategies': 'INTEGER',
+                    'final_survivors': 'INTEGER',
+                    'results_json': 'TEXT',
+                }
+                for col_name, col_type in required_columns.items():
+                    if col_name not in existing_cols:
+                        conn.execute(f"ALTER TABLE tournament_sessions ADD COLUMN {col_name} {col_type}")
+                        self.logger.warning(f"Migrated tournament_sessions: added missing {col_name} column")
+                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_sessions_session_id ON tournament_sessions(session_id)")
                 
                 conn.execute('''
                     CREATE TABLE IF NOT EXISTS strategy_performance (

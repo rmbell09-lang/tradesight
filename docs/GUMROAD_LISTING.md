@@ -38,6 +38,9 @@ No $200/month signal subscriptions. No black-box algorithms. No cloud dependenci
 **🧠 AI Strategy Lab**
 Overnight tournaments evolve trading strategies automatically. Start with a base strategy → generate variations → backtest against real data → kill the losers → promote the winners. Morning coffee + better strategies.
 
+**🛡️ Safer Optimizer Promotion Gates**
+TradeSight now validates optimizer changes across broader symbol baskets before promotion. It checks out-of-sample results, walk-forward stability, current market regime, Monte Carlo robustness, and overfit risk so tiny backtest bumps do not get blindly promoted.
+
 **📊 Multi-Market Scanner**
 Polymarket prediction markets + US equities. Every asset scored by confidence — you know where to look before you open your brokerage.
 
@@ -48,7 +51,7 @@ MACD, RSI, Bollinger Bands, volume analysis — applied automatically. No manual
 Top strategies execute with fake money via Alpaca's API. Real P&L, zero risk. Flip to live when you're ready.
 
 **🖥️ Local Dashboard**
-Everything in one place at localhost:5001. Markets, Tournaments, Trading, Settings. No SaaS login.
+Everything in one place at localhost:5000. Markets, Tournaments, Trading, Settings. No SaaS login.
 
 **⚙️ Set and Forget**
 Cron jobs handle overnight runs. Check dashboard in the morning. That's it.
@@ -83,11 +86,12 @@ The RSI Mean Reversion strategy — evolved through TradeSight's tournament syst
 ✅ Full Python source code (MIT license)
 ✅ Web dashboard (Flask, no framework bloat)
 ✅ AI Strategy Lab — tournament + backtesting engine
+✅ Family-aware RSI/MACD/Momentum optimizer with OOS + overfit promotion gates
 ✅ Polymarket scanner with confidence scoring
 ✅ Stock scanner with 15+ technical indicators
 ✅ Paper trading orchestrator (Alpaca integration)
 ✅ Overnight automation cron scripts
-✅ 94 tests passing
+✅ Automated optimizer guard tests included
 ✅ Demo mode — works immediately, no API keys needed
 ✅ Mac + Linux setup guide
 
@@ -96,7 +100,7 @@ The RSI Mean Reversion strategy — evolved through TradeSight's tournament syst
 ### Tech Stack
 
 - **Python 3.11+** — clean, readable, hackable
-- **Flask dashboard** — localhost:5001, zero external dependencies
+- **Flask dashboard** — localhost:5000, zero external dependencies
 - **Data:** Polymarket API (free) + Alpaca (free paper trading account)
 - **Storage:** SQLite — no Postgres, no Redis, no Docker
 - **Runs on:** Mac, Linux (tested on M4 Mac Mini)

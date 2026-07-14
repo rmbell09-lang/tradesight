@@ -517,7 +517,11 @@ def rsi_mean_reversion(data: pd.DataFrame, index: int, positions: List) -> Optio
 def make_rsi_strategy(oversold: int = 30, overbought: int = 70,
                       position_size: float = 0.6,
                       stop_loss_pct: float = 0.07,
-                      take_profit_pct: float = 0.08):
+                      take_profit_pct: float = 0.08,
+                      max_holding_bars: int = 0,
+                      use_atr: bool = False,
+                      trend_buffer: float = 0.0,
+                      volume_min_ratio: float = 0.0):
     """
     Factory: create an RSI strategy with specific params.
     Used by tournament so champion params are evaluated consistently
@@ -529,9 +533,16 @@ def make_rsi_strategy(oversold: int = 30, overbought: int = 70,
             oversold=oversold, overbought=overbought,
             position_size=position_size,
             stop_loss_pct=stop_loss_pct,
-            take_profit_pct=take_profit_pct
+            take_profit_pct=take_profit_pct,
+            max_holding_bars=max_holding_bars,
+            use_atr=use_atr,
+            trend_buffer=trend_buffer,
+            volume_min_ratio=volume_min_ratio,
         )
-    _strategy.__name__ = f'rsi_mean_reversion_os{oversold}_ob{overbought}'
+    _strategy.__name__ = (
+        f'rsi_mean_reversion_os{oversold}_ob{overbought}_'
+        f'h{max_holding_bars}_atr{int(use_atr)}'
+    )
     return _strategy
 
 
@@ -539,20 +550,56 @@ def _rsi_mean_reversion_impl(data: pd.DataFrame, index: int, positions: List,
                               oversold: int = 30, overbought: int = 70,
                               position_size: float = 0.6,
                               stop_loss_pct: float = 0.07,
-                              take_profit_pct: float = 0.08) -> Optional[Dict]:
+                              take_profit_pct: float = 0.08,
+                              max_holding_bars: int = 0,
+                              use_atr: bool = False,
+                              trend_buffer: float = 0.0,
+                              volume_min_ratio: float = 0.0) -> Optional[Dict]:
     """Core RSI mean reversion logic — parameterised"""
     if index < 50:
         return None
     
     current = data.iloc[index]
+
+    if positions and max_holding_bars > 0:
+        for pos in positions:
+            entry_idx = pos.get('entry_index', index) if isinstance(pos, dict) else index
+            if (index - entry_idx) >= max_holding_bars:
+                return {'action': 'close'}
     
     # Buy signal: RSI oversold
     if current['rsi'] < oversold and not positions:
+        price = current['close']
+        if trend_buffer > 0:
+            sma50 = current.get('sma_50') if hasattr(current, 'get') else None
+            if sma50 is not None and not pd.isna(sma50) and price < sma50 * trend_buffer:
+                return None
+
+        if volume_min_ratio > 0:
+            vol = current.get('volume', 0) if hasattr(current, 'get') else 0
+            vol_sma = current.get('volume_sma_20', 0) if hasattr(current, 'get') else 0
+            if vol_sma and vol_sma > 0 and vol < vol_sma * volume_min_ratio:
+                return None
+
+        if use_atr:
+            atr = current.get('atr_14') if hasattr(current, 'get') else None
+            if atr is not None and not pd.isna(atr) and atr > 0 and price > 0:
+                atr_sl = min(2.0 * atr / price, stop_loss_pct)
+                atr_tp = min(3.0 * atr / price, take_profit_pct)
+                stop_loss = price * (1.0 - max(atr_sl, 0.02))
+                take_profit = price * (1.0 + max(atr_tp, 0.03))
+            else:
+                stop_loss = price * (1.0 - stop_loss_pct)
+                take_profit = price * (1.0 + take_profit_pct)
+        else:
+            stop_loss = price * (1.0 - stop_loss_pct)
+            take_profit = price * (1.0 + take_profit_pct)
+
         return {
             'action': 'buy',
             'size': position_size,
-            'stop_loss': current['close'] * (1.0 - stop_loss_pct),
-            'take_profit': current['close'] * (1.0 + take_profit_pct)
+            'stop_loss': stop_loss,
+            'take_profit': take_profit
         }
     
     # Sell signal: RSI overbought

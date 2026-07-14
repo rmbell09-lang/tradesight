@@ -82,3 +82,15 @@ if __name__ == '__main__':
     test_stock_stats_basic()
     test_flask_routes()
     print("✅ All unified dashboard tests passed!")
+
+def test_health_route_returns_service_status():
+    """Health endpoint should exist for service monitors."""
+    from dashboard import app
+
+    client = app.test_client()
+    response = client.get('/health')
+    assert response.status_code in (200, 500)
+    data = response.get_json()
+    assert data['service'] == 'tradesight-dashboard'
+    assert 'timestamp' in data
+    assert 'checks' in data

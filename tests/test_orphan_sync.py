@@ -37,7 +37,9 @@ def mock_trader(temp_dir):
     """PaperTrader in demo mode with a fresh temp DB"""
     with patch('data.alpaca_client.AlpacaClient') as MockAlpaca:
         mock_alpaca = MagicMock()
-        mock_alpaca.demo_mode = True
+        # These tests exercise broker reconciliation with a mocked broker.
+        # demo_mode intentionally skips reconciliation in production.
+        mock_alpaca.demo_mode = False
         mock_alpaca.get_account.return_value = {
             "equity": "500.00", "buying_power": "49.19",
             "long_market_value": "450.00", "status": "ACTIVE"

@@ -4,8 +4,8 @@
 echo "🎯 Starting TradeSight Trading Intelligence Platform..."
 echo "========================================"
 
-# Navigate to TradeSight directory
-cd "/Volumes/Crucial X10/TradeSight"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
 
 # Activate any virtual environment if needed (optional)
 # source venv/bin/activate 2>/dev/null || true

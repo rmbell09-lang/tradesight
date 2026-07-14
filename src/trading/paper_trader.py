@@ -126,8 +126,10 @@ class PaperTrader:
         self.active_params: Dict = {}
         if _CHAMPION_AVAILABLE:
             try:
-                # .resolve() ensures correct project root regardless of how the module was imported
-                _ct = ChampionTracker(base_dir=str(Path(__file__).resolve().parent.parent.parent))
+                # Use the resolved project root for this PaperTrader instance.
+                # Tests and alternate checkouts pass their own base_dir; loading
+                # the live repo champion there leaks real learning into isolated runs.
+                _ct = ChampionTracker(base_dir=str(self.base_dir))
                 _champ = _ct.get_champion()
                 if _champ and _champ.get('params'):
                     self.active_params = _champ['params']
@@ -139,8 +141,8 @@ class PaperTrader:
         
         # Feedback tracker
         if _FEEDBACK_AVAILABLE:
-            # Use TradeSight root (parent of src/) so feedback DB matches overnight optimizer
-            self.feedback = FeedbackTracker(base_dir=str(Path(__file__).resolve().parent.parent.parent))
+            # Use the same project root as the trader so feedback matches this instance.
+            self.feedback = FeedbackTracker(base_dir=str(self.base_dir))
         else:
             self.feedback = None
         
@@ -162,11 +164,30 @@ class PaperTrader:
         else:
             self.alert_manager = None
 
-        # Initialize Alpaca client (demo mode if no API keys)
+        # Initialize Alpaca client. If keys were not passed explicitly, load the
+        # shared TradeSight config/keychain path. This prevents direct PaperTrader
+        # usage from silently falling into demo quotes while reading the real
+        # positions DB.
+        if not alpaca_api_key or not alpaca_secret:
+            # Only autoload credentials for the real TradeSight project checkout.
+            # Unit tests create temporary base_dir values and expect demo/mocked
+            # clients; loading real keychain creds there makes tests hit Alpaca.
+            should_autoload_creds = (self.base_dir / '.env').exists() or self.base_dir.name == 'TradeSight'
+            if should_autoload_creds:
+                try:
+                    try:
+                        from src import config as _ts_config
+                    except Exception:
+                        import config as _ts_config
+                    alpaca_api_key = alpaca_api_key or getattr(_ts_config, 'ALPACA_API_KEY', None)
+                    alpaca_secret = alpaca_secret or getattr(_ts_config, 'ALPACA_SECRET_KEY', None)
+                except Exception as _cfg_e:
+                    logging.getLogger('PaperTrader').warning(f'Could not load Alpaca keys from config/keychain: {_cfg_e}')
+
         if alpaca_api_key and alpaca_secret:
             self.alpaca = AlpacaClient(api_key=alpaca_api_key, secret_key=alpaca_secret, paper=True)
         else:
-            self.alpaca = AlpacaClient()  # Demo mode
+            self.alpaca = AlpacaClient()  # Demo mode (safe only for empty/synthetic state)
         
         # Load per-symbol OOS performance (from optimizer)
         self._symbol_performance = {}
@@ -225,11 +246,22 @@ class PaperTrader:
                 'WMT', 'COST', 'HD',               # Consumer/Retail
                 'KO', 'DIS',                        # Consumer staples + media
             ],
-            'min_strategy_confidence': 0.55,  # Slightly higher bar for fewer, better trades
+            'min_strategy_confidence': 0.55,  # Signal confidence bar for individual entries
+            # Tournament scores are composite return/risk scores, not signal confidence.
+            # Recent real tournaments score around 0.01-0.03, so using min_strategy_confidence
+            # here incorrectly forced fallback strategies every scan. Still require
+            # a positive edge so tiny/zero-score winners do not trade by default.
+            'min_tournament_winner_score': 0.01,
             'max_concurrent_trades': 5,       # 5 positions for more data (fractional shares)
             'trade_frequency_hours': 4,       # Check for signals every 4 hours
             'position_hold_days': 5,          # Hold positions 1-5 days (swing trade)
-            'min_hold_hours': 24,             # MINIMUM 24hr hold - prevents day trades (PDT)
+            'symbol_cooldown_hours': 24,      # Block same-symbol churn after any close
+            'loss_cooldown_days': 7,          # Longer block after losing protective exits
+            'hwm_max_quote_jump_pct': 0.08,   # Ignore one-tick HWM jumps above 8%
+            'hwm_max_entry_jump_pct': 0.25,   # Ignore HWM quotes >25% above entry
+            'accounting_divergence_warn_usd': 2.0,
+            'min_hold_hours': 24,             # Optional minimum hold before discretionary closes
+            'enforce_min_hold_hours': not getattr(self.alpaca, 'paper', True),
             'max_unrealized_gain_pct': 0.20,  # Auto-close at +20% unrealized gain
             'rebalance_frequency_days': 7,    # Rebalance weekly
             # Correlation groups — max 2 positions per group
@@ -243,7 +275,12 @@ class PaperTrader:
             },
             'max_per_correlation_group': 2,
             'daily_loss_limit': 15.0,  # Task 890 — block new entries if daily P&L <= -$15
+            'gap_warning_threshold': 0.03,  # warn/manage open positions on >3% overnight gap
+            'gap_take_profit_threshold': 0.05,  # lock gains when gap-up profit is >=5%
+            'gap_take_profit_when_at_capacity': True,  # free a slot only when saturated
         }
+
+        self._refresh_learning_feedback()
     
     def _setup_logging(self):
         """Setup logging for paper trading"""
@@ -275,6 +312,46 @@ class PaperTrader:
         except Exception as e:
             logging.getLogger('PaperTrader').warning('Could not load clusters: %s' % str(e))
         return clusters
+
+    def _refresh_learning_feedback(self) -> int:
+        """Backfill closed paper trades into the trade-level learning table."""
+        if not self.feedback:
+            return 0
+        try:
+            params = dict(self.active_params or {})
+            count = self.feedback.ingest_positions_db(
+                self.position_manager.data_dir / 'positions.db',
+                params=params,
+                source='positions_backfill',
+            )
+            if count:
+                logging.getLogger('PaperTrader').info(
+                    '[Learning] Trade feedback backfill ready: %d closed position rows', count
+                )
+            return count
+        except Exception as exc:
+            logging.getLogger('PaperTrader').warning('[Learning] Feedback backfill failed: %s', exc)
+            return 0
+
+    def _get_learning_adjustment(self, symbol: str, strategy: str) -> Dict:
+        """Read execution-time learning for a symbol/strategy pair."""
+        if not self.feedback:
+            return {
+                'tradeable': True,
+                'confidence_multiplier': 1.0,
+                'size_multiplier': 1.0,
+                'reason': 'feedback tracker unavailable',
+            }
+        try:
+            return self.feedback.get_execution_adjustment(symbol, strategy)
+        except Exception as exc:
+            self.logger.warning('[Learning] Adjustment unavailable for %s/%s: %s', symbol, strategy, exc)
+            return {
+                'tradeable': True,
+                'confidence_multiplier': 1.0,
+                'size_multiplier': 1.0,
+                'reason': 'feedback adjustment error',
+            }
 
     def _get_params_for_symbol(self, symbol: str) -> Dict:
         """Get trading params for a symbol: cluster-specific if available, else active_params"""
@@ -364,21 +441,302 @@ class PaperTrader:
                     self.logger.info("No recent tournament winners found")
                     return []
                 
-                # Filter by confidence threshold and deduplicate
+                # Tournament winner_avg_score is a composite backtest score, not a live
+                # signal confidence. Keep the filter separate so valid real tournament
+                # winners are not accidentally discarded and replaced with fallback params.
+                min_tournament_score = float(self.config.get('min_tournament_winner_score', 0.0))
                 seen_strategies = set()
                 qualified_winners = []
-                
+                rejected = []
+
                 for winner, score, start_time in winners:
-                    if score >= self.config['min_strategy_confidence'] and winner not in seen_strategies:
+                    score = float(score or 0.0)
+                    if winner in seen_strategies:
+                        continue
+                    if score >= min_tournament_score:
                         qualified_winners.append((winner, score))
                         seen_strategies.add(winner)
-                
-                self.logger.info(f"Found {len(qualified_winners)} qualified strategies from recent tournaments (tournament-sourced)")
+                    else:
+                        rejected.append((winner, score))
+
+                self.logger.info(
+                    f"Found {len(qualified_winners)} qualified strategies from recent tournaments "
+                    f"(tournament-sourced, min_score={min_tournament_score:.4f}, rejected={len(rejected)})"
+                )
                 return qualified_winners
                 
         except Exception as e:
             self.logger.error(f"Failed to get tournament winners: {e}")
             return []
+
+    def _is_final_exit_status(self, status: str) -> bool:
+        """Return True only for statuses that mean the broker exit is filled/closed."""
+        return str(status or '').lower() in {
+            'filled', 'closed', 'done_for_day', 'calculated'
+        }
+
+    def _is_pending_exit_status(self, status: str) -> bool:
+        return str(status or '').lower() in {
+            'new', 'accepted', 'accepted_for_bidding', 'pending_new',
+            'partially_filled', 'pending_cancel', 'pending_replace'
+        }
+
+    def _mark_positions_exit_submitted(self, symbol: str, strategy: str,
+                                       exit_order_id: str, exit_fill_status: str,
+                                       exit_reason: str = ''):
+        """Persist an accepted-but-not-filled exit without closing the position."""
+        try:
+            db_path = self.position_manager.data_dir / 'positions.db'
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "UPDATE positions SET exit_order_id=?, exit_fill_status=?, "
+                    "exit_reason=COALESCE(NULLIF(exit_reason, ''), ?), "
+                    "updated_at=CURRENT_TIMESTAMP "
+                    "WHERE symbol=? AND strategy=? AND status='open'",
+                    (exit_order_id, exit_fill_status, exit_reason, symbol, strategy)
+                )
+                conn.commit()
+        except Exception as exc:
+            self.logger.warning(
+                "[ExitReconcile] Could not mark pending exit for %s/%s: %s",
+                symbol, strategy, exc,
+            )
+
+    def _has_pending_exit(self, symbol: str, strategy: str = None) -> bool:
+        """Avoid submitting duplicate closes while a broker exit order is pending."""
+        try:
+            db_path = self.position_manager.data_dir / 'positions.db'
+            params = [symbol]
+            strategy_clause = ''
+            if strategy:
+                strategy_clause = ' AND strategy=?'
+                params.append(strategy)
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute(
+                    "SELECT exit_fill_status FROM positions "
+                    "WHERE symbol=? AND status='open' "
+                    "AND exit_order_id IS NOT NULL" + strategy_clause +
+                    " ORDER BY updated_at DESC LIMIT 1",
+                    params
+                ).fetchone()
+            return bool(row and self._is_pending_exit_status(row[0]))
+        except Exception as exc:
+            self.logger.warning("[ExitReconcile] Pending-exit check failed for %s: %s", symbol, exc)
+            return False
+
+    def _is_symbol_in_cooldown(self, symbol: str) -> bool:
+        """Block churny same-symbol re-entry after recent closes."""
+        try:
+            now = datetime.now()
+            normal_cutoff = (now - timedelta(
+                hours=float(self.config.get('symbol_cooldown_hours', 24))
+            )).isoformat()
+            loss_cutoff = (now - timedelta(
+                days=float(self.config.get('loss_cooldown_days', 7))
+            )).isoformat()
+            db_path = self.position_manager.data_dir / "positions.db"
+            with sqlite3.connect(db_path) as conn:
+                recent_close = conn.execute(
+                    "SELECT exit_reason, realized_pnl, exit_time FROM positions "
+                    "WHERE symbol=? AND status='closed' AND exit_time >= ? "
+                    "ORDER BY exit_time DESC LIMIT 1",
+                    (symbol, normal_cutoff)
+                ).fetchone()
+                recent_loss = conn.execute(
+                    "SELECT exit_reason, realized_pnl, exit_time FROM positions "
+                    "WHERE symbol=? AND status='closed' AND exit_time >= ? "
+                    "AND UPPER(COALESCE(exit_reason, '')) IN ('STOP_LOSS', 'TRAILING_STOP') "
+                    "AND COALESCE(realized_pnl, 0) <= 0 "
+                    "ORDER BY exit_time DESC LIMIT 1",
+                    (symbol, loss_cutoff)
+                ).fetchone()
+            if recent_loss:
+                self.logger.info(
+                    "[SymbolCooldown] Skipping buy for %s: losing %s close within %.0f days",
+                    symbol, recent_loss[0], float(self.config.get('loss_cooldown_days', 7)),
+                )
+                return True
+            if recent_close:
+                self.logger.info(
+                    "[SymbolCooldown] Skipping buy for %s: closed within %.0f hours",
+                    symbol, float(self.config.get('symbol_cooldown_hours', 24)),
+                )
+                return True
+            return False
+        except Exception as exc:
+            self.logger.warning("[SymbolCooldown] Could not check cooldown for %s: %s", symbol, exc)
+            return False
+
+    def _reconcile_trade_logger_close(self, symbol: str, strategy: str, side: str,
+                                      quantity: float, entry_price: float,
+                                      entry_time: str, exit_price: float,
+                                      exit_time: str, exit_reason: str):
+        trade_logger = getattr(self.position_manager, 'trade_logger', None)
+        if not trade_logger:
+            return
+        try:
+            if hasattr(trade_logger, 'log_position_close'):
+                trade_logger.log_position_close(
+                    symbol=symbol,
+                    strategy=strategy,
+                    side=side,
+                    quantity=quantity,
+                    entry_price=entry_price,
+                    exit_price=exit_price,
+                    entry_time=entry_time,
+                    exit_time=exit_time,
+                    exit_reason=exit_reason or 'broker_reconciled',
+                )
+            else:
+                trade_logger.log_close(
+                    symbol=symbol,
+                    strategy=strategy,
+                    exit_price=exit_price,
+                    exit_reason=exit_reason or 'broker_reconciled',
+                )
+        except Exception as exc:
+            self.logger.warning("[TradeLogger] Close reconciliation failed for %s: %s", symbol, exc)
+
+    def _close_position_rows_with_fill(self, rows, fill_price: float,
+                                       exit_status: str, exit_order_id: str = None,
+                                       exit_reason: str = None):
+        """Close local position rows using a broker-confirmed fill price."""
+        if not rows or not fill_price or fill_price <= 0:
+            return 0
+        db_path = self.position_manager.data_dir / "positions.db"
+        closed_count = 0
+        exit_time = datetime.now().isoformat()
+        with sqlite3.connect(db_path) as conn:
+            for row in rows:
+                pos_id, symbol, strategy, side, qty, entry_price, entry_time, existing_reason = row
+                pnl = (fill_price - entry_price) * qty if side == "long" else (entry_price - fill_price) * qty
+                reason = exit_reason or existing_reason or 'broker_reconciled'
+                conn.execute(
+                    "UPDATE positions SET exit_time=?, exit_price=?, realized_pnl=?, "
+                    "status='closed', exit_order_id=COALESCE(?, exit_order_id), "
+                    "exit_fill_status=?, exit_reason=?, updated_at=CURRENT_TIMESTAMP "
+                    "WHERE id=?",
+                    (exit_time, fill_price, pnl, exit_order_id, exit_status, reason, pos_id)
+                )
+                self._reconcile_trade_logger_close(
+                    symbol=symbol,
+                    strategy=strategy,
+                    side=side,
+                    quantity=qty,
+                    entry_price=entry_price,
+                    entry_time=entry_time,
+                    exit_price=fill_price,
+                    exit_time=exit_time,
+                    exit_reason=reason,
+                )
+                closed_count += 1
+            conn.commit()
+        return closed_count
+
+    def _reconcile_exit_fills(self, remote_symbols: set = None) -> int:
+        """Update pending/local exit rows from broker order state and positions reality."""
+        if getattr(self.alpaca, 'demo_mode', False):
+            return 0
+        try:
+            db_path = self.position_manager.data_dir / "positions.db"
+            with sqlite3.connect(db_path) as conn:
+                pending_rows = conn.execute(
+                    "SELECT id, symbol, strategy, side, quantity, entry_price, entry_time, "
+                    "COALESCE(exit_reason, ''), exit_order_id, COALESCE(exit_fill_status, '') "
+                    "FROM positions "
+                    "WHERE exit_order_id IS NOT NULL "
+                    "AND (status='open' OR LOWER(COALESCE(exit_fill_status, '')) NOT IN ('filled', 'closed'))"
+                ).fetchall()
+
+            reconciled = 0
+            for row in pending_rows:
+                (
+                    pos_id, symbol, strategy, side, qty, entry_price, entry_time,
+                    exit_reason, exit_order_id, exit_fill_status,
+                ) = row
+                order = {}
+                if exit_order_id and not str(exit_order_id).startswith('alpaca_close_position:'):
+                    order = self.alpaca.get_order(exit_order_id) or {}
+
+                order_status = str(order.get('status') or exit_fill_status or '').lower()
+                fill_price = (
+                    order.get('filled_avg_price')
+                    or order.get('avg_fill_price')
+                    or order.get('fill_price')
+                    or None
+                )
+                try:
+                    fill_price = float(fill_price) if fill_price else None
+                except Exception:
+                    fill_price = None
+
+                broker_position_gone = remote_symbols is not None and symbol not in remote_symbols
+                if self._is_final_exit_status(order_status) and fill_price and fill_price > 0:
+                    rows = [(pos_id, symbol, strategy, side, qty, entry_price, entry_time, exit_reason)]
+                    reconciled += self._close_position_rows_with_fill(
+                        rows, fill_price, order_status, exit_order_id, exit_reason
+                    )
+                elif broker_position_gone:
+                    if not fill_price:
+                        try:
+                            quote = self.alpaca.get_quote(symbol)
+                            fill_price = float(quote.last) if quote and quote.last else None
+                        except Exception:
+                            fill_price = None
+                    if fill_price and fill_price > 0:
+                        rows = [(pos_id, symbol, strategy, side, qty, entry_price, entry_time, exit_reason)]
+                        reconciled += self._close_position_rows_with_fill(
+                            rows,
+                            fill_price,
+                            'broker_reconciled_closed',
+                            exit_order_id,
+                            exit_reason or 'broker_reconciled',
+                        )
+                else:
+                    with sqlite3.connect(db_path) as conn:
+                        conn.execute(
+                            "UPDATE positions SET exit_fill_status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                            (order_status or exit_fill_status, pos_id)
+                        )
+                        conn.commit()
+
+            if reconciled:
+                self.logger.info("[ExitReconcile] Broker-reconciled %d pending exit row(s)", reconciled)
+            return reconciled
+        except Exception as exc:
+            self.logger.error("[ExitReconcile] Failed: %s", exc)
+            return 0
+
+    def _accounting_divergence(self) -> Optional[Dict]:
+        """Compare local position P&L against broker equity truth."""
+        try:
+            state = self.position_manager.get_portfolio_state()
+            if state.balance_synced_at is None:
+                return None
+            db_path = self.position_manager.data_dir / "positions.db"
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute(
+                    "SELECT COALESCE(SUM(realized_pnl), 0), COALESCE(SUM(CASE WHEN status='open' THEN unrealized_pnl ELSE 0 END), 0) "
+                    "FROM positions"
+                ).fetchone()
+            local_pnl = float((row[0] or 0) + (row[1] or 0))
+            broker_pnl = float(state.total_value - self.position_manager.config['initial_balance'])
+            diff = local_pnl - broker_pnl
+            threshold = max(
+                float(self.config.get('accounting_divergence_warn_usd', 2.0)),
+                abs(float(state.total_value or 0)) * 0.005,
+            )
+            return {
+                'local_pnl': local_pnl,
+                'broker_pnl': broker_pnl,
+                'diff': diff,
+                'threshold': threshold,
+                'warn': abs(diff) > threshold,
+                'synced_at': state.balance_synced_at,
+            }
+        except Exception as exc:
+            self.logger.warning("[Accounting] Divergence check failed: %s", exc)
+            return None
     
     def generate_trading_signals(self, symbol: str, strategy_name: str) -> Optional[Dict]:
         """Generate trading signals for a symbol using a specific strategy.
@@ -447,6 +805,26 @@ class PaperTrader:
                 signal['strategy'] = strategy_name
                 signal['timestamp'] = datetime.now().isoformat()
                 signal['current_price'] = float(data.iloc[-1]['close'])
+                learning = self._get_learning_adjustment(symbol, strategy_name)
+                signal['learning_adjustment'] = learning
+                if signal.get('action') == 'buy' and not learning.get('tradeable', True):
+                    self.logger.info(
+                        '[Learning] Blocking %s/%s before entry: %s',
+                        symbol, strategy_name, learning.get('reason')
+                    )
+                    return None
+                multiplier = float(learning.get('confidence_multiplier', 1.0) or 1.0)
+                original_conf = float(signal.get('confidence', 0.0) or 0.0)
+                if signal.get('action') == 'buy':
+                    signal['confidence'] = max(0.0, min(0.99, original_conf * multiplier))
+                if signal.get('action') == 'buy' and multiplier != 1.0:
+                    signal['reason'] = signal.get('reason', '') + (
+                        ' [learning: conf %.2f→%.2f, size x%.2f]' % (
+                            original_conf,
+                            signal['confidence'],
+                            float(learning.get('size_multiplier', 1.0) or 1.0),
+                        )
+                    )
                 
             return signal
             
@@ -819,6 +1197,13 @@ class PaperTrader:
             side = signal['side']
             current_price = signal['current_price']
             confidence = signal['confidence']
+            learning = signal.get('learning_adjustment') or self._get_learning_adjustment(symbol, strategy)
+            if action == 'buy' and not learning.get('tradeable', True):
+                self.logger.info(
+                    '[Learning] Skipping buy for %s/%s: %s',
+                    symbol, strategy, learning.get('reason')
+                )
+                return False
             
             # Per-symbol position limit: skip buy if symbol already has an open position
             # (prevents buying the same stock repeatedly after losses, e.g. ADBE x3)
@@ -837,6 +1222,15 @@ class PaperTrader:
                         return False
                 except Exception as _ple:
                     self.logger.warning(f"[PositionLimit] Could not check positions for {symbol}: {_ple}")
+
+                if self._has_pending_exit(symbol):
+                    self.logger.info(
+                        f"[ExitReconcile] Skipping buy for {symbol}: broker exit order still pending"
+                    )
+                    return False
+
+                if self._is_symbol_in_cooldown(symbol):
+                    return False
 
             # 7-day stop-loss cooldown: block re-entry if symbol hit a stop-loss in the last 7 days
             # Prevents ADBE-style re-entry loops after getting stopped out
@@ -862,6 +1256,14 @@ class PaperTrader:
                     self.logger.warning(f"[StopLossCooldown] Could not check cooldown for {symbol}: {_cde}")
 
             # Minimum cash reserve guard: if buying power falls below 15% of equity, block new buys
+            if action == 'buy' and getattr(self, '_pdt_protection_active', False):
+                self.logger.info(
+                    "[PDT-PROTECT] Skipping buy for %s: Alpaca day-trade protection active (daytrade_count=%s)" % (
+                        symbol, getattr(self, '_daytrade_count', 'unknown')
+                    )
+                )
+                return False
+
             if action == "buy" and getattr(self, "_alpaca_synced", False) and hasattr(self, "_real_buying_power") and hasattr(self, "_real_equity"):
                 min_cash_reserve = max(0.0, float(self._real_equity) * 0.15)
                 if float(self._real_buying_power) < min_cash_reserve:
@@ -874,6 +1276,14 @@ class PaperTrader:
 
             # Calculate position size
             quantity = self.position_manager.calculate_position_size(symbol, strategy, current_price)
+            size_multiplier = float(learning.get('size_multiplier', 1.0) or 1.0)
+            if action == 'buy' and size_multiplier != 1.0:
+                adjusted_quantity = round(quantity * size_multiplier, 6)
+                self.logger.info(
+                    '[Learning] Position size adjusted for %s/%s: %.6f -> %.6f (%s)',
+                    symbol, strategy, quantity, adjusted_quantity, learning.get('reason')
+                )
+                quantity = adjusted_quantity
 
             # Hard cap: each position must be <= 15% of real equity when Alpaca is synced
             if action == "buy" and getattr(self, "_alpaca_synced", False) and hasattr(self, "_real_equity") and current_price > 0:
@@ -1009,9 +1419,10 @@ class PaperTrader:
         try:
             db_path = self.position_manager.data_dir / "positions.db"
 
-            # PDT GUARD: check minimum hold time before closing
+            # Optional hold-time guard: keep disabled for paper trading so exits can actually execute.
             min_hold = self.config.get('min_hold_hours', 24)
-            if not force:
+            enforce_min_hold = self.config.get('enforce_min_hold_hours', False)
+            if enforce_min_hold and min_hold > 0 and not force:
                 try:
                     with sqlite3.connect(db_path) as conn:
                         recent_entry = conn.execute(
@@ -1027,6 +1438,7 @@ class PaperTrader:
                                     f"[PDT-GUARD] Skipping close {symbol} ({strategy}) - "
                                     f"held {hours_held:.1f}h < {min_hold}h minimum"
                                 )
+                                self._last_close_blocked = (symbol, strategy, 'PDT_GUARD')
                                 return False
                 except (TypeError, ValueError) as e:
                     self.logger.debug(f"[PDT-GUARD] Could not check hold time: {e}")
@@ -1041,11 +1453,40 @@ class PaperTrader:
                 self.logger.debug(f"No open position to close for {symbol} {strategy}")
                 return False
 
+            if self._has_pending_exit(symbol, strategy):
+                self.logger.info(
+                    f"[ExitReconcile] Close already pending for {symbol} ({strategy}); not submitting duplicate exit"
+                )
+                return True
+
             # Use DELETE /v2/positions/{symbol} — closes full Alpaca position, handles fractional shares
             order_result = self.alpaca.close_full_position(symbol)
 
             if order_result and "error" not in order_result:
                 fill_price = order_result.get("fill_price") or price
+                exit_order_id = order_result.get('order_id') or order_result.get('id') or order_result.get('client_order_id')
+                exit_fill_status = order_result.get('status') or ('closed' if order_result.get('broker_verified') else None)
+
+                if not self._is_final_exit_status(exit_fill_status):
+                    if exit_order_id:
+                        self._mark_positions_exit_submitted(
+                            symbol=symbol,
+                            strategy=strategy,
+                            exit_order_id=exit_order_id,
+                            exit_fill_status=exit_fill_status or 'pending_new',
+                        )
+                        self.logger.warning(
+                            f"[ExitReconcile] Exit submitted for {symbol} but not filled yet "
+                            f"(order_id={exit_order_id}, status={exit_fill_status}); local position stays open."
+                        )
+                        self._last_close_blocked = (symbol, strategy, 'EXIT_PENDING')
+                        return False
+                    if not order_result.get('broker_verified'):
+                        self.logger.error(
+                            f"[ExitReconcile] Refusing to close {symbol}: broker did not return final fill/close status "
+                            f"or an order id (status={exit_fill_status})"
+                        )
+                        return False
 
                 # GUARD 1: zero/null price — Alpaca occasionally returns 0 (data error)
                 if not fill_price or fill_price <= 0:
@@ -1077,28 +1518,48 @@ class PaperTrader:
                     self.logger.warning(f"[PriceGuard] Could not validate price for {symbol}: {_ge}")
 
                 self.logger.info(f"Alpaca position closed: {symbol} fill_price={fill_price}")
+                if not exit_order_id and order_result.get('broker_verified'):
+                    # Alpaca DELETE /v2/positions/{symbol} can successfully close a
+                    # paper position while returning no order id. This is still a
+                    # broker-confirmed close because the API call succeeded; persist
+                    # a stable synthetic reference so reports/risk accounting do not
+                    # misclassify the close as local/demo-only.
+                    exit_order_id = f"alpaca_close_position:{symbol}:{datetime.now().isoformat()}"
 
                 # Close ALL open DB positions for this symbol+strategy
                 with sqlite3.connect(db_path) as conn:
                     open_positions = conn.execute(
-                        "SELECT id, side, quantity, entry_price FROM positions "
+                        "SELECT id, symbol, strategy, side, quantity, entry_price, entry_time, COALESCE(exit_reason, '') "
+                        "FROM positions "
                         "WHERE symbol=? AND strategy=? AND status=?",
                         (symbol, strategy, "open")
                     ).fetchall()
-                    for pos_id, side, qty, entry_price in open_positions:
+                    for pos_id, pos_symbol, pos_strategy, side, qty, entry_price, entry_time, exit_reason in open_positions:
                         pnl = (fill_price - entry_price) * qty if side == "long" else (entry_price - fill_price) * qty
+                        exit_time = datetime.now().isoformat()
                         conn.execute(
                             "UPDATE positions SET exit_time=?, exit_price=?, realized_pnl=?, "
                             "status=?, exit_order_id=?, exit_fill_status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                             (
-                                datetime.now().isoformat(),
+                                exit_time,
                                 fill_price,
                                 pnl,
                                 "closed",
-                                order_result.get('order_id'),
-                                order_result.get('status', 'closed'),
+                                exit_order_id,
+                                exit_fill_status,
                                 pos_id,
                             )
+                        )
+                        self._reconcile_trade_logger_close(
+                            symbol=pos_symbol,
+                            strategy=pos_strategy,
+                            side=side,
+                            quantity=qty,
+                            entry_price=entry_price,
+                            entry_time=entry_time,
+                            exit_price=fill_price,
+                            exit_time=exit_time,
+                            exit_reason=exit_reason or 'broker_close',
                         )
                     conn.commit()
                     self.logger.info(f"Closed {len(open_positions)} local DB position(s) for {symbol} ({strategy})")
@@ -1255,7 +1716,10 @@ class PaperTrader:
                     "SELECT symbol, strategy, side, quantity, entry_price, "
                     "COALESCE(high_water_mark, entry_price), "
                     "COALESCE(trailing_stop_active, 0) "
-                    "FROM positions WHERE status = 'open'"
+                    "FROM positions WHERE status = 'open' "
+                    "AND NOT (exit_order_id IS NOT NULL "
+                    "AND LOWER(COALESCE(exit_fill_status, '')) IN "
+                    "('new','accepted','accepted_for_bidding','pending_new','partially_filled','pending_cancel','pending_replace'))"
                 ).fetchall()
         except Exception as e:
             self.logger.error(f"[SL/TP] Failed to fetch open positions: {e}")
@@ -1290,18 +1754,34 @@ class PaperTrader:
 
                 # --- Update high water mark if price rose (long only) ---
                 if side == 'long' and current_price > (high_water_mark or 0):
-                    try:
-                        with sqlite3.connect(self.position_manager.data_dir / 'positions.db') as c2:
-                            c2.execute(
-                                "UPDATE positions SET high_water_mark=? "
-                                "WHERE symbol=? AND strategy=? AND status='open'",
-                                (current_price, symbol, strategy)
-                            )
-                            c2.commit()
-                        self.logger.debug(f"[Trail] HWM {symbol}: ${high_water_mark:.2f} -> ${current_price:.2f}")
-                        high_water_mark = current_price
-                    except Exception as he:
-                        self.logger.warning(f"[Trail] HWM update failed {symbol}: {he}")
+                    max_hwm_jump_pct = float(self.config.get('hwm_max_quote_jump_pct', 0.08))
+                    max_entry_jump_pct = float(self.config.get('hwm_max_entry_jump_pct', 0.25))
+                    sane_vs_hwm = (
+                        not high_water_mark
+                        or current_price <= float(high_water_mark) * (1.0 + max_hwm_jump_pct)
+                    )
+                    sane_vs_entry = (
+                        not entry_price
+                        or current_price <= float(entry_price) * (1.0 + max_entry_jump_pct)
+                    )
+                    if sane_vs_hwm and sane_vs_entry:
+                        try:
+                            with sqlite3.connect(self.position_manager.data_dir / 'positions.db') as c2:
+                                c2.execute(
+                                    "UPDATE positions SET high_water_mark=? "
+                                    "WHERE symbol=? AND strategy=? AND status='open'",
+                                    (current_price, symbol, strategy)
+                                )
+                                c2.commit()
+                            self.logger.debug(f"[Trail] HWM {symbol}: ${high_water_mark:.2f} -> ${current_price:.2f}")
+                            high_water_mark = current_price
+                        except Exception as he:
+                            self.logger.warning(f"[Trail] HWM update failed {symbol}: {he}")
+                    else:
+                        self.logger.warning(
+                            f"[Trail] Ignoring suspicious HWM jump for {symbol}: "
+                            f"entry=${entry_price:.2f} old_hwm=${high_water_mark:.2f} quote=${current_price:.2f}"
+                        )
 
                 # --- Activate trailing stop when gain >= 2% (long only) ---
                 if side == 'long' and not trailing_active and pnl_pct >= trailing_activation_pct:
@@ -1411,7 +1891,14 @@ class PaperTrader:
                             except Exception as ale:
                                 self.logger.warning(f"[SL/TP] Alert failed: {ale}")
                     else:
-                        self.logger.error(f"[SL/TP] Close failed: {symbol} ({strategy})")
+                        if getattr(self, '_last_close_blocked', None) == (symbol, strategy, 'PDT_GUARD'):
+                            self.logger.info(f"[SL/TP] Close deferred by PDT guard: {symbol} ({strategy})")
+                            self._last_close_blocked = None
+                        elif getattr(self, '_last_close_blocked', None) == (symbol, strategy, 'EXIT_PENDING'):
+                            self.logger.info(f"[SL/TP] Close submitted and pending broker fill: {symbol} ({strategy})")
+                            self._last_close_blocked = None
+                        else:
+                            self.logger.error(f"[SL/TP] Close failed: {symbol} ({strategy})")
                 else:
                     self.logger.debug(
                         f"[SL/TP] {symbol} ({strategy}): ${current_price:.2f} "
@@ -1423,59 +1910,82 @@ class PaperTrader:
 
     def _check_premarket_gaps(self):
         """
-        Check for pre-market gaps on open positions (Task 19).
+        Check/manage large overnight gaps on open positions (Task 19).
         Called at start of scan_and_trade.
-        
-        Gap > 3% up: consider taking partial profit
-        Gap > 3% down: tighten stop loss
+
+        Conservative policy:
+        - Gap down on a long: warn loudly; the normal SL/trailing-stop pass runs next.
+        - Gap up on a long: if the account is already at max position capacity and
+          unrealized gain is >= gap_take_profit_threshold, close the full paper
+          position to lock the gain and free one slot. Otherwise log the hold reason.
         """
         try:
             db_path = self.position_manager.data_dir / 'positions.db'
             with sqlite3.connect(db_path) as conn:
                 open_positions = conn.execute(
-                    "SELECT symbol, entry_price, side, quantity FROM positions WHERE status='open'"
+                    "SELECT symbol, strategy, entry_price, side, quantity FROM positions WHERE status='open'"
                 ).fetchall()
-            
+
             if not open_positions:
                 return
-            
-            for symbol, entry_price, side, quantity in open_positions:
+
+            at_capacity = len(open_positions) >= int(self.config.get('max_concurrent_trades', 5))
+            gap_threshold = float(self.config.get('gap_warning_threshold', 0.03))
+            take_profit_threshold = float(self.config.get('gap_take_profit_threshold', 0.05))
+            require_capacity = bool(self.config.get('gap_take_profit_when_at_capacity', True))
+
+            for symbol, strategy, entry_price, side, quantity in open_positions:
                 try:
                     quote = self.alpaca.get_quote(symbol)
                     if not quote:
                         continue
-                    
+
                     current_price = float(quote.last)
-                    
+
                     # Get previous close for gap calculation
                     hist = self.alpaca.get_historical_data(symbol, days=5, timeframe='1Day')
                     if hist is None or len(hist) < 2:
                         continue
-                    
+
                     prev_close = float(hist['close'].iloc[-2])
+                    if prev_close <= 0 or not entry_price:
+                        continue
                     gap_pct = (current_price - prev_close) / prev_close
-                    
-                    if abs(gap_pct) > 0.03:  # 3% gap threshold
+
+                    if abs(gap_pct) > gap_threshold:
                         direction = "UP" if gap_pct > 0 else "DOWN"
                         self.logger.warning(
                             f"[Gap] {symbol} gapped {direction} {gap_pct*100:.1f}%: "
                             f"prev_close=${prev_close:.2f} → current=${current_price:.2f}")
-                        
-                        # Gap down on long position: tighten stop to -2% from current
-                        if gap_pct < -0.03 and side == 'long':
+
+                        # Gap down on long position: SL/trailing pass follows immediately.
+                        if gap_pct < -gap_threshold and side == 'long':
                             self.logger.info(
-                                f"[Gap] Tightening stop for {symbol} (gap down on long)")
-                        
-                        # Gap up on long position: log potential profit taking
-                        elif gap_pct > 0.03 and side == 'long':
+                                f"[Gap] {symbol} gap down — SL/trailing-stop check will manage exit risk next")
+
+                        # Gap up on long position: lock gains only when the portfolio is saturated.
+                        elif gap_pct > gap_threshold and side == 'long':
                             unrealized = (current_price - entry_price) * quantity
-                            self.logger.info(
-                                f"[Gap] {symbol} gap up — unrealized=${unrealized:.2f}, "
-                                f"consider taking partial profit")
-                
+                            unrealized_pct = (current_price - entry_price) / entry_price
+                            should_take_profit = (
+                                unrealized_pct >= take_profit_threshold
+                                and (at_capacity or not require_capacity)
+                            )
+                            if should_take_profit:
+                                self.logger.info(
+                                    f"[Gap] {symbol} gap-up profit action: unrealized=${unrealized:.2f} "
+                                    f"({unrealized_pct*100:.1f}%) >= {take_profit_threshold*100:.1f}% "
+                                    f"and at_capacity={at_capacity}; closing to lock gain/free capacity")
+                                self._execute_sell_order(symbol, strategy, current_price, force=True)
+                            else:
+                                self.logger.info(
+                                    f"[Gap] {symbol} gap up — holding: unrealized=${unrealized:.2f} "
+                                    f"({unrealized_pct*100:.1f}%), threshold={take_profit_threshold*100:.1f}%, "
+                                    f"at_capacity={at_capacity}")
+
                 except Exception as _ge:
                     self.logger.debug(f"[Gap] Check failed for {symbol}: {_ge}")
-        
+
         except Exception as e:
             self.logger.warning(f"[Gap] Pre-market gap check failed: {e}")
 
@@ -1483,6 +1993,26 @@ class PaperTrader:
         """Main trading loop: scan for signals and execute trades"""
         try:
             self.logger.info("Starting trading scan...")
+
+            # Safety: never apply demo quotes to existing real/paper positions.
+            # Demo quote generation can be wildly different from current market prices
+            # and would trigger bogus stop-loss/gap exits.
+            if getattr(self.alpaca, 'demo_mode', False):
+                try:
+                    db_path = self.position_manager.data_dir / 'positions.db'
+                    with sqlite3.connect(db_path) as conn:
+                        open_count = conn.execute(
+                            "SELECT COUNT(*) FROM positions WHERE status='open'"
+                        ).fetchone()[0]
+                    if open_count:
+                        self.logger.error(
+                            f"[DATA-GUARD] Alpaca client is in demo_mode with {open_count} open position(s); "
+                            "aborting scan to avoid demo prices acting on live paper state."
+                        )
+                        return
+                except Exception as _dg_e:
+                    self.logger.error(f"[DATA-GUARD] Could not verify open positions in demo_mode: {_dg_e}")
+                    return
 
             # PRE-MARKET GAP DETECTION (Task 19)
             self._check_premarket_gaps()
@@ -1525,7 +2055,22 @@ class PaperTrader:
                     ('Mean Reversion Pairs', 0.50),
                 ]
             
-            # Check portfolio state
+            # Refresh current prices before capacity/drawdown decisions. The old path
+            # returned immediately when max_concurrent_trades was reached, leaving
+            # existing position values stale during saturated sessions.
+            price_data = {}
+            for symbol in self.config['trading_symbols']:
+                try:
+                    quote = self.alpaca.get_quote(symbol)
+                    if quote:
+                        price_data[symbol] = quote.last
+                except Exception as e:
+                    self.logger.warning(f"Failed to get quote for {symbol}: {e}")
+
+            if price_data:
+                self.position_manager.update_positions(price_data)
+
+            # Check portfolio state after management/price refresh
             portfolio_state = self.position_manager.get_portfolio_state()
             self.logger.info(f"Portfolio: ${portfolio_state.total_value:,.2f}, {portfolio_state.position_count} positions")
             
@@ -1563,22 +2108,11 @@ class PaperTrader:
                 self._circuit_breaker_until = None
             
             if portfolio_state.position_count >= self.config['max_concurrent_trades']:
-                self.logger.info("Maximum concurrent trades reached")
+                self.logger.info(
+                    "Maximum concurrent trades reached after risk management/price refresh; "
+                    "new entries blocked, existing positions already checked"
+                )
                 return
-            
-            # Get current market prices
-            price_data = {}
-            for symbol in self.config['trading_symbols']:
-                try:
-                    quote = self.alpaca.get_quote(symbol)
-                    if quote:
-                        price_data[symbol] = quote.last
-                except Exception as e:
-                    self.logger.warning(f"Failed to get quote for {symbol}: {e}")
-            
-            # Update existing positions
-            if price_data:
-                self.position_manager.update_positions(price_data)
             
             # Generate and execute signals
             signals_executed = 0
@@ -1749,6 +2283,27 @@ class PaperTrader:
             report_lines.append(f"Total P&L: ${portfolio_state.total_pnl:,.2f}")
             report_lines.append(f"Active Positions: {portfolio_state.position_count}")
             report_lines.append(f"Active Strategies: {', '.join(portfolio_state.strategies_active)}")
+            divergence = self._accounting_divergence()
+            if divergence and divergence.get('warn'):
+                self.logger.warning(
+                    "[Accounting] Local P&L diverges from Alpaca equity: local=$%.2f broker=$%.2f diff=$%.2f",
+                    divergence['local_pnl'],
+                    divergence['broker_pnl'],
+                    divergence['diff'],
+                )
+                report_lines.append("")
+                report_lines.append("⚠️ Accounting Reconciliation Warning")
+                report_lines.append("-" * 40)
+                report_lines.append(
+                    "Local positions P&L differs from Alpaca equity by $%.2f "
+                    "(local=$%.2f, broker=$%.2f, synced=%s). "
+                    "Treat broker equity as source of truth until reconciled." % (
+                        divergence['diff'],
+                        divergence['local_pnl'],
+                        divergence['broker_pnl'],
+                        divergence.get('synced_at') or 'unknown',
+                    )
+                )
             report_lines.append("")
             
             # Tournament winners
@@ -1762,27 +2317,50 @@ class PaperTrader:
             # Position performance
             report_lines.append(position_report)
             
-            # Recent closed trades from DB (last 7 days)
+            # Recent closed trades from positions DB (last 7 days).
+            # Separate broker-verified closes from local/unverified closes so the
+            # report does not imply suspicious/demo rows are clean broker fills.
             try:
                 db_path = self.position_manager.data_dir / 'positions.db'
                 cutoff = (datetime.now() - timedelta(days=7)).isoformat()
                 with sqlite3.connect(db_path) as conn:
                     closed = conn.execute(
-                        "SELECT symbol, side, entry_price, exit_price, realized_pnl, strategy, exit_time "
+                        "SELECT symbol, side, entry_price, exit_price, realized_pnl, strategy, exit_time, "
+                        "exit_order_id, exit_fill_status "
                         "FROM positions WHERE status='closed' AND exit_time > ? "
-                        "ORDER BY exit_time DESC LIMIT 10",
+                        "ORDER BY exit_time DESC LIMIT 20",
                         (cutoff,)
                     ).fetchall()
                 if closed:
-                    report_lines.append("")
-                    report_lines.append("📉 Recently Closed Trades (Last 7 Days)")
-                    report_lines.append("-" * 40)
-                    for sym, side, entry, exit_p, pnl, strat, exit_t in closed:
-                        exit_str = "$%.2f" % exit_p if exit_p else "N/A"
-                        pnl_str = "$%.2f" % pnl if pnl else "$0.00"
-                        report_lines.append(
-                            "%s %s: entry=$%.2f exit=%s P&L=%s (%s)" % (
-                                sym, side, entry or 0, exit_str, pnl_str, strat))
+                    verified = []
+                    unverified = []
+                    for row in closed:
+                        exit_order_id = row[7]
+                        exit_fill_status = (row[8] or '').lower()
+                        if exit_order_id and exit_fill_status in ('filled', 'closed'):
+                            verified.append(row)
+                        else:
+                            unverified.append(row)
+
+                    def _append_closed_rows(title, rows, suffix=''):
+                        if not rows:
+                            return
+                        report_lines.append("")
+                        report_lines.append(title)
+                        report_lines.append("-" * 40)
+                        for sym, side, entry, exit_p, pnl, strat, exit_t, order_id, fill_status in rows[:10]:
+                            exit_str = "$%.2f" % exit_p if exit_p else "N/A"
+                            pnl_str = "$%.2f" % pnl if pnl else "$0.00"
+                            report_lines.append(
+                                "%s %s: entry=$%.2f exit=%s P&L=%s (%s)%s" % (
+                                    sym, side, entry or 0, exit_str, pnl_str, strat, suffix))
+
+                    _append_closed_rows("📉 Broker-Verified Closed Trades (Last 7 Days)", verified)
+                    _append_closed_rows(
+                        "⚠️ Local/Unverified Closed Trades (excluded from risk limits)",
+                        unverified,
+                        " [missing broker exit fill]",
+                    )
             except Exception as _rpe:
                 self.logger.warning("Could not fetch closed trades for report: %s" % str(_rpe))
             
@@ -1796,6 +2374,15 @@ class PaperTrader:
     def _sync_with_alpaca(self):
         """Sync local state with Alpaca reality - call at start of every session."""
         try:
+            if getattr(self.alpaca, 'demo_mode', False):
+                # No real broker truth is available in demo mode. Do not overwrite
+                # broker-synced cash/equity, and never close local live/paper
+                # positions just because the demo Alpaca client has no positions.
+                self.logger.warning("[DemoGuard] Alpaca credentials unavailable; skipping broker sync/stale-position reconciliation")
+                self._alpaca_synced = False
+                self._alpaca_positions = set()
+                return
+
             account = self.alpaca.get_account()
             if not account:
                 self.logger.warning("Could not fetch Alpaca account - skipping sync")
@@ -1804,8 +2391,17 @@ class PaperTrader:
             real_equity = float(account.get("equity", 0))
             real_cash = float(account.get("buying_power", 0))
             real_positions_value = float(account.get("long_market_value", 0))
+            self._daytrade_count = int(float(account.get('daytrade_count', 0) or 0))
+            self._pattern_day_trader = bool(account.get('pattern_day_trader', False))
+            self._pdt_protection_active = (not self._pattern_day_trader and self._daytrade_count >= 3)
+            self.config['enforce_min_hold_hours'] = self._pdt_protection_active
             
             self.logger.info("Alpaca account: equity=$%.2f, buying_power=$%.2f, positions=$%.2f" % (real_equity, real_cash, real_positions_value))
+            if self._pdt_protection_active:
+                self.logger.warning(
+                    "[PDT-PROTECT] Alpaca day-trade protection active (daytrade_count=%d). "
+                    "New buys blocked and same-day closes deferred." % self._daytrade_count
+                )
             
             # Check for orphan positions (in Alpaca but not in our DB)
             remote_positions = self.alpaca.get_remote_positions()
@@ -1839,7 +2435,11 @@ class PaperTrader:
             self._alpaca_synced = True
 
             # Persist buying power to DB so get_portfolio_state() can use real balance
-            self.position_manager.persist_balance_sync(real_cash)
+            self.position_manager.persist_balance_sync(real_cash, equity=real_equity, positions_value=real_positions_value)
+
+            # Update pending exit orders before stale-position cleanup so filled
+            # broker closes get true fill prices and clear trades.db/open_trades.
+            self._reconcile_exit_fills(remote_symbols)
 
             # Always run orphan sync (not just when local DB is empty).
             # _sync_orphan_positions handles per-symbol dedup internally.
@@ -1909,12 +2509,13 @@ class PaperTrader:
             db_path = self.position_manager.data_dir / 'positions.db'
             with sqlite3.connect(db_path) as conn:
                 local_open = conn.execute(
-                    "SELECT id, symbol, entry_price, quantity, side FROM positions WHERE status='open'"
+                    "SELECT id, symbol, strategy, entry_price, quantity, side, entry_time, COALESCE(exit_reason, '') "
+                    "FROM positions WHERE status='open'"
                 ).fetchall()
-                stale = [(row[0], row[1], row[2], row[3], row[4])
+                stale = [(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7])
                          for row in local_open if row[1] not in remote_symbols]
                 if stale:
-                    for pos_id, sym, entry_price, quantity, side in stale:
+                    for pos_id, sym, strategy, entry_price, quantity, side, entry_time, exit_reason in stale:
                         # Fetch current price for proper exit price
                         exit_price = None
                         try:
@@ -1941,10 +2542,24 @@ class PaperTrader:
                         
                         conn.execute(
                             "UPDATE positions SET status='closed', exit_time=?, "
-                            "exit_price=?, realized_pnl=?, updated_at=? WHERE id=?",
+                            "exit_price=?, realized_pnl=?, exit_fill_status=?, "
+                            "exit_reason=COALESCE(NULLIF(exit_reason, ''), ?), updated_at=? WHERE id=?",
                             (datetime.now().isoformat(), exit_price, realized_pnl,
+                             'broker_reconciled_closed', exit_reason or 'broker_reconciled',
                              datetime.now().isoformat(), pos_id)
                         )
+                        if exit_price and exit_price > 0:
+                            self._reconcile_trade_logger_close(
+                                symbol=sym,
+                                strategy=strategy,
+                                side=side,
+                                quantity=quantity,
+                                entry_price=entry_price,
+                                entry_time=entry_time,
+                                exit_price=exit_price,
+                                exit_time=datetime.now().isoformat(),
+                                exit_reason=exit_reason or 'broker_reconciled',
+                            )
                     conn.commit()
                     self.logger.info("[StaleSync] Closed %d stale position(s): %s" % (
                         len(stale), [s[1] for s in stale]
@@ -1990,7 +2605,19 @@ class PaperTrader:
             self.logger.info('[WS] Connected to Alpaca trade_updates stream')
 
             while not stop_event.is_set():
-                raw = ws.recv()
+                try:
+                    raw = ws.recv()
+                except Exception as recv_err:
+                    # Alpaca trade_updates can be idle for long stretches.
+                    # websocket-client raises a timeout when no frame arrives before
+                    # ws.settimeout(), but that is not a dropped connection. Treat
+                    # idle read timeouts as healthy silence instead of reconnecting
+                    # every 20 seconds and filling logs with false warnings.
+                    err_name = recv_err.__class__.__name__.lower()
+                    err_text = str(recv_err).lower()
+                    if 'timeout' in err_name or 'timed out' in err_text:
+                        continue
+                    raise
                 if raw is None:
                     raise ConnectionError('empty websocket frame')
                 event_msg = json.loads(raw)
@@ -2050,11 +2677,33 @@ class PaperTrader:
         self._ws_stop_event = None
 
 
+    def _append_trade_logger_analysis(self, report: str, days: int = 30) -> str:
+        """Append trade_logger analysis only when it has real closed trades.
+
+        The positions DB is the source used by the portfolio report. The separate
+        trade_logger DB can legitimately be empty; appending its "No closed trades
+        yet" message after positions DB closed trades makes the report contradict
+        itself.
+        """
+        try:
+            trade_logger = getattr(self.position_manager, 'trade_logger', None)
+            if not trade_logger:
+                return report
+            analysis = trade_logger.get_analysis(days=days)
+            if int(analysis.get('total_trades') or 0) <= 0:
+                return report
+            return report + "\n\n" + trade_logger.report(days=days)
+        except Exception as te:
+            self.logger.warning(f"Trade report failed (non-fatal): {te}")
+            return report
+
+
     def run_trading_session(self):
         """Run a complete trading session"""
         try:
             self.logger.info("=== Starting TradeSight Paper Trading Session ===")
             self._start_trade_updates_monitor()
+            self._refresh_learning_feedback()
             
             # Sync with Alpaca before doing anything
             self._sync_with_alpaca()
@@ -2064,9 +2713,23 @@ class PaperTrader:
             
             # Close aged positions
             self.close_aged_positions()
+
+            # One more lightweight broker reconciliation after any exits submitted
+            # during this run so reports do not freeze pending_new as a fake close.
+            if not getattr(self.alpaca, 'demo_mode', False):
+                try:
+                    remote_positions = self.alpaca.get_remote_positions()
+                    remote_symbols = {rp.get("symbol", "") for rp in remote_positions if rp.get("symbol")}
+                    self._reconcile_exit_fills(remote_symbols)
+                except Exception as reconcile_err:
+                    self.logger.warning(f"[ExitReconcile] End-of-run reconcile skipped: {reconcile_err}")
             
             # Generate report
             report = self.generate_trading_report()
+
+            # Append trade-level analysis before saving so the on-disk report
+            # matches the returned report and Mission Control evidence.
+            report = self._append_trade_logger_analysis(report, days=30)
             
             # Save report
             report_file = self.logs_dir / f"trading_report_{datetime.now().strftime('%Y%m%d_%H%M')}.txt"
@@ -2084,19 +2747,48 @@ class PaperTrader:
                     cutoff = (datetime.now() - timedelta(minutes=20)).isoformat()
                     with sqlite3.connect(db_path) as conn:
                         closed_this_session = conn.execute(
-                            "SELECT symbol, entry_price, exit_price, realized_pnl, quantity "
+                            "SELECT id, symbol, strategy, side, entry_price, exit_price, realized_pnl, "
+                            "quantity, COALESCE(exit_reason, ''), entry_time, exit_time "
                             "FROM positions WHERE status='closed' AND exit_time > ?",
                             (cutoff,)
                         ).fetchall()
                     
                     if closed_this_session:
-                        total_pnl = sum(r[3] or 0 for r in closed_this_session)
-                        wins = sum(1 for r in closed_this_session if (r[3] or 0) > 0)
+                        total_pnl = sum(r[6] or 0 for r in closed_this_session)
+                        wins = sum(1 for r in closed_this_session if (r[6] or 0) > 0)
                         total = len(closed_this_session)
                         win_rate = wins / total if total > 0 else 0.0
                         # Calculate P&L as percentage of total position value
-                        total_entry_value = sum((r[1] or 0) * (r[4] or 0) for r in closed_this_session)
+                        total_entry_value = sum((r[4] or 0) * (r[7] or 0) for r in closed_this_session)
                         pnl_pct = (total_pnl / max(total_entry_value, 1)) * 100
+                        recorded = 0
+                        for row in closed_this_session:
+                            (
+                                pos_id, symbol, strategy, side, entry_price, exit_price,
+                                realized_pnl, quantity, exit_reason, entry_time, exit_time,
+                            ) = row
+                            if self.feedback.record_closed_trade(
+                                params=self.active_params,
+                                symbol=symbol,
+                                strategy=strategy,
+                                side=side,
+                                entry_price=entry_price,
+                                exit_price=exit_price,
+                                quantity=quantity,
+                                pnl_dollars=realized_pnl,
+                                exit_reason=exit_reason,
+                                opened_at=entry_time,
+                                closed_at=exit_time,
+                                market_regime=(
+                                    self._current_regime.value
+                                    if getattr(self, '_current_regime', None) is not None
+                                    and hasattr(self._current_regime, 'value')
+                                    else 'unknown'
+                                ),
+                                source='positions',
+                                source_id=str(pos_id),
+                            ):
+                                recorded += 1
                         
                         self.feedback.log_session(
                             params=self.active_params,
@@ -2105,24 +2797,16 @@ class PaperTrader:
                             trades_closed=total,
                             win_rate=win_rate
                         )
-                        symbols = [r[0] for r in closed_this_session]
+                        symbols = [r[1] for r in closed_this_session]
                         self.logger.info(
-                            "Feedback logged: %d closed trades, P&L=%.2f%%, "
-                            "WR=%.0f%%, symbols=%s" % (total, pnl_pct, win_rate * 100, symbols))
+                            "Feedback logged: %d closed trades (%d trade rows), P&L=%.2f%%, "
+                            "WR=%.0f%%, symbols=%s" % (total, recorded, pnl_pct, win_rate * 100, symbols))
                     else:
                         self.logger.info("Feedback: no trades closed this session — skipping log")
                 except Exception as fe:
                     self.logger.warning("Feedback logging failed (non-fatal): %s" % str(fe))
 
             self.logger.info(f"Trading session completed. Report saved to {report_file}")
-            # Append trade-level analysis to report
-            try:
-                if hasattr(self.position_manager, 'trade_logger') and self.position_manager.trade_logger:
-                    trade_analysis = self.position_manager.trade_logger.report(days=30)
-                    report = report + "\n\n" + trade_analysis
-            except Exception as te:
-                self.logger.warning(f"Trade report failed (non-fatal): {te}")
-
             return report
 
         except Exception as e:

@@ -72,6 +72,24 @@ def safe_jsonify(data):
     return json.loads(json.dumps(data, cls=NumpySafeEncoder))
 
 
+def load_alpaca_credentials():
+    """Load Alpaca credentials through TradeSight config/Keychain, with env fallback."""
+    try:
+        from config import ALPACA_API_KEY, ALPACA_SECRET_KEY
+        api_key = ALPACA_API_KEY or ''
+        secret_key = ALPACA_SECRET_KEY or ''
+        if api_key and secret_key:
+            return api_key, secret_key, 'TradeSight config'
+    except Exception:
+        pass
+
+    api_key = os.environ.get("ALPACA_API_KEY", "")
+    secret_key = os.environ.get("ALPACA_SECRET_KEY", "") or os.environ.get("ALPACA_SECRET", "")
+    if api_key and secret_key:
+        return api_key, secret_key, 'environment'
+    return '', '', 'missing'
+
+
 def get_db_connection():
     """Get database connection"""
     db_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'tradesight.db')
@@ -186,6 +204,54 @@ def get_strategy_lab_stats():
             'error': str(e)
         }
 
+
+@app.route('/health')
+def health():
+    """Lightweight health check for LaunchAgent/browser/service monitors."""
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    data_dir = os.path.join(project_root, 'data')
+    logs_dir = os.path.join(project_root, 'logs')
+    reports_dir = os.path.join(project_root, 'reports')
+    positions_db = os.path.join(data_dir, 'positions.db')
+
+    payload = {
+        'ok': True,
+        'service': 'tradesight-dashboard',
+        'timestamp': datetime.now().isoformat(),
+        'checks': {
+            'positions_db_exists': os.path.exists(positions_db),
+            'logs_dir_exists': os.path.isdir(logs_dir),
+            'reports_dir_exists': os.path.isdir(reports_dir),
+        },
+    }
+
+    try:
+        if os.path.exists(positions_db):
+            with sqlite3.connect(positions_db) as conn:
+                rows = conn.execute("SELECT status, COUNT(*) FROM positions GROUP BY status").fetchall()
+            payload['position_counts'] = {str(status): int(count) for status, count in rows}
+    except Exception as e:
+        payload['ok'] = False
+        payload['checks']['positions_db_read_error'] = str(e)
+
+    for label, folder, prefix in (
+        ('latest_trading_report', logs_dir, 'trading_report_'),
+        ('latest_optimization_report', reports_dir, 'optimization_'),
+    ):
+        try:
+            files = [os.path.join(folder, f) for f in os.listdir(folder) if f.startswith(prefix)]
+            if files:
+                latest = max(files, key=os.path.getmtime)
+                payload[label] = {
+                    'path': latest,
+                    'mtime': datetime.fromtimestamp(os.path.getmtime(latest)).isoformat(),
+                }
+        except Exception as e:
+            payload.setdefault('warnings', {})[label] = str(e)
+
+    status = 200 if payload.get('ok') else 500
+    return jsonify(sanitize_for_json(payload)), status
+
 @app.route('/')
 def dashboard():
     """Main dashboard with all market types"""
@@ -262,6 +328,38 @@ def stocks_opportunities():
         
     except Exception as e:
         return jsonify({'error': str(e)})
+
+
+@app.route('/api/paper-trading/status')
+def paper_trading_status():
+    """Return redacted paper trading credential and position status for the UI."""
+    api_key, secret_key, credential_source = load_alpaca_credentials()
+    positions_db = os.path.join(os.path.dirname(__file__), '..', 'data', 'positions.db')
+    status = {
+        'mode': 'paper',
+        'credential_source': credential_source,
+        'credentials_configured': bool(api_key and secret_key),
+        'open_positions': 0,
+        'closed_positions': 0,
+        'total_realized_pnl': 0.0,
+    }
+    try:
+        if os.path.exists(positions_db):
+            with sqlite3.connect(positions_db) as conn:
+                rows = conn.execute("SELECT status, COUNT(*) FROM positions GROUP BY status").fetchall()
+                for row_status, count in rows:
+                    if row_status == 'open':
+                        status['open_positions'] = int(count)
+                    elif row_status == 'closed':
+                        status['closed_positions'] = int(count)
+                pnl = conn.execute(
+                    "SELECT COALESCE(SUM(realized_pnl), 0) FROM positions WHERE status='closed'"
+                ).fetchone()[0]
+                status['total_realized_pnl'] = float(pnl or 0)
+    except Exception as e:
+        status['warning'] = str(e)
+
+    return jsonify(sanitize_for_json(status))
 
 @app.route('/api/strategy-lab/stats')
 def strategy_lab_stats():
@@ -622,10 +720,9 @@ def emergency_close_all_positions():
         from datetime import datetime
         import sqlite3
 
-        api_key = os.environ.get("ALPACA_API_KEY", "")
-        secret_key = os.environ.get("ALPACA_SECRET_KEY", "") or os.environ.get("ALPACA_SECRET", "")
+        api_key, secret_key, credential_source = load_alpaca_credentials()
         if not api_key or not secret_key:
-            return jsonify({"error": "Alpaca keys not in env"}), 500
+            return jsonify({"error": "Alpaca credentials unavailable"}), 500
         client = AlpacaClient(api_key=api_key, secret_key=secret_key, paper=True)
         if client.demo_mode:
             return jsonify({'error': 'Alpaca not authenticated (demo mode)'}), 500
@@ -670,7 +767,8 @@ def emergency_close_all_positions():
         return jsonify({
             'closed_alpaca': closed,
             'errors': errors,
-            'db_positions_cleared': open_rows
+            'db_positions_cleared': open_rows,
+            'credential_source': credential_source,
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -687,10 +785,9 @@ def emergency_restore_positions():
         from datetime import datetime
         import sqlite3, requests
 
-        api_key = os.environ.get('ALPACA_API_KEY', '')
-        secret_key = os.environ.get('ALPACA_SECRET_KEY', '') or os.environ.get('ALPACA_SECRET', '')
+        api_key, secret_key, credential_source = load_alpaca_credentials()
         if not api_key or not secret_key:
-            return jsonify({'error': 'Alpaca keys not in env'}), 500
+            return jsonify({'error': 'Alpaca credentials unavailable'}), 500
 
         headers = {'APCA-API-KEY-ID': api_key, 'APCA-API-SECRET-KEY': secret_key}
         r = requests.get('https://paper-api.alpaca.markets/v2/positions', headers=headers, timeout=10)
@@ -724,7 +821,11 @@ def emergency_restore_positions():
                     restored.append({'symbol': symbol, 'qty': qty, 'entry_price': entry_price})
                     conn.commit()
 
-        return jsonify({'restored': restored, 'alpaca_positions': len(alpaca_positions)})
+        return jsonify({
+            'restored': restored,
+            'alpaca_positions': len(alpaca_positions),
+            'credential_source': credential_source,
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

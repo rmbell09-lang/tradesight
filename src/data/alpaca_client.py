@@ -156,57 +156,42 @@ class AlpacaClient:
             'feed': 'iex'  # Explicit IEX feed; swap to 'sip' if on paid tier
         }
         
-        # Retry with backoff for transient DNS/network failures
-        max_retries = 3
+        # Retry with backoff for transient DNS/network failures and page through
+        # Alpaca responses. The old path only consumed the first page, which could
+        # silently leave intraday history too shallow for optimizer validation.
+        all_bars = []
+        next_page_token = None
+        pages_fetched = 0
+        max_pages = 20
         last_error = None
-        for attempt in range(max_retries):
-            try:
-                response = requests.get(url, headers=self.headers, params=params, timeout=15)
-                break  # Success
-            except requests.exceptions.ConnectionError as e:
-                last_error = e
-                if attempt < max_retries - 1:
-                    wait = (attempt + 1) * 5  # 5s, 10s backoff
-                    import logging as _log
-                    _log.getLogger('AlpacaClient').warning(
-                        f"Connection error for {symbol} (attempt {attempt+1}/{max_retries}), retrying in {wait}s: {e}"
-                    )
-                    import time as _time
-                    _time.sleep(wait)
-                    continue
-                else:
-                    raise
-        try:
-            response  # Check we have a response
-            
-            if response.status_code == 200:
-                data = response.json()
-                bars = data.get('bars', [])
-                
-                if not bars:
-                    raise ValueError(f"No data returned for {symbol}")
-                
-                df_data = []
-                for bar in bars:
-                    df_data.append({
-                        'timestamp': pd.to_datetime(bar['t']),
-                        'open': float(bar['o']),
-                        'high': float(bar['h']),
-                        'low': float(bar['l']),
-                        'close': float(bar['c']),
-                        'volume': int(bar['v'])
-                    })
-                
-                df = pd.DataFrame(df_data)
-                df.set_index('timestamp', inplace=True)
-                df.columns = ['open', 'high', 'low', 'close', 'volume']
-                
-                # Return timeframe-appropriate number of rows (not just calendar days)
-                bars_per_day = {'1Min':390,'5Min':78,'15Min':26,'30Min':13,'1Hour':7,'1Day':1}
-                max_rows = days * bars_per_day.get(timeframe, 1)
-                return df.tail(max_rows)
-                
-            else:
+
+        while pages_fetched < max_pages:
+            page_params = dict(params)
+            if next_page_token:
+                page_params['page_token'] = next_page_token
+
+            response = None
+            for attempt in range(3):
+                try:
+                    response = requests.get(url, headers=self.headers, params=page_params, timeout=15)
+                    break
+                except requests.exceptions.ConnectionError as e:
+                    last_error = e
+                    if attempt < 2:
+                        wait = (attempt + 1) * 5
+                        import logging as _log
+                        _log.getLogger('AlpacaClient').warning(
+                            f"Connection error for {symbol} (attempt {attempt+1}/3), retrying in {wait}s: {e}"
+                        )
+                        import time as _time
+                        _time.sleep(wait)
+                    else:
+                        raise
+
+            if response is None:
+                break
+
+            if response.status_code != 200:
                 self._demo_fallback_count += 1
                 import logging
                 logging.getLogger('AlpacaClient').warning(
@@ -216,7 +201,44 @@ class AlpacaClient:
                 df.attrs['data_source'] = 'demo_fallback'
                 df.attrs['fallback_reason'] = f'API {response.status_code}'
                 return df
-                
+
+            data = response.json()
+            bars = data.get('bars', [])
+            all_bars.extend(bars)
+            pages_fetched += 1
+            next_page_token = data.get('next_page_token')
+            if not next_page_token:
+                break
+
+        try:
+            if not all_bars:
+                raise ValueError(f"No data returned for {symbol}; last_error={last_error}")
+
+            df_data = []
+            for bar in all_bars:
+                df_data.append({
+                    'timestamp': pd.to_datetime(bar['t']),
+                    'open': float(bar['o']),
+                    'high': float(bar['h']),
+                    'low': float(bar['l']),
+                    'close': float(bar['c']),
+                    'volume': int(bar['v'])
+                })
+
+            df = pd.DataFrame(df_data)
+            df.drop_duplicates(subset=['timestamp'], keep='last', inplace=True)
+            df.sort_values('timestamp', inplace=True)
+            df.set_index('timestamp', inplace=True)
+            df.columns = ['open', 'high', 'low', 'close', 'volume']
+
+            bars_per_day = {'1Min':390,'5Min':78,'15Min':26,'30Min':13,'1Hour':7,'1Day':1}
+            max_rows = days * bars_per_day.get(timeframe, 1)
+            df = df.tail(max_rows)
+            df.attrs['data_source'] = f'alpaca_{timeframe.lower()}'
+            df.attrs['alpaca_pages_fetched'] = pages_fetched
+            df.attrs['alpaca_rows_raw'] = len(all_bars)
+            return df
+
         except Exception as e:
             self._demo_fallback_count += 1
             import logging
@@ -227,18 +249,7 @@ class AlpacaClient:
             df.attrs['data_source'] = 'demo_fallback'
             df.attrs['fallback_reason'] = str(e)
             return df
-        except NameError:
-            # response wasn't assigned (all retries failed)
-            self._demo_fallback_count += 1
-            import logging
-            logging.getLogger('AlpacaClient').warning(
-                f"All retries failed for {symbol}: {last_error} - falling back to DEMO data"
-            )
-            df = self._generate_demo_data(symbol, days)
-            df.attrs['data_source'] = 'demo_fallback'
-            df.attrs['fallback_reason'] = str(last_error)
-            return df
-    
+
     def get_quote(self, symbol: str) -> Optional[StockQuote]:
         """Get real-time quote for a symbol"""
         if self.demo_mode:
@@ -427,13 +438,48 @@ class AlpacaClient:
             if response.status_code in (200, 204):
                 data = response.json() if response.text else {}
                 fill_price = float(data.get('filled_avg_price') or data.get('avg_fill_price') or 0) or None
-                logger.info(f"Closed full Alpaca position: {symbol} @ fill_price={fill_price}")
-                return {'status': 'closed', 'fill_price': fill_price, 'symbol': symbol}
+                order_id = data.get('id') or data.get('order_id') or data.get('client_order_id')
+                logger.info(f"Closed full Alpaca position: {symbol} @ fill_price={fill_price} order_id={order_id}")
+                return {
+                    'status': data.get('status') or 'closed',
+                    'fill_price': fill_price,
+                    'symbol': symbol,
+                    'order_id': order_id,
+                    'broker_verified': True,
+                    'raw_response': data,
+                }
             else:
                 logger.error(f"close_full_position failed: {response.status_code} - {response.text}")
                 return {'error': response.text, 'status_code': response.status_code}
         except Exception as e:
             logger.error(f"close_full_position exception: {e}")
+            return {'error': str(e)}
+
+    def get_order(self, order_id: str) -> dict:
+        """Fetch a broker order by id for fill reconciliation."""
+        if not order_id:
+            return {}
+        if self.demo_mode:
+            return {
+                'id': order_id,
+                'status': 'filled',
+                'filled_avg_price': None,
+                'demo_mode': True,
+            }
+
+        url = f"{self.base_url}/v2/orders/{order_id}"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            import logging
+            logging.getLogger("AlpacaClient").warning(
+                "get_order failed: %s - %s", response.status_code, response.text
+            )
+            return {'error': response.text, 'status_code': response.status_code}
+        except Exception as e:
+            import logging
+            logging.getLogger("AlpacaClient").warning(f"get_order exception: {e}")
             return {'error': str(e)}
 
     def get_account(self) -> dict:

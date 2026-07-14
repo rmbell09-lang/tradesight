@@ -141,6 +141,81 @@ class TradeLogger:
         outcome = 'WIN' if pnl_dollars > 0 else 'LOSS'
         logger.info(f"Trade closed: {symbol} [{exit_reason}] P&L=${pnl_dollars:.2f} ({pnl_pct:.2f}%) {outcome}")
 
+    def log_position_close(self, symbol: str, strategy: str, side: str,
+                           quantity: float, entry_price: float,
+                           exit_price: float, entry_time: str = None,
+                           exit_time: str = None, exit_reason: str = 'signal',
+                           params_hash: str = ''):
+        """Log a closed position even if open_trades was missing or stale.
+
+        Broker-reconciled exits can bypass the old symbol/strategy close matcher.
+        This keeps trades.db aligned with positions.db and removes any matching
+        open_trade row so trade-level analytics stop reporting phantom opens.
+        """
+        if not exit_price or exit_price <= 0 or not entry_price or entry_price <= 0:
+            logger.warning(
+                "Skipping trade close log for %s/%s: invalid entry/exit price",
+                symbol, strategy,
+            )
+            return
+
+        exit_time = exit_time or datetime.now().isoformat()
+        entry_time_str = entry_time or exit_time
+        side = side or 'long'
+        quantity = float(quantity or 0)
+        entry_price = float(entry_price)
+        exit_price = float(exit_price)
+
+        if side == 'long':
+            pnl_dollars = (exit_price - entry_price) * quantity
+            pnl_pct = (exit_price - entry_price) / entry_price * 100
+        else:
+            pnl_dollars = (entry_price - exit_price) * quantity
+            pnl_pct = (entry_price - exit_price) / entry_price * 100
+
+        try:
+            entry_dt = datetime.fromisoformat(entry_time_str)
+            exit_dt = datetime.fromisoformat(exit_time)
+            hold_minutes = int((exit_dt - entry_dt).total_seconds() / 60)
+        except Exception:
+            hold_minutes = 0
+
+        with sqlite3.connect(self.db_path) as conn:
+            open_trade = conn.execute(
+                '''
+                SELECT id FROM open_trades
+                WHERE symbol = ? AND strategy = ?
+                ORDER BY entry_time DESC LIMIT 1
+                ''',
+                (symbol, strategy)
+            ).fetchone()
+
+            conn.execute('''
+                INSERT INTO trades
+                (symbol, strategy, params_hash, side, quantity, entry_price, exit_price,
+                 entry_time, exit_time, hold_minutes, pnl_dollars, pnl_pct,
+                 exit_reason, market_session)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ''', (symbol, strategy, params_hash, side, quantity, entry_price, exit_price,
+                  entry_time_str, exit_time, hold_minutes, round(pnl_dollars, 4),
+                  round(pnl_pct, 4), exit_reason, self._market_session()))
+
+            if open_trade:
+                conn.execute('DELETE FROM open_trades WHERE id = ?', (open_trade[0],))
+            else:
+                # Defensive cleanup for duplicated stale opens from older runs.
+                conn.execute(
+                    'DELETE FROM open_trades WHERE symbol = ? AND strategy = ?',
+                    (symbol, strategy)
+                )
+            conn.commit()
+
+        outcome = 'WIN' if pnl_dollars > 0 else 'LOSS'
+        logger.info(
+            "Trade reconciled closed: %s [%s] P&L=$%.2f (%.2f%%) %s",
+            symbol, exit_reason, pnl_dollars, pnl_pct, outcome,
+        )
+
     def get_analysis(self, days: int = 30) -> Dict:
         """Return structured analysis of recent trades."""
         with sqlite3.connect(self.db_path) as conn:

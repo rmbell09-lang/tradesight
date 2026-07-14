@@ -8,7 +8,10 @@ from unittest.mock import Mock
 
 sys.path.append('src')
 
-from strategy_lab.backtest import BacktestEngine, Trade, BacktestMetrics, simple_ma_crossover, rsi_mean_reversion
+from strategy_lab.backtest import (
+    BacktestEngine, Trade, BacktestMetrics, simple_ma_crossover,
+    rsi_mean_reversion, make_rsi_strategy,
+)
 from strategy_lab.ai_engine import AIStrategyEngine, StrategyGeneration, MultiAssetResults, create_test_data
 
 
@@ -84,6 +87,34 @@ class TestBacktestEngine:
         result = self.engine.run_backtest(self.test_data, rsi_mean_reversion, 'TEST')
         assert isinstance(result, dict)
         assert result['metrics']['total_trades'] >= 0
+
+    def test_rsi_factory_honors_full_optimizer_params(self):
+        strategy = make_rsi_strategy(
+            oversold=30,
+            overbought=65,
+            position_size=0.15,
+            stop_loss_pct=0.05,
+            take_profit_pct=0.12,
+            max_holding_bars=10,
+            use_atr=False,
+            trend_buffer=0.97,
+            volume_min_ratio=0.8,
+        )
+        data = self.engine._add_indicators(self.test_data.copy())
+        idx = len(data) - 1
+        data.iloc[idx, data.columns.get_loc('rsi')] = 20.0
+        data.iloc[idx, data.columns.get_loc('sma_50')] = data.iloc[idx]['close'] / 0.95
+        assert strategy(data, idx, []) is None
+
+        data.iloc[idx, data.columns.get_loc('sma_50')] = data.iloc[idx]['close']
+        data.iloc[idx, data.columns.get_loc('volume_sma_20')] = data.iloc[idx]['volume'] / 1.5
+        signal = strategy(data, idx, [])
+        assert signal['action'] == 'buy'
+        assert signal['size'] == 0.15
+        assert signal['stop_loss'] == pytest.approx(data.iloc[idx]['close'] * 0.95)
+        assert signal['take_profit'] == pytest.approx(data.iloc[idx]['close'] * 1.12)
+
+        assert strategy(data, idx, [{'entry_index': idx - 10}]) == {'action': 'close'}
 
 
 # --- AI Strategy Engine Tests ---

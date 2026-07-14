@@ -24,7 +24,7 @@ The RSI Mean Reversion strategy that came out of this process hit 89.4% P&L with
 ### What's in the box
 
 - Full Python source (MIT license)
-- Web dashboard at localhost:5001
+- Web dashboard at localhost:5000
 - Polymarket + US equities scanner
 - 15+ technical indicators applied automatically
 - Paper trading via Alpaca (free account)
@@ -49,4 +49,3 @@ One-time purchase at $49. No subscriptions. Currently raising to $79 when v2 shi
 Would love feedback from anyone who's built trading tools or used algorithmic strategies. What would you want to see in v2?
 
 **Link:** https://qcautonomous.gumroad.com/l/zpkutz
-

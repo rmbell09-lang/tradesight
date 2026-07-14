@@ -173,6 +173,13 @@ class PositionManager:
                         synced_at TEXT NOT NULL
                     )
                 ''')
+                bc_cols = [row[1] for row in conn.execute("PRAGMA table_info(balance_cache)").fetchall()]
+                if 'equity' not in bc_cols:
+                    conn.execute("ALTER TABLE balance_cache ADD COLUMN equity REAL")
+                    self.logger.info("Migration: added equity column to balance_cache")
+                if 'positions_value' not in bc_cols:
+                    conn.execute("ALTER TABLE balance_cache ADD COLUMN positions_value REAL")
+                    self.logger.info("Migration: added positions_value column to balance_cache")
                 conn.commit()
                 self.logger.info(f"Position database initialized at {db_path}")
                 
@@ -277,11 +284,13 @@ class PositionManager:
             with sqlite3.connect(db_path) as conn:
                 # Get all open positions
                 positions = conn.execute('''
-                    SELECT id, symbol, side, quantity, entry_price FROM positions 
+                    SELECT id, symbol, side, quantity, entry_price,
+                           COALESCE(high_water_mark, entry_price)
+                    FROM positions
                     WHERE status = 'open'
                 ''').fetchall()
-                
-                for position_id, symbol, side, quantity, entry_price in positions:
+
+                for position_id, symbol, side, quantity, entry_price, high_water_mark in positions:
                     if symbol in price_data:
                         current_price = price_data[symbol]
                         
@@ -291,14 +300,34 @@ class PositionManager:
                         else:  # short
                             unrealized_pnl = (entry_price - current_price) * quantity
                         
-                        # Update high water mark if price is higher
-                        conn.execute('''
-                            UPDATE positions
-                            SET high_water_mark = CASE 
-                                WHEN high_water_mark IS NULL OR ? > high_water_mark 
-                                THEN ? ELSE high_water_mark END
-                            WHERE id = ?
-                        ''', (current_price, current_price, position_id))
+                        # Update high water mark only for sane price moves.
+                        # One bad quote can otherwise create a fake trailing-stop
+                        # floor and force an immediate churn exit on the next tick.
+                        if side == 'long' and current_price > (high_water_mark or 0):
+                            max_hwm_jump_pct = 0.08
+                            max_entry_jump_pct = 0.25
+                            sane_vs_hwm = (
+                                not high_water_mark
+                                or current_price <= float(high_water_mark) * (1.0 + max_hwm_jump_pct)
+                            )
+                            sane_vs_entry = (
+                                not entry_price
+                                or current_price <= float(entry_price) * (1.0 + max_entry_jump_pct)
+                            )
+                            if sane_vs_hwm and sane_vs_entry:
+                                conn.execute(
+                                    "UPDATE positions SET high_water_mark = ? WHERE id = ?",
+                                    (current_price, position_id)
+                                )
+                            else:
+                                self.logger.warning(
+                                    "[Trail] Ignoring suspicious HWM jump for %s: "
+                                    "entry=$%.2f old_hwm=$%.2f quote=$%.2f",
+                                    symbol,
+                                    float(entry_price or 0),
+                                    float(high_water_mark or 0),
+                                    float(current_price or 0),
+                                )
 
                         # Update position
                         conn.execute('''
@@ -432,12 +461,28 @@ class PositionManager:
                 
                 strategies_active = [s[0] for s in strategies]
                 
-                # Try to load persisted Alpaca buying power
-                cached_balance = conn.execute(
-                    "SELECT buying_power, synced_at FROM balance_cache WHERE id = 1"
-                ).fetchone()
+                # Try to load persisted Alpaca account sync. When present, account equity is
+                # the source of truth for top-line portfolio value; local realized P&L can
+                # contain old demo/synthetic closes and must not inflate public reports.
+                try:
+                    cached_balance = conn.execute(
+                        "SELECT buying_power, synced_at, equity, positions_value FROM balance_cache WHERE id = 1"
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    cached_balance = conn.execute(
+                        "SELECT buying_power, synced_at, NULL, NULL FROM balance_cache WHERE id = 1"
+                    ).fetchone()
                 real_buying_power = cached_balance[0] if cached_balance else None
                 balance_synced_at = cached_balance[1] if cached_balance else None
+                real_equity = cached_balance[2] if cached_balance and cached_balance[2] is not None else None
+                real_positions_value = cached_balance[3] if cached_balance and cached_balance[3] is not None else None
+
+                if real_equity is not None:
+                    total_value = float(real_equity)
+                    available_cash = float(real_buying_power or 0)
+                    if real_positions_value is not None:
+                        positions_value = float(real_positions_value)
+                    total_pnl = total_value - self.config['initial_balance']
 
                 return PortfolioState(
                     total_value=total_value,
@@ -465,24 +510,33 @@ class PositionManager:
                 strategies_active=[]
             )
     
-    def persist_balance_sync(self, buying_power: float) -> bool:
-        """Persist Alpaca buying power to balance_cache. Called after every _sync_with_alpaca.
-        
-        Stores the real Alpaca buying_power in a single-row balance_cache table so that
-        get_portfolio_state() can return real balance data instead of locally-calculated cash.
-        Also stamps buying_power + balance_synced_at into the latest portfolio_history row.
+    def persist_balance_sync(self, buying_power: float, equity: float = None, positions_value: float = None) -> bool:
+        """Persist Alpaca account sync to balance_cache. Called after every _sync_with_alpaca.
+
+        Stores real Alpaca buying_power/equity/positions_value in a single-row table so
+        portfolio reports use broker truth instead of locally accumulated demo-era P&L.
         """
         try:
             synced_at = datetime.now().isoformat()
             db_path = self.data_dir / 'positions.db'
             with sqlite3.connect(db_path) as conn:
+                cols = [row[1] for row in conn.execute("PRAGMA table_info(balance_cache)").fetchall()]
+                if 'equity' not in cols:
+                    conn.execute("ALTER TABLE balance_cache ADD COLUMN equity REAL")
+                if 'positions_value' not in cols:
+                    conn.execute("ALTER TABLE balance_cache ADD COLUMN positions_value REAL")
                 conn.execute('''
-                    INSERT INTO balance_cache (id, buying_power, synced_at)
-                    VALUES (1, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET buying_power=excluded.buying_power, synced_at=excluded.synced_at
-                ''', (buying_power, synced_at))
+                    INSERT INTO balance_cache (id, buying_power, synced_at, equity, positions_value)
+                    VALUES (1, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        buying_power=excluded.buying_power,
+                        synced_at=excluded.synced_at,
+                        equity=excluded.equity,
+                        positions_value=excluded.positions_value
+                ''', (buying_power, synced_at, equity, positions_value))
                 conn.commit()
-            self.logger.info(f"Balance sync persisted: buying_power=${buying_power:.2f} at {synced_at}")
+            extra = "" if equity is None else f", equity=${equity:.2f}, positions=${(positions_value or 0):.2f}"
+            self.logger.info(f"Balance sync persisted: buying_power=${buying_power:.2f}{extra} at {synced_at}")
             return True
         except Exception as e:
             self.logger.error(f"Failed to persist balance sync: {e}")
