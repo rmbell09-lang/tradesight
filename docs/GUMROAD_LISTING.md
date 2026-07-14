@@ -1,6 +1,6 @@
-# TradeSight — source copy for a future Gumroad update
+# TradeSight 1.2 — Gumroad listing copy
 
-**Status: LOCAL DRAFT. DO NOT SYNC OR PUBLISH UNTIL THE PACKAGE 7 RELEASE GATE PASSES.**
+**Status: APPROVED FOR THE VERIFIED 1.2 PAPER-ONLY RELEASE.**
 
 ## Headline
 
@@ -61,13 +61,13 @@ Not a fit for anyone seeking guaranteed returns, automatic live-money activation
 
 Keep the existing listing price unchanged until Ray separately decides otherwise. This file does not authorize a price, listing, account, or publication change.
 
-## Release gate
+## Release verification
 
-Before syncing this copy to Gumroad:
+The customer archive must pass these checks before upload:
 
 1. Build the allowlisted paper-only archive.
 2. Verify its SHA-256 manifest.
 3. Complete a clean extracted installation using Python 3.11+.
 4. Pass the complete test suite and dashboard smoke test.
 5. Confirm no credentials, runtime databases, state, reports, or logs are included.
-6. Obtain Ray's separate approval for any public listing mutation.
+6. Record the uploaded filename and checksum in the release proof.

@@ -17,7 +17,7 @@ All mandatory gates must pass before a separate live-canary build is even review
 10. Authenticated, CSRF-protected, audit-chained risk controls.
 11. Tested outbound safety alerts.
 12. Failure and restart drills passed.
-13. Ray's explicit approval of the strategy and hard per-trade, daily, and total loss limits.
+13. The operator's explicit approval of the strategy and hard per-trade, daily, and total loss limits.
 
 Passing all gates does not enable live trading. It only permits a separate review of a
 small canary build. That build would use one frozen strategy, liquid stocks or ETFs,

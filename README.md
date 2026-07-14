@@ -81,11 +81,11 @@ Passing those gates would only support a separate canary-build review. It would 
 
 ## Release integrity
 
-Build a local, unpublished release candidate with:
+Build a local release archive with:
 
 ```bash
 .runtime/bin/python scripts/build_release.py
-.runtime/bin/python scripts/verify_release.py dist/releases/tradesight-1.2.0rc1-paper-only.zip
+.runtime/bin/python scripts/verify_release.py dist/releases/tradesight-1.2.0-paper-only.zip
 ```
 
 The builder uses an allowlist, rejects runtime/private state and common credential patterns, writes a SHA-256 manifest, and never publishes the archive.
