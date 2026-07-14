@@ -516,6 +516,27 @@ class TestPaperTrader:
         assert row[1] == 'filled'
         assert row[2] == 151.25
 
+    def test_buy_order_normalizes_native_alpaca_id(self):
+        """Alpaca's native `id` field must survive as entry broker proof."""
+        self.trader.alpaca.place_paper_trade = Mock(return_value={
+            'status': 'accepted',
+            'id': 'alpaca-native-entry-id',
+            'fill_price': 151.25,
+        })
+
+        ok = self.trader._execute_buy_order('AAPL', 'RSI Mean Reversion', 'long', 1.0, 151.0)
+        assert ok is True
+
+        db_path = self.trader.position_manager.data_dir / 'positions.db'
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT entry_order_id,entry_fill_status FROM positions "
+                "WHERE symbol=? AND strategy=? AND status='open' ORDER BY id DESC LIMIT 1",
+                ('AAPL', 'RSI Mean Reversion'),
+            ).fetchone()
+
+        assert row == ('alpaca-native-entry-id', 'accepted')
+
 
     def test_trade_logger_empty_analysis_is_not_appended_to_positions_report(self):
         """Do not append contradictory 'No closed trades yet' when positions DB has closes."""

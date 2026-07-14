@@ -52,14 +52,25 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from scanners.stock_scanner import StockScanner
 from strategy_lab.tournament import StrategyTournament
 from strategy_lab.ai_engine import create_test_data
+from strategy_lab.optimizer_registry import OptimizerRegistry
+from trading.accounting_truth import (
+    establish_epoch,
+    load_epoch,
+    reconcile_accounting,
+)
+from data.alpaca_client import AlpacaClient
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APP_STARTED_AT = datetime.now().astimezone()
 APP_STARTED_MONOTONIC = time.monotonic()
 POLYMARKET_STALE_AFTER = timedelta(hours=24)
 DEMO_TOOLS_ENABLED = os.environ.get("TRADESIGHT_ENABLE_DEMO_TOOLS", "").lower() in {
     "1", "true", "yes"
 }
+ACCOUNTING_CACHE_SECONDS = 15
+_accounting_cache = {"loaded_at": 0.0, "payload": None}
+_accounting_lock = threading.Lock()
 # AlertManager — for dashboard alerts tab
 import sys as _sys
 _sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -169,6 +180,56 @@ def load_alpaca_credentials():
     if api_key and secret_key:
         return api_key, secret_key, 'environment'
     return '', '', 'missing'
+
+
+def _paper_broker_client():
+    """Return an authenticated paper client or a typed unavailable result."""
+    api_key, secret_key, credential_source = load_alpaca_credentials()
+    if not api_key or not secret_key:
+        return None, credential_source, "Alpaca paper credentials are unavailable"
+    client = AlpacaClient(api_key=api_key, secret_key=secret_key, paper=True)
+    if getattr(client, "demo_mode", False):
+        return None, credential_source, "Alpaca client entered demo mode; broker truth was rejected"
+    return client, credential_source, None
+
+
+def get_accounting_reconciliation(force=False):
+    """Return a short-lived projection of current broker/accounting truth."""
+    now = time.monotonic()
+    with _accounting_lock:
+        cached = _accounting_cache.get("payload")
+        if not force and cached is not None and now - _accounting_cache.get("loaded_at", 0) < ACCOUNTING_CACHE_SECONDS:
+            return cached
+
+        client, credential_source, error = _paper_broker_client()
+        if error:
+            payload = {
+                "schema": "tradesight_accounting_truth.v1",
+                "status": "UNAVAILABLE",
+                "mode": "paper",
+                "error": error,
+                "credential_source": credential_source,
+                "live_trading_allowed": False,
+            }
+        else:
+            account = client.get_account() or {}
+            positions = client.get_remote_positions() or []
+            payload = reconcile_accounting(
+                PROJECT_ROOT,
+                account,
+                positions,
+                order_fetcher=client.get_order,
+            )
+            payload["credential_source"] = credential_source
+
+        _accounting_cache["loaded_at"] = now
+        _accounting_cache["payload"] = payload
+        return payload
+
+
+def get_strategy_registry():
+    """Read the real optimizer/tournament/champion evidence projection."""
+    return OptimizerRegistry(PROJECT_ROOT).snapshot()
 
 
 def get_db_connection():
@@ -302,22 +363,10 @@ def get_stock_stats():
         }
 
 def get_strategy_lab_stats():
-    """Refuse to present synthetic tournaments as optimizer evidence."""
-    return {
-        'strategies_tested': 0,
-        'winner': None,
-        'winner_score': None,
-        'rounds_completed': 0,
-        'last_run': None,
-        'available': False,
-        'demo_tools_enabled': DEMO_TOOLS_ENABLED,
-        'message': 'Real optimizer integration is pending repair package 4',
-        'provenance': provenance(
-            'UNAVAILABLE',
-            'real optimizer/tournament database',
-            message='Synthetic tournament results are disabled in the production dashboard',
-        ),
-    }
+    """Return only real optimizer, tournament, and champion evidence."""
+    payload = get_strategy_registry()
+    payload['demo_tools_enabled'] = DEMO_TOOLS_ENABLED
+    return payload
 
 
 @app.route('/health')
@@ -349,10 +398,26 @@ def health():
             with sqlite3.connect(positions_db) as conn:
                 rows = conn.execute("SELECT status, COUNT(*) FROM positions GROUP BY status").fetchall()
             payload['position_counts'] = {str(status): int(count) for status, count in rows}
+            receipt_path = PROJECT_ROOT / 'state' / 'accounting-reconciliation.json'
+            accounting_kind = 'UNKNOWN'
+            accounting_observed = None
+            accounting_message = 'No accounting reconciliation receipt'
+            if receipt_path.is_file():
+                receipt = json.loads(receipt_path.read_text())
+                accounting_observed = parse_observed_at(receipt.get('observed_at'))
+                age = datetime.now(timezone.utc) - accounting_observed if accounting_observed else None
+                accounting_kind = receipt.get('status') or 'UNKNOWN'
+                if age is not None and age > timedelta(minutes=30):
+                    accounting_kind = 'STALE'
+                    accounting_message = 'Last broker reconciliation is older than 30 minutes'
+                else:
+                    accounting_message = 'Current counts were broker-reconciled at the recorded time'
+            payload['checks']['accounting_reconciliation'] = accounting_kind
             payload['position_counts_provenance'] = provenance(
-                'UNVERIFIED',
-                'local positions.db',
-                message='Counts are local records; broker reconciliation is package 3',
+                accounting_kind,
+                'state/accounting-reconciliation.json',
+                accounting_observed,
+                message=accounting_message,
             )
     except Exception as e:
         payload['ok'] = False
@@ -507,40 +572,79 @@ def stocks_opportunities():
 
 @app.route('/api/paper-trading/status')
 def paper_trading_status():
-    """Return redacted paper trading credential and position status for the UI."""
+    """Return paper status with broker truth separated from legacy local history."""
     api_key, secret_key, credential_source = load_alpaca_credentials()
-    positions_db = os.path.join(os.path.dirname(__file__), '..', 'data', 'positions.db')
+    accounting = get_accounting_reconciliation()
+    local = accounting.get('local') or {}
+    summary = local.get('verification_summary') or {}
+    closed_positions = sum(
+        int(item.get('count') or 0)
+        for key, item in summary.items()
+        if key not in ('broker_position_confirmed', 'broker_position_mismatch', 'pending_broker_reconciliation')
+    )
+    open_positions = len(local.get('open_positions') or {})
+    kind = accounting.get('status') or 'UNAVAILABLE'
     status = {
         'mode': 'paper',
         'credential_source': credential_source,
         'credentials_configured': bool(api_key and secret_key),
-        'open_positions': 0,
-        'closed_positions': 0,
-        'total_realized_pnl': 0.0,
+        'open_positions': open_positions,
+        'closed_positions': closed_positions,
+        'broker_equity': (accounting.get('broker') or {}).get('equity'),
+        'broker_equity_change_since_epoch': (accounting.get('broker') or {}).get('equity_change_since_epoch'),
+        'trusted_realized_pnl': local.get('trusted_realized_pnl', 0.0),
+        'trusted_closed_trades': local.get('trusted_closed_trades', 0),
+        'legacy_unverified_realized_pnl': local.get('legacy_unverified_realized_pnl', 0.0),
+        'legacy_unverified_closed_trades': local.get('legacy_unverified_closed_trades', 0),
+        'accounting': accounting,
         'provenance': provenance(
-            'UNVERIFIED',
-            'local positions.db',
-            message='Local records are not yet broker-reconciled; package 3 remains required',
+            kind,
+            accounting.get('source') or 'accounting truth unavailable',
+            accounting.get('observed_at'),
+            message='Legacy local P&L is preserved but excluded from trusted performance',
         ),
-        'pnl_label': 'Local realized P&L (unverified)',
+        'pnl_label': 'Broker-verified realized P&L since accounting epoch',
+        'live_trading_allowed': False,
     }
-    try:
-        if os.path.exists(positions_db):
-            with sqlite3.connect(positions_db) as conn:
-                rows = conn.execute("SELECT status, COUNT(*) FROM positions GROUP BY status").fetchall()
-                for row_status, count in rows:
-                    if row_status == 'open':
-                        status['open_positions'] = int(count)
-                    elif row_status == 'closed':
-                        status['closed_positions'] = int(count)
-                pnl = conn.execute(
-                    "SELECT COALESCE(SUM(realized_pnl), 0) FROM positions WHERE status='closed'"
-                ).fetchone()[0]
-                status['total_realized_pnl'] = float(pnl or 0)
-    except Exception as e:
-        status['warning'] = str(e)
-
     return jsonify(sanitize_for_json(status))
+
+
+@app.route('/api/accounting/reconciliation')
+def accounting_reconciliation():
+    """Current read-only broker/local accounting comparison."""
+    return jsonify(sanitize_for_json(get_accounting_reconciliation(force=True)))
+
+
+@app.route('/api/accounting/epoch', methods=['POST'])
+def accounting_epoch():
+    """Establish the one-time paper accounting baseline from current broker truth."""
+    if request.remote_addr not in ('127.0.0.1', '::1', None):
+        return jsonify({'error': 'Accounting epoch can only be established locally'}), 403
+    body = request.get_json(silent=True) or {}
+    if body.get('confirm') != 'ESTABLISH_PAPER_EPOCH':
+        return jsonify({'error': 'Explicit ESTABLISH_PAPER_EPOCH confirmation required'}), 400
+    existing = load_epoch(PROJECT_ROOT / 'state')
+    if existing:
+        return jsonify({'status': 'existing', 'epoch': existing})
+    client, credential_source, error = _paper_broker_client()
+    if error:
+        return jsonify({'error': error}), 503
+    account = client.get_account() or {}
+    positions = client.get_remote_positions() or []
+    try:
+        epoch = establish_epoch(
+            PROJECT_ROOT / 'state', account, positions,
+            source='Alpaca paper Trading API via %s' % credential_source,
+        )
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 503
+    _accounting_cache['payload'] = None
+    reconciliation = get_accounting_reconciliation(force=True)
+    return jsonify(sanitize_for_json({
+        'status': 'created',
+        'epoch': epoch,
+        'reconciliation': reconciliation,
+    })), 201
 
 @app.route('/api/strategy-lab/stats')
 def strategy_lab_stats():
@@ -549,7 +653,35 @@ def strategy_lab_stats():
 
 @app.route('/api/strategy-lab/tournament')
 def strategy_lab_tournament():
-    """API endpoint for tournament results - runs a quick tournament"""
+    """Return the latest persisted real-data tournament; never run synthetic work."""
+    snapshot = get_strategy_registry()
+    latest = snapshot.get('latest_tournament') or {}
+    if not latest:
+        return jsonify({
+            'error': 'No real tournament evidence is available',
+            'provenance': snapshot.get('provenance'),
+        }), 404
+    winner = None
+    for participant in latest.get('participants') or []:
+        if participant.get('name') == latest.get('winner'):
+            winner = participant
+            break
+    return jsonify(sanitize_for_json({
+        'session_id': latest.get('session_id'),
+        'participants': latest.get('participants') or [],
+        'winner': winner or {
+            'name': latest.get('winner'),
+            'avg_score': latest.get('winner_avg_score'),
+        },
+        'rounds_completed': latest.get('rounds_completed'),
+        'data_source': latest.get('data_source'),
+        'provenance': snapshot.get('provenance'),
+    }))
+
+
+@app.route('/api/strategy-lab/demo-tournament')
+def strategy_lab_demo_tournament():
+    """Developer-only synthetic tournament retained behind the explicit demo flag."""
     if not DEMO_TOOLS_ENABLED:
         return jsonify({
             'error': 'Synthetic tournament tools are disabled in the production dashboard',
@@ -734,109 +866,63 @@ def start_tournament():
 
 @app.route('/api/strategy-lab/status')
 def tournament_status():
-    """Get current tournament status"""
-    global tournament_in_progress, current_tournament
-    
-    return jsonify({
-        'in_progress': tournament_in_progress,
-        'has_results': current_tournament is not None,
-        'history_count': len(tournament_results_history),
+    """Return persisted real optimizer status; never imply an in-memory demo run."""
+    snapshot = get_strategy_registry()
+    return jsonify(sanitize_for_json({
+        'in_progress': False,
+        'has_results': bool(snapshot.get('latest_tournament')),
+        'history_count': len(snapshot.get('history') or []),
+        'candidate': snapshot.get('candidate'),
+        'champion': snapshot.get('champion'),
         'demo_tools_enabled': DEMO_TOOLS_ENABLED,
-        'provenance': provenance(
-            'DEMO' if DEMO_TOOLS_ENABLED else 'UNAVAILABLE',
-            'generated strategy test data' if DEMO_TOOLS_ENABLED else 'real optimizer integration',
-        ),
-    })
+        'provenance': snapshot.get('provenance'),
+        'live_trading_allowed': False,
+    }))
 
 @app.route('/api/strategy-lab/results')
 def tournament_results():
-    """Get latest tournament results"""
-    global current_tournament, tournament_results_history
-    
-    if not current_tournament:
-        return jsonify({'error': 'No tournament results available'}), 404
-    
-    # current_tournament is a TournamentResults dataclass from last start-tournament call
-    try:
-        # Get participant data from the latest history entry
-        participants = []
-        if tournament_results_history:
-            latest = tournament_results_history[-1]
-            # Re-extract from stored results
-            results = latest['results']
-            if hasattr(results, 'top_3'):
-                for entry in results.top_3:
-                    participants.append(entry)
-        
-        winner_data = None
-        if hasattr(current_tournament, 'winner') and current_tournament.winner != 'None':
-            winner_data = {
-                'name': current_tournament.winner,
-                'avg_score': current_tournament.winner_avg_score,
-                'wins': 0,
-                'total_score': current_tournament.winner_avg_score
-            }
-        
-        eliminations = []
-        if hasattr(current_tournament, 'elimination_log'):
-            eliminations = current_tournament.elimination_log
-        
-        return jsonify(sanitize_for_json({
-            'participants': participants,
-            'winner': winner_data,
-            'rounds_completed': current_tournament.total_rounds if hasattr(current_tournament, 'total_rounds') else 0,
-            'eliminations': eliminations
-        }))
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    """Return latest real tournament plus optimizer qualification evidence."""
+    snapshot = get_strategy_registry()
+    latest = snapshot.get('latest_tournament') or {}
+    if not latest:
+        return jsonify({'error': 'No real tournament results available'}), 404
+    return jsonify(sanitize_for_json({
+        'latest_tournament': latest,
+        'champion': snapshot.get('champion'),
+        'candidate': snapshot.get('candidate'),
+        'latest_optimizer': snapshot.get('latest_optimizer'),
+        'lifecycle': snapshot.get('lifecycle'),
+        'provenance': snapshot.get('provenance'),
+        'live_trading_allowed': False,
+    }))
 
 @app.route('/api/strategy-lab/export-winner')
 def export_winner():
-    """Export winning strategy details"""
-    global current_tournament, tournament_results_history
-    
-    if not current_tournament or (hasattr(current_tournament, 'winner') and current_tournament.winner == 'None'):
-        return jsonify({'error': 'No winning strategy available'}), 404
-    
-    winner_name = current_tournament.winner if hasattr(current_tournament, 'winner') else 'Unknown'
-    winner_score = current_tournament.winner_avg_score if hasattr(current_tournament, 'winner_avg_score') else 0
-    
-    export_data = {
-        'strategy_name': winner_name,
+    """Export the real frozen champion record, not a transient synthetic winner."""
+    snapshot = get_strategy_registry()
+    champion = snapshot.get('champion') or {}
+    if not champion:
+        return jsonify({'error': 'No champion record available'}), 404
+    return jsonify(sanitize_for_json({
+        'strategy_name': champion.get('strategy'),
+        'stage': 'CHAMPION',
+        'parameters': champion.get('parameters'),
         'performance': {
-            'avg_score': winner_score,
+            'backtest_score': champion.get('backtest_score'),
+            'forward_avg_pnl': champion.get('forward_avg_pnl'),
+            'forward_sessions': champion.get('forward_sessions'),
         },
-        'export_timestamp': datetime.now().isoformat(),
-        'tournament_info': {
-            'rounds_completed': current_tournament.total_rounds if hasattr(current_tournament, 'total_rounds') else 0,
-            'total_participants': current_tournament.total_strategies_entered if hasattr(current_tournament, 'total_strategies_entered') else 0
-        }
-    }
-    
-    return jsonify(sanitize_for_json(export_data))
+        'promoted_at': champion.get('promoted_at'),
+        'promotion_reason': champion.get('promotion_reason'),
+        'provenance': snapshot.get('provenance'),
+        'live_trading_allowed': False,
+    }))
 
 @app.route('/api/strategy-lab/history')
 def tournament_history():
-    """Get tournament history"""
-    global tournament_results_history
-    
-    # Return simplified history (last 10 tournaments)
-    history = []
-    for entry in tournament_results_history[-10:]:
-        results = entry['results']
-        winner_name = None
-        if hasattr(results, 'winner') and results.winner != 'None':
-            winner_name = results.winner
-        
-        history.append({
-            'timestamp': entry['timestamp'],
-            'winner': winner_name,
-            'rounds_completed': results.total_rounds if hasattr(results, 'total_rounds') else 0,
-            'participants_count': results.total_strategies_entered if hasattr(results, 'total_strategies_entered') else 0,
-            'parameters': entry['parameters']
-        })
-    
-    return jsonify(sanitize_for_json(history))
+    """Get persisted real-data tournament history."""
+    snapshot = get_strategy_registry()
+    return jsonify(sanitize_for_json(snapshot.get('history') or []))
 
 # ===========================================================================
 # Alerts API routes (Phase 5.1)

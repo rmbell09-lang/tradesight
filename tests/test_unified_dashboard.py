@@ -98,14 +98,16 @@ def test_production_stock_scanner_rejects_demo_rows():
     assert result.scan_parameters['verified_real_data_only'] is False
 
 
-def test_strategy_lab_refuses_synthetic_results_in_production():
+def test_strategy_lab_connects_real_evidence_and_refuses_synthetic_run():
     from dashboard import DEMO_TOOLS_ENABLED, app, get_strategy_lab_stats
 
     assert DEMO_TOOLS_ENABLED is False
     stats = get_strategy_lab_stats()
-    assert stats['available'] is False
-    assert stats['winner'] is None
-    assert stats['provenance']['kind'] == 'UNAVAILABLE'
+    assert stats['available'] is True
+    assert stats['winner']
+    assert stats['champion']['stage'] == 'CHAMPION'
+    assert stats['provenance']['kind'] == 'REAL'
+    assert stats['provenance']['message'] == 'Synthetic results are excluded'
 
     client = app.test_client()
     response = client.post('/api/strategy-lab/start-tournament', json={})
@@ -113,15 +115,38 @@ def test_strategy_lab_refuses_synthetic_results_in_production():
     assert response.get_json()['provenance']['kind'] == 'DEMO'
 
 
-def test_paper_status_marks_local_records_unverified():
+@patch('dashboard.get_accounting_reconciliation')
+def test_paper_status_separates_trusted_and_legacy_records(reconciliation):
     from dashboard import app
+
+    reconciliation.return_value = {
+        'status': 'VERIFIED',
+        'source': 'Alpaca paper Trading API + local positions.db evidence',
+        'observed_at': '2026-07-14T12:00:00+00:00',
+        'broker': {'equity': 500.5, 'equity_change_since_epoch': 0.5},
+        'local': {
+            'open_positions': {'SPY': {'quantity': 1}},
+            'verification_summary': {
+                'broker_verified': {'count': 2, 'realized_pnl': 3.0},
+                'legacy_unverified': {'count': 197, 'realized_pnl': 671.89},
+            },
+            'trusted_realized_pnl': 3.0,
+            'trusted_closed_trades': 2,
+            'legacy_unverified_realized_pnl': 671.89,
+            'legacy_unverified_closed_trades': 197,
+        },
+        'reconciliation': {'matched_symbols': ['SPY'], 'mismatches': [], 'blockers': []},
+        'live_trading_allowed': False,
+    }
 
     response = app.test_client().get('/api/paper-trading/status')
     assert response.status_code == 200
     data = response.get_json()
     assert data['mode'] == 'paper'
-    assert data['provenance']['kind'] == 'UNVERIFIED'
-    assert 'unverified' in data['pnl_label'].lower()
+    assert data['provenance']['kind'] == 'VERIFIED'
+    assert data['trusted_realized_pnl'] == 3.0
+    assert data['legacy_unverified_realized_pnl'] == 671.89
+    assert 'broker-verified' in data['pnl_label'].lower()
 
 
 def test_flask_routes_return_typed_payloads():
@@ -164,6 +189,8 @@ def test_dashboard_template_has_no_fake_live_or_hardcoded_test_truth():
     assert 'const startTime' not in html
     assert 'event.target' not in html
     assert "switchTab('system', this)" in html
-    assert 'Synthetic tournaments are disabled' in html
+    assert 'Synthetic tournaments remain disabled' in html
     assert 'Archived Polymarket Data' in html
-    assert 'Local position counts and P&amp;L remain <strong>UNVERIFIED</strong>' in html
+    assert 'Pre-epoch local rows remain preserved as <strong>LEGACY / UNVERIFIED</strong>' in html
+    assert 'Accounting Reconciliation' in html
+    assert 'Strategy Lifecycle' in html

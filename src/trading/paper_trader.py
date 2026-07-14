@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from data.alpaca_client import AlpacaClient
 from trading.position_manager import PositionManager, PortfolioState
+from trading.accounting_truth import load_epoch, reconcile_accounting
 from automation.strategy_automation import StrategyAutomation
 from strategy_lab.tournament import get_builtin_strategies
 from indicators.technical_indicators import TechnicalIndicators
@@ -1372,7 +1373,11 @@ class PaperTrader:
                     side=side,
                     quantity=quantity,
                     entry_price=fill_price,
-                    entry_order_id=order_result.get('order_id'),
+                    entry_order_id=(
+                        order_result.get('order_id')
+                        or order_result.get('id')
+                        or order_result.get('client_order_id')
+                    ),
                     entry_fill_status=order_result.get('status', 'filled')
                 )
                 if not success:
@@ -2448,6 +2453,23 @@ class PaperTrader:
 
             # Close stale local positions that Alpaca has already exited.
             self._close_stale_positions(remote_symbols)
+
+            # Refresh the broker-verified accounting receipt after local/broker
+            # position repair. If no epoch exists yet, normal paper operation is
+            # unchanged and the dashboard continues to fail closed.
+            if load_epoch(self.position_manager.base_dir / 'state'):
+                accounting = reconcile_accounting(
+                    self.position_manager.base_dir,
+                    account,
+                    remote_positions,
+                    order_fetcher=self.alpaca.get_order,
+                )
+                if accounting.get('status') != 'VERIFIED':
+                    self.logger.warning(
+                        '[AccountingTruth] Reconciliation status=%s blockers=%s',
+                        accounting.get('status'),
+                        (accounting.get('reconciliation') or {}).get('blockers'),
+                    )
 
             # Track which symbols Alpaca already has positions in
             self._alpaca_positions = remote_symbols

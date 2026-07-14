@@ -432,7 +432,7 @@
     <!-- ===== STRATEGY LAB TAB ===== -->
     <div id="tab-strategy-lab" class="tab-panel">
         <div class="truth-banner">
-            <strong>Real optimizer connection pending.</strong> Synthetic tournaments are disabled in this production dashboard. Package 4 will connect this screen to the real optimizer and tournament database.
+            <strong>Real optimizer evidence only.</strong> This screen reads the persisted champion, real historical-walk-forward tournaments, and the latest promotion-quality report. Synthetic tournaments remain disabled in production.
         </div>
         <div class="stats-row" id="strat-stats">
             <div class="card"><div class="value">--</div><h3>Loading...</h3></div>
@@ -442,7 +442,7 @@
 
         <div style="margin-bottom: 20px;">
             <button class="btn btn-primary" id="start-tournament-btn" disabled>
-                Synthetic tournament disabled
+                Daily optimizer runs automatically
             </button>
             <span id="tournament-status-msg" style="margin-left: 12px; color: #94a3b8; font-size: 0.85em;"></span>
         </div>
@@ -462,7 +462,7 @@
                         </tr>
                     </thead>
                     <tbody id="tournament-participants">
-                        <tr><td colspan="6" class="empty-msg">No verified optimizer results connected yet</td></tr>
+                        <tr><td colspan="6" class="loading-msg">Loading real tournament evidence...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -479,25 +479,25 @@
                         </tr>
                     </thead>
                     <tbody id="tournament-history">
-                        <tr><td colspan="4" class="empty-msg">No history yet</td></tr>
+                        <tr><td colspan="4" class="loading-msg">Loading persisted tournament history...</td></tr>
                     </tbody>
                 </table>
             </div>
         </div>
 
         <div class="table-card" style="margin-top: 24px;">
-            <div class="table-header"><h2>💀 Elimination Log</h2></div>
+            <div class="table-header"><h2>🧭 Strategy Lifecycle &amp; Promotion Evidence</h2></div>
             <table>
                 <thead>
                     <tr>
                         <th>Strategy</th>
-                        <th>Round</th>
-                        <th>Reason</th>
-                        <th>Final Score</th>
+                        <th>Stage</th>
+                        <th>Evidence</th>
+                        <th>Observed</th>
                     </tr>
                 </thead>
-                <tbody id="elimination-log">
-                    <tr><td colspan="4" class="empty-msg">No eliminations yet</td></tr>
+                <tbody id="strategy-lifecycle">
+                    <tr><td colspan="4" class="loading-msg">Loading champion and challenger lifecycle...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -505,6 +505,9 @@
 
     <!-- ===== PAPER TRADING TAB ===== -->
     <div id="tab-paper-trading" class="tab-panel">
+        <div class="truth-banner" id="accounting-truth-banner">
+            <strong>Broker accounting:</strong> checking the paper-account epoch, current broker equity, open-position match, and trusted post-epoch fills.
+        </div>
         <div class="stats-row" id="paper-stats">
             <div class="card"><div class="value">--</div><h3>Loading local paper records...</h3></div>
         </div>
@@ -551,11 +554,31 @@
             </table>
         </div>
 
+        <div class="table-card">
+            <div class="table-header">
+                <h2>🧾 Accounting Reconciliation</h2>
+                <span class="badge badge-red" id="accounting-status">CHECKING</span>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Evidence</th>
+                        <th>Broker / Trusted</th>
+                        <th>Legacy / Local</th>
+                        <th>Meaning</th>
+                    </tr>
+                </thead>
+                <tbody id="accounting-reconciliation">
+                    <tr><td colspan="4" class="loading-msg">Reconciling broker and local evidence...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
         <div class="card" style="margin-top: 16px; border: 1px dashed #2d3748;">
             <h3 style="margin-bottom: 8px;">🔧 Paper Trading Setup</h3>
             <p style="color: #94a3b8; font-size: 0.9em; line-height: 1.6;">
-                Paper engine uses Alpaca market data when credentials are available. Strategy qualification is not verified on this screen until the real optimizer connection is completed.<br>
-                Local position counts and P&amp;L remain <strong>UNVERIFIED</strong> until broker reconciliation is completed.<br>
+                Paper engine uses Alpaca market and trading data. Broker equity and current positions are primary truth.<br>
+                Pre-epoch local rows remain preserved as <strong>LEGACY / UNVERIFIED</strong> and never inflate trusted performance.<br>
                 <strong>Symbols:</strong> AAPL, MSFT, GOOGL, AMZN, TSLA, NVDA, META, NFLX<br>
                 <strong>Status:</strong> <span class="badge badge-yellow" id="paper-credential-status">Checking credentials...</span>
             </p>
@@ -867,18 +890,49 @@
     let lastTournamentData = null;
 
     function loadStrategyLab() {
-        fetch('/api/strategy-lab/stats').then(r => r.json()).then(d => {
+        Promise.all([
+            fetch('/api/strategy-lab/stats').then(r => r.json()),
+            fetch('/api/strategy-lab/tournament').then(r => r.json()),
+            fetch('/api/strategy-lab/history').then(r => r.json()),
+        ]).then(([d, tournament, history]) => {
+            const optimizer = d.latest_optimizer || {};
+            const quality = optimizer.quality_gate || {};
+            const champion = d.champion || {};
+            const candidate = d.candidate || {};
             document.getElementById('strat-stats').innerHTML = `
-                <div class="card"><h3>Integration</h3><div class="value red">${d.provenance ? d.provenance.kind : 'UNAVAILABLE'}</div><div class="sub">${d.message || 'No verified optimizer source'}</div></div>
-                <div class="card"><h3>Production Evidence</h3><div class="value">--</div><div class="sub">Synthetic results are not shown</div></div>
-                <div class="card"><h3>Champion</h3><div class="value">--</div><div class="sub">Package 4 will connect the real record</div></div>
-                <div class="card"><h3>Demo Tools</h3><div class="value">${d.demo_tools_enabled ? 'ON' : 'OFF'}</div><div class="sub">Production default is OFF</div></div>`;
-            const btn = document.getElementById('start-tournament-btn');
-            btn.disabled = true;
-            document.getElementById('tournament-status-msg').textContent = d.message || 'Real optimizer integration pending';
-        }).catch(() => {});
-        document.getElementById('tournament-history').innerHTML = '<tr><td colspan="4" class="empty-msg">Synthetic history hidden; real history integration pending</td></tr>';
-        document.getElementById('elimination-log').innerHTML = '<tr><td colspan="4" class="empty-msg">No verified elimination evidence connected</td></tr>';
+                <div class="card"><h3>Integration</h3><div class="value ${d.available ? 'green' : 'red'}">${d.provenance ? d.provenance.kind : 'UNAVAILABLE'}</div><div class="sub">${d.message || 'No verified optimizer source'}</div></div>
+                <div class="card"><h3>Latest Tournament</h3><div class="value blue">${d.strategies_tested || 0}</div><div class="sub">real-data strategies · ${d.rounds_completed || 0} rounds</div></div>
+                <div class="card"><h3>Frozen Champion</h3><div class="value">${champion.strategy || '--'}</div><div class="sub">${champion.promoted_at ? new Date(champion.promoted_at).toLocaleDateString() : 'No promotion receipt'}</div></div>
+                <div class="card"><h3>Latest Promotion Gate</h3><div class="value ${quality.eligible ? 'green' : 'red'}">${quality.eligible ? 'PASS' : 'REJECTED'}</div><div class="sub">${(quality.reasons || []).length} blocking reason(s)</div></div>`;
+            document.getElementById('tournament-status-msg').textContent = candidate.strategy
+                ? `${candidate.strategy}: ${candidate.stage || 'CANDIDATE'} · automatic promotion disabled`
+                : 'No current challenger';
+
+            renderTournamentResults(tournament);
+
+            document.getElementById('tournament-history').innerHTML = Array.isArray(history) && history.length
+                ? history.slice(0, 10).map(h => `
+                    <tr>
+                        <td>${h.timestamp ? new Date(h.timestamp).toLocaleString() : '--'}</td>
+                        <td><strong>${h.winner || '--'}</strong></td>
+                        <td>${h.rounds_completed || 0}</td>
+                        <td>${h.participants_count || 0}</td>
+                    </tr>`).join('')
+                : '<tr><td colspan="4" class="empty-msg">No real tournament history available</td></tr>';
+
+            const lifecycle = d.lifecycle || [];
+            document.getElementById('strategy-lifecycle').innerHTML = lifecycle.length
+                ? lifecycle.map(item => `
+                    <tr>
+                        <td><strong>${item.strategy || '--'}</strong></td>
+                        <td><span class="badge ${item.stage === 'CHAMPION' ? 'badge-green' : item.stage === 'REJECTED' ? 'badge-red' : 'badge-yellow'}">${item.stage || '--'}</span></td>
+                        <td>${item.evidence || '--'}</td>
+                        <td>${item.observed_at ? new Date(item.observed_at).toLocaleString() : '--'}</td>
+                    </tr>`).join('')
+                : '<tr><td colspan="4" class="empty-msg">No lifecycle evidence available</td></tr>';
+        }).catch(err => {
+            document.getElementById('strat-stats').innerHTML = `<div class="card"><h3>Optimizer Evidence</h3><div class="value red">UNAVAILABLE</div><div class="sub">${err}</div></div>`;
+        });
     }
 
     function renderTournamentResults(data) {
@@ -918,17 +972,6 @@
             `).join('');
         }
 
-        // Elimination log
-        if (data.eliminations && data.eliminations.length > 0) {
-            document.getElementById('elimination-log').innerHTML = data.eliminations.map(e => `
-                <tr>
-                    <td><strong>${e.name}</strong></td>
-                    <td>Round ${e.round}</td>
-                    <td>${e.reason || 'Bottom performer'}</td>
-                    <td class="negative">${fmt(e.final_score, 3)}</td>
-                </tr>
-            `).join('');
-        }
     }
 
     function startTournament() {
@@ -959,6 +1002,11 @@
     // ===== PAPER TRADING =====
     function loadPaperTrading() {
         fetch('/api/paper-trading/status').then(r => r.json()).then(d => {
+            const accounting = d.accounting || {};
+            const broker = accounting.broker || {};
+            const local = accounting.local || {};
+            const reconciliation = accounting.reconciliation || {};
+            const epoch = accounting.epoch || {};
             const credentialBadge = document.getElementById('paper-credential-status');
             if (credentialBadge) {
                 credentialBadge.className = 'badge ' + (d.credentials_configured ? 'badge-blue' : 'badge-yellow');
@@ -969,25 +1017,60 @@
 
             document.getElementById('paper-stats').innerHTML = `
                 <div class="card">
-                    <h3>Mode</h3>
-                    <div class="value blue">${(d.mode || 'paper').toUpperCase()}</div>
-                    <div class="sub">${d.credentials_configured ? 'Credentials loaded' : 'No credentials'}</div>
+                    <h3>Broker Equity</h3>
+                    <div class="value blue">${fmtMoney(d.broker_equity)}</div>
+                    <div class="sub">PAPER · Alpaca account truth</div>
                 </div>
                 <div class="card">
-                    <h3>Open Positions</h3>
+                    <h3>Broker-Matched Positions</h3>
                     <div class="value blue">${d.open_positions || 0}</div>
-                    <div class="sub">${truthBadge(d.provenance)} tracked locally</div>
+                    <div class="sub">${truthBadge(d.provenance)} current position state</div>
                 </div>
                 <div class="card">
-                    <h3>Closed Positions</h3>
-                    <div class="value">${d.closed_positions || 0}</div>
-                    <div class="sub">${truthBadge(d.provenance)} local records</div>
+                    <h3>Trusted Realized P&amp;L</h3>
+                    <div class="value ${pnlClass(d.trusted_realized_pnl || 0)}">${fmtMoney(d.trusted_realized_pnl || 0)}</div>
+                    <div class="sub">${d.trusted_closed_trades || 0} post-epoch broker-verified closes</div>
                 </div>
                 <div class="card">
-                    <h3>Local Realized P&L</h3>
-                    <div class="value">${fmtMoney(d.total_realized_pnl || 0)}</div>
-                    <div class="sub">UNVERIFIED — excluded from trusted performance</div>
+                    <h3>Legacy Local P&amp;L</h3>
+                    <div class="value">${fmtMoney(d.legacy_unverified_realized_pnl || 0)}</div>
+                    <div class="sub">${d.legacy_unverified_closed_trades || 0} preserved rows · excluded</div>
                 </div>`;
+
+            const accountingStatus = document.getElementById('accounting-status');
+            accountingStatus.className = `badge ${truthClass(accounting.status)}`;
+            accountingStatus.textContent = accounting.status || 'UNAVAILABLE';
+            const blockers = reconciliation.blockers || [];
+            document.getElementById('accounting-truth-banner').innerHTML = `
+                <strong>Broker accounting: ${accounting.status || 'UNAVAILABLE'}.</strong>
+                ${blockers.length ? blockers.join(' · ') : 'Legacy rows are excluded and current paper positions reconcile to broker truth.'}`;
+            const matched = (reconciliation.matched_symbols || []).join(', ') || 'None';
+            const mismatches = reconciliation.mismatches || [];
+            document.getElementById('accounting-reconciliation').innerHTML = `
+                <tr>
+                    <td>Accounting epoch</td>
+                    <td>${epoch.started_at ? new Date(epoch.started_at).toLocaleString() : 'Not established'}</td>
+                    <td>${epoch.epoch_id || '--'}</td>
+                    <td>Only later broker-proven closes can count as trusted P&amp;L</td>
+                </tr>
+                <tr>
+                    <td>Equity</td>
+                    <td>${fmtMoney(broker.equity)}</td>
+                    <td>${fmtMoney(epoch.baseline && epoch.baseline.equity)} baseline</td>
+                    <td>${fmtMoney(broker.equity_change_since_epoch)} change since epoch; includes unrealized movement</td>
+                </tr>
+                <tr>
+                    <td>Closed-trade evidence</td>
+                    <td>${local.trusted_closed_trades || 0} verified · ${fmtMoney(local.trusted_realized_pnl || 0)}</td>
+                    <td>${local.legacy_unverified_closed_trades || 0} legacy · ${fmtMoney(local.legacy_unverified_realized_pnl || 0)}</td>
+                    <td>Legacy value is preserved but excluded from trusted performance</td>
+                </tr>
+                <tr>
+                    <td>Open-position match</td>
+                    <td>${matched}</td>
+                    <td>${mismatches.length} mismatch(es)</td>
+                    <td>${mismatches.length ? mismatches.map(m => `${m.symbol}: ${m.kind}`).join(', ') : 'Local quantities match current broker paper positions'}</td>
+                </tr>`;
 
             const positionTruth = document.getElementById('paper-position-truth');
             const historyTruth = document.getElementById('paper-history-truth');
@@ -997,10 +1080,10 @@
                 el.textContent = d.provenance && d.provenance.kind ? d.provenance.kind : 'UNKNOWN';
             });
             document.getElementById('paper-positions').innerHTML = d.open_positions > 0
-                ? `<tr><td colspan="7" class="empty-msg">${d.open_positions} local open-position record(s) exist, but details are not broker-reconciled or connected to this table yet</td></tr>`
+                ? `<tr><td colspan="7" class="empty-msg">${d.open_positions} current position record(s) reconcile at the accounting level; order/fill detail arrives in package 5</td></tr>`
                 : '<tr><td colspan="7" class="empty-msg">No locally tracked open positions</td></tr>';
             document.getElementById('paper-history').innerHTML = d.closed_positions > 0
-                ? `<tr><td colspan="6" class="empty-msg">${d.closed_positions} local closed record(s) exist; history remains hidden until broker proof is connected</td></tr>`
+                ? `<tr><td colspan="6" class="empty-msg">${d.closed_positions} preserved closed record(s); full broker-ID history arrives in package 5</td></tr>`
                 : '<tr><td colspan="6" class="empty-msg">No locally tracked closed records</td></tr>';
         }).catch(err => {
             const credentialBadge = document.getElementById('paper-credential-status');
@@ -1108,6 +1191,7 @@
             {url: '/api/stocks/stats', name: 'Stock Stats'},
             {url: '/api/stocks/opportunities', name: 'Stock Opportunities'},
             {url: '/api/paper-trading/status', name: 'Paper Trading Status'},
+            {url: '/api/accounting/reconciliation', name: 'Accounting Reconciliation'},
             {url: '/api/strategy-lab/stats', name: 'Strategy Lab Stats'},
             {url: '/api/strategy-lab/status', name: 'Tournament Status'},
             {url: '/api/strategy-lab/history', name: 'Tournament History'},

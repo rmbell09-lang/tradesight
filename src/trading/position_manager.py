@@ -156,6 +156,27 @@ class PositionManager:
                     conn.execute("ALTER TABLE positions ADD COLUMN exit_fill_status TEXT")
                     self.logger.info("Migration: added exit_fill_status column to positions")
 
+                # Broker-accounting evidence columns. Historical rows are classified
+                # by accounting_truth.py when the immutable paper epoch is created.
+                if 'accounting_epoch_id' not in existing_cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN accounting_epoch_id TEXT")
+                    self.logger.info("Migration: added accounting_epoch_id column to positions")
+                if 'verification_status' not in existing_cols:
+                    conn.execute(
+                        "ALTER TABLE positions ADD COLUMN verification_status "
+                        "TEXT DEFAULT 'pending_broker_reconciliation'"
+                    )
+                    self.logger.info("Migration: added verification_status column to positions")
+                if 'verification_reason' not in existing_cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN verification_reason TEXT")
+                    self.logger.info("Migration: added verification_reason column to positions")
+                if 'verified_at' not in existing_cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN verified_at TEXT")
+                    self.logger.info("Migration: added verified_at column to positions")
+                if 'verified_realized_pnl' not in existing_cols:
+                    conn.execute("ALTER TABLE positions ADD COLUMN verified_realized_pnl REAL")
+                    self.logger.info("Migration: added verified_realized_pnl column to positions")
+
                 # Migration: add buying_power + balance_synced_at to portfolio_history
                 ph_cols = [row[1] for row in conn.execute("PRAGMA table_info(portfolio_history)").fetchall()]
                 if 'buying_power' not in ph_cols:
