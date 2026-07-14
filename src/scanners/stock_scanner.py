@@ -54,7 +54,8 @@ class StockScanner:
     def __init__(self, 
                  alpaca_api_key: str = None,
                  alpaca_secret: str = None,
-                 paper_trading: bool = True):
+                 paper_trading: bool = True,
+                 allow_demo_data: bool = True):
         """
         Initialize stock scanner.
         
@@ -62,6 +63,8 @@ class StockScanner:
             alpaca_api_key: Alpaca API key (None = demo mode)
             alpaca_secret: Alpaca secret key
             paper_trading: Use paper trading endpoints
+            allow_demo_data: Permit generated data. Production dashboards should
+                set this to False so synthetic prices can never look live.
         """
         self.alpaca = AlpacaClient(
             api_key=alpaca_api_key, 
@@ -70,6 +73,7 @@ class StockScanner:
         )
         self.scorer = StockOpportunityScorer()
         self.last_scan_result = None
+        self.allow_demo_data = allow_demo_data
         # Alert manager (optional)
         self._alert_manager = None
         if _SCANNER_ALERTS_AVAILABLE:
@@ -161,6 +165,9 @@ class StockScanner:
         print(f"📊 Starting {scan_type} scan of {len(symbols)} symbols...")
         
         opportunities = []
+        data_source_counts = {}
+        skipped_demo_symbols = []
+        analyzed_symbols = 0
         
         for i, symbol in enumerate(symbols):
             try:
@@ -168,10 +175,23 @@ class StockScanner:
                 
                 # Get historical data
                 data = self.alpaca.get_historical_data(symbol, days=200)
+                source = str(data.attrs.get('data_source') or 'unknown')
+                data_source_counts[source] = data_source_counts.get(source, 0) + 1
+
+                if source.startswith('demo') and not self.allow_demo_data:
+                    skipped_demo_symbols.append(symbol)
+                    logger.warning(
+                        "Skipping %s because production scanner received %s data",
+                        symbol,
+                        source,
+                    )
+                    continue
                 
                 if len(data) < 100:
                     print(f"  Skipping {symbol}: insufficient data")
                     continue
+
+                analyzed_symbols += 1
                 
                 # Volume filter
                 if min_volume > 0:
@@ -215,7 +235,7 @@ class StockScanner:
         
         result = ScanResult(
             scan_time=start_time,
-            total_scanned=len(symbols),
+            total_scanned=analyzed_symbols,
             opportunities_found=len(opportunities),
             top_opportunities=opportunities,
             scan_duration_seconds=duration,
@@ -223,7 +243,14 @@ class StockScanner:
                 'scan_type': scan_type,
                 'min_score': min_score,
                 'min_volume': min_volume,
-                'symbols_requested': len(symbols)
+                'symbols_requested': len(symbols),
+                'data_source_counts': data_source_counts,
+                'skipped_demo_symbols': skipped_demo_symbols,
+                'verified_real_data_only': (
+                    analyzed_symbols > 0
+                    and not skipped_demo_symbols
+                    and all(source.startswith('alpaca_') for source in data_source_counts)
+                ),
             }
         )
         
@@ -231,7 +258,7 @@ class StockScanner:
         
         print(f"\n✅ Scan complete!")
         print(f"   Duration: {duration:.1f}s")
-        print(f"   Analyzed: {len(symbols)} symbols")
+        print(f"   Analyzed: {analyzed_symbols} of {len(symbols)} requested symbols")
         print(f"   Found: {len(opportunities)} opportunities")
         
         if opportunities:

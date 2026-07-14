@@ -1,96 +1,169 @@
-"""
-Test for the Unified Dashboard functionality
-"""
+"""Tests for the unified dashboard truth layer."""
 
-import sys
 import os
-import pytest
-from unittest.mock import patch, MagicMock
+import sys
+from datetime import datetime
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
-# Add project root to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'web'))
+import pandas as pd
+
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(PROJECT_ROOT, 'web'))
+sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
+
 
 def test_unified_dashboard_imports():
-    """Test that all required modules can be imported"""
-    from dashboard import (
-        get_polymarket_stats, 
-        get_stock_stats, 
-        get_strategy_lab_stats,
-        app
-    )
-    
-    # Check that Flask app exists
+    from dashboard import app, get_polymarket_stats, get_stock_stats, get_strategy_lab_stats
+
     assert app is not None
     assert app.name == 'dashboard'
+    assert callable(get_polymarket_stats)
+    assert callable(get_stock_stats)
+    assert callable(get_strategy_lab_stats)
 
-def test_polymarket_stats_basic():
-    """Test Polymarket stats function returns proper structure"""
+
+def test_polymarket_stats_has_explicit_provenance():
     from dashboard import get_polymarket_stats
-    
+
     stats = get_polymarket_stats()
-    
-    # Should have required keys
-    required_keys = ['total_markets', 'last_scan', 'active_markets', 'high_volume_markets']
-    for key in required_keys:
+    for key in ('total_markets', 'last_scan', 'active_markets', 'high_volume_markets'):
         assert key in stats
-        
-    # Should be numbers or None for dates
-    assert isinstance(stats['total_markets'], int)
-    assert isinstance(stats['active_markets'], int)
-    assert isinstance(stats['high_volume_markets'], int)
+    assert stats['provenance']['kind'] in {'REAL', 'STALE', 'UNAVAILABLE'}
+    assert stats['provenance']['source']
 
-def test_stock_stats_basic():
-    """Test Stock stats function returns proper structure"""  
+
+@patch('dashboard.load_alpaca_credentials', return_value=('', '', 'missing'))
+def test_stock_stats_fails_closed_without_credentials(_credentials):
     from dashboard import get_stock_stats
-    
+
     stats = get_stock_stats()
-    
-    # Should have required keys
-    required_keys = ['total_scanned', 'opportunities_found', 'scan_duration', 'last_scan', 'top_opportunity', 'top_score']
-    for key in required_keys:
-        assert key in stats
-        
-    # Should be proper types
-    assert isinstance(stats['total_scanned'], int)
-    assert isinstance(stats['opportunities_found'], int)
-    
-def test_flask_routes():
-    """Test that Flask routes are properly configured"""
-    from dashboard import app
-    
+    assert stats['total_scanned'] == 0
+    assert stats['provenance']['kind'] == 'UNAVAILABLE'
+    assert 'fallback' in stats['provenance']['message'].lower()
+
+
+@patch('dashboard.load_alpaca_credentials', return_value=('key', 'secret', 'test'))
+@patch('dashboard.StockScanner')
+def test_stock_stats_marks_only_verified_alpaca_scan_real(scanner_cls, _credentials):
+    from dashboard import get_stock_stats
+
+    result = SimpleNamespace(
+        total_scanned=5,
+        opportunities_found=1,
+        scan_duration_seconds=0.5,
+        scan_time=datetime.now(),
+        top_opportunities=[SimpleNamespace(symbol='AAPL', overall_score=72.5)],
+        scan_parameters={
+            'verified_real_data_only': True,
+            'data_source_counts': {'alpaca_1day': 5},
+            'skipped_demo_symbols': [],
+        },
+    )
+    scanner_cls.return_value.quick_scan.return_value = result
+
+    stats = get_stock_stats()
+    assert stats['provenance']['kind'] == 'REAL'
+    scanner_cls.assert_called_once_with(
+        alpaca_api_key='key',
+        alpaca_secret='secret',
+        paper_trading=True,
+        allow_demo_data=False,
+    )
+
+
+def test_production_stock_scanner_rejects_demo_rows():
+    from scanners.stock_scanner import StockScanner
+
+    scanner = StockScanner(allow_demo_data=False)
+    frame = pd.DataFrame(
+        {
+            'open': [1.0] * 120,
+            'high': [2.0] * 120,
+            'low': [0.5] * 120,
+            'close': [1.5] * 120,
+            'volume': [1000] * 120,
+        }
+    )
+    frame.attrs['data_source'] = 'demo_fallback'
+    scanner.alpaca = MagicMock()
+    scanner.alpaca.SP500_SYMBOLS = ['AAPL']
+    scanner.alpaca.get_historical_data.return_value = frame
+
+    result = scanner.quick_scan(limit=1)
+    assert result.total_scanned == 0
+    assert result.top_opportunities == []
+    assert result.scan_parameters['skipped_demo_symbols'] == ['AAPL']
+    assert result.scan_parameters['verified_real_data_only'] is False
+
+
+def test_strategy_lab_refuses_synthetic_results_in_production():
+    from dashboard import DEMO_TOOLS_ENABLED, app, get_strategy_lab_stats
+
+    assert DEMO_TOOLS_ENABLED is False
+    stats = get_strategy_lab_stats()
+    assert stats['available'] is False
+    assert stats['winner'] is None
+    assert stats['provenance']['kind'] == 'UNAVAILABLE'
+
     client = app.test_client()
-    
-    # Test main dashboard route
-    response = client.get('/')
+    response = client.post('/api/strategy-lab/start-tournament', json={})
+    assert response.status_code == 410
+    assert response.get_json()['provenance']['kind'] == 'DEMO'
+
+
+def test_paper_status_marks_local_records_unverified():
+    from dashboard import app
+
+    response = app.test_client().get('/api/paper-trading/status')
     assert response.status_code == 200
-    
-    # Test API endpoints exist (though they may error without full data)
-    api_endpoints = [
-        '/api/polymarket/stats',
-        '/api/stocks/stats', 
-        '/api/polymarket/opportunities',
-        '/api/stocks/opportunities'
-    ]
-    
-    for endpoint in api_endpoints:
-        response = client.get(endpoint)
-        assert response.status_code == 200  # Should return JSON even if error
+    data = response.get_json()
+    assert data['mode'] == 'paper'
+    assert data['provenance']['kind'] == 'UNVERIFIED'
+    assert 'unverified' in data['pnl_label'].lower()
 
-if __name__ == '__main__':
-    test_unified_dashboard_imports()
-    test_polymarket_stats_basic()  
-    test_stock_stats_basic()
-    test_flask_routes()
-    print("✅ All unified dashboard tests passed!")
 
-def test_health_route_returns_service_status():
-    """Health endpoint should exist for service monitors."""
+def test_flask_routes_return_typed_payloads():
     from dashboard import app
 
     client = app.test_client()
-    response = client.get('/health')
+    assert client.get('/').status_code == 200
+
+    poly = client.get('/api/polymarket/opportunities')
+    assert poly.status_code == 200
+    assert isinstance(poly.get_json()['items'], list)
+    assert poly.get_json()['provenance']['kind'] in {'REAL', 'STALE', 'UNAVAILABLE'}
+
+    with patch('dashboard.load_alpaca_credentials', return_value=('', '', 'missing')):
+        stocks = client.get('/api/stocks/opportunities')
+    assert stocks.status_code == 200
+    assert stocks.get_json()['items'] == []
+    assert stocks.get_json()['provenance']['kind'] == 'UNAVAILABLE'
+
+
+def test_health_route_reports_real_service_uptime_and_test_receipt():
+    from dashboard import app
+
+    response = app.test_client().get('/health')
     assert response.status_code in (200, 500)
     data = response.get_json()
     assert data['service'] == 'tradesight-dashboard'
-    assert 'timestamp' in data
-    assert 'checks' in data
+    assert data['trading_mode'] == 'PAPER_ONLY'
+    assert data['uptime_seconds'] >= 0
+    assert data['started_at']
+    assert data['test_suite']['provenance']['kind'] in {'VERIFIED', 'STALE', 'UNKNOWN'}
+
+
+def test_dashboard_template_has_no_fake_live_or_hardcoded_test_truth():
+    from dashboard import app
+
+    html = app.test_client().get('/').get_data(as_text=True)
+    assert 'PAPER ONLY' in html
+    assert '94/96' not in html
+    assert 'const startTime' not in html
+    assert 'event.target' not in html
+    assert "switchTab('system', this)" in html
+    assert 'Synthetic tournaments are disabled' in html
+    assert 'Archived Polymarket Data' in html
+    assert 'Local position counts and P&amp;L remain <strong>UNVERIFIED</strong>' in html

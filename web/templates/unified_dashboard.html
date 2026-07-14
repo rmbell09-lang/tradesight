@@ -207,6 +207,21 @@
         .badge-blue { background: rgba(59,130,246,0.15); color: #3b82f6; }
         .badge-yellow { background: rgba(234,179,8,0.15); color: #eab308; }
 
+        .truth-banner {
+            background: #111827;
+            border: 1px solid #2d3748;
+            border-left: 4px solid #3b82f6;
+            border-radius: 8px;
+            color: #cbd5e1;
+            font-size: 0.85em;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            padding: 14px 16px;
+        }
+        .truth-banner strong { color: #f8fafc; }
+        .truth-banner .badge { margin: 0 3px; }
+        .truth-note { color: #94a3b8; font-size: 0.8em; margin-top: 5px; }
+
         /* Buttons */
         .btn {
             padding: 8px 16px;
@@ -332,21 +347,29 @@
 <div class="header">
     <h1>📊 Trade<span class="accent">Sight</span></h1>
     <div class="status">
-        <span><span class="dot"></span> Live</span>
+        <span><span class="dot"></span> PAPER ONLY</span>
         <span id="header-time">--:--</span>
         <span id="header-refresh">Auto-refresh: 30s</span>
     </div>
 </div>
 
 <div class="tab-bar">
-    <button class="tab-btn active" onclick="switchTab('markets')">📈 Markets</button>
-    <button class="tab-btn" onclick="switchTab('strategy-lab')">🧪 Strategy Lab</button>
-    <button class="tab-btn" onclick="switchTab('paper-trading')">💰 Paper Trading</button>
-    <button class="tab-btn" onclick="switchTab('system')">⚙️ System</button>
-    <button class="tab-btn" onclick="switchTab('alerts')">🔔 Alerts</button>
+    <button class="tab-btn active" data-tab="markets" onclick="switchTab('markets', this)">📈 Markets</button>
+    <button class="tab-btn" data-tab="strategy-lab" onclick="switchTab('strategy-lab', this)">🧪 Strategy Lab</button>
+    <button class="tab-btn" data-tab="paper-trading" onclick="switchTab('paper-trading', this)">💰 Paper Trading</button>
+    <button class="tab-btn" data-tab="system" onclick="switchTab('system', this)">⚙️ System</button>
+    <button class="tab-btn" data-tab="alerts" onclick="switchTab('alerts', this)">🔔 Alerts</button>
 </div>
 
 <div class="content">
+
+    <div class="truth-banner">
+        <strong>Data truth:</strong>
+        <span class="badge badge-green">REAL</span> verified external market data,
+        <span class="badge badge-blue">PAPER</span> broker simulation,
+        <span class="badge badge-yellow">UNVERIFIED</span> local records awaiting reconciliation,
+        <span class="badge badge-red">STALE / UNAVAILABLE</span> never treated as current evidence.
+    </div>
 
     <!-- ===== MARKETS TAB ===== -->
     <div id="tab-markets" class="tab-panel active">
@@ -378,13 +401,13 @@
             </table>
         </div>
 
-        <div class="section-label">🌐 Polymarket Opportunities</div>
+        <div class="section-label">🌐 Archived Polymarket Data <span class="badge badge-red" id="poly-truth">Checking</span></div>
         <div class="stats-row" id="poly-stats">
             <div class="card"><div class="value">--</div><h3>Loading...</h3></div>
         </div>
         <div class="table-card">
             <div class="table-header">
-                <h2>High-Volume Prediction Markets</h2>
+                <h2>High-Volume Prediction Markets — hidden when stale</h2>
                 <span class="badge badge-blue" id="poly-count">--</span>
             </div>
             <table>
@@ -408,6 +431,9 @@
 
     <!-- ===== STRATEGY LAB TAB ===== -->
     <div id="tab-strategy-lab" class="tab-panel">
+        <div class="truth-banner">
+            <strong>Real optimizer connection pending.</strong> Synthetic tournaments are disabled in this production dashboard. Package 4 will connect this screen to the real optimizer and tournament database.
+        </div>
         <div class="stats-row" id="strat-stats">
             <div class="card"><div class="value">--</div><h3>Loading...</h3></div>
         </div>
@@ -415,8 +441,8 @@
         <div id="winner-section"></div>
 
         <div style="margin-bottom: 20px;">
-            <button class="btn btn-primary" id="start-tournament-btn" onclick="startTournament()">
-                ▶ Run New Tournament
+            <button class="btn btn-primary" id="start-tournament-btn" disabled>
+                Synthetic tournament disabled
             </button>
             <span id="tournament-status-msg" style="margin-left: 12px; color: #94a3b8; font-size: 0.85em;"></span>
         </div>
@@ -436,7 +462,7 @@
                         </tr>
                     </thead>
                     <tbody id="tournament-participants">
-                        <tr><td colspan="6" class="empty-msg">No tournament run yet — click "Run New Tournament" above</td></tr>
+                        <tr><td colspan="6" class="empty-msg">No verified optimizer results connected yet</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -480,32 +506,13 @@
     <!-- ===== PAPER TRADING TAB ===== -->
     <div id="tab-paper-trading" class="tab-panel">
         <div class="stats-row" id="paper-stats">
-            <div class="card">
-                <h3>Portfolio Value</h3>
-                <div class="value green">$10,000</div>
-                <div class="sub">Starting balance</div>
-            </div>
-            <div class="card">
-                <h3>Open Positions</h3>
-                <div class="value blue">0</div>
-                <div class="sub">No active trades</div>
-            </div>
-            <div class="card">
-                <h3>Total P&L</h3>
-                <div class="value">$0.00</div>
-                <div class="sub">No trades executed</div>
-            </div>
-            <div class="card">
-                <h3>Win Rate</h3>
-                <div class="value">--</div>
-                <div class="sub">Needs trades</div>
-            </div>
+            <div class="card"><div class="value">--</div><h3>Loading local paper records...</h3></div>
         </div>
 
         <div class="table-card">
             <div class="table-header">
                 <h2>📋 Active Positions</h2>
-                <span class="badge badge-yellow">Demo Mode</span>
+                <span class="badge badge-yellow" id="paper-position-truth">UNVERIFIED</span>
             </div>
             <table>
                 <thead>
@@ -520,13 +527,13 @@
                     </tr>
                 </thead>
                 <tbody id="paper-positions">
-                    <tr><td colspan="7" class="empty-msg">No active positions — run a tournament to find winning strategies, then deploy to paper trading</td></tr>
+                    <tr><td colspan="7" class="loading-msg">Checking local position count...</td></tr>
                 </tbody>
             </table>
         </div>
 
         <div class="table-card">
-            <div class="table-header"><h2>📈 Trade History</h2></div>
+            <div class="table-header"><h2>📈 Trade History</h2><span class="badge badge-yellow" id="paper-history-truth">UNVERIFIED</span></div>
             <table>
                 <thead>
                     <tr>
@@ -539,7 +546,7 @@
                     </tr>
                 </thead>
                 <tbody id="paper-history">
-                    <tr><td colspan="6" class="empty-msg">No trade history yet. Configure API keys in Settings to enable live paper trading.</td></tr>
+                    <tr><td colspan="6" class="loading-msg">Checking local trade count...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -547,7 +554,8 @@
         <div class="card" style="margin-top: 16px; border: 1px dashed #2d3748;">
             <h3 style="margin-bottom: 8px;">🔧 Paper Trading Setup</h3>
             <p style="color: #94a3b8; font-size: 0.9em; line-height: 1.6;">
-                Paper trading uses tournament-winning strategies with live market data via Alpaca.<br>
+                Paper engine uses Alpaca market data when credentials are available. Strategy qualification is not verified on this screen until the real optimizer connection is completed.<br>
+                Local position counts and P&amp;L remain <strong>UNVERIFIED</strong> until broker reconciliation is completed.<br>
                 <strong>Symbols:</strong> AAPL, MSFT, GOOGL, AMZN, TSLA, NVDA, META, NFLX<br>
                 <strong>Status:</strong> <span class="badge badge-yellow" id="paper-credential-status">Checking credentials...</span>
             </p>
@@ -559,13 +567,13 @@
         <div class="stats-row" id="system-stats">
             <div class="card">
                 <h3>Server Status</h3>
-                <div class="value green">Online</div>
-                <div class="sub">Port 5001</div>
+                <div class="value" id="sys-server-status">Checking</div>
+                <div class="sub" id="sys-server-detail">Port 5001</div>
             </div>
             <div class="card">
                 <h3>Test Suite</h3>
-                <div class="value green">94/96</div>
-                <div class="sub">Tests passing</div>
+                <div class="value" id="sys-test-count">--</div>
+                <div class="sub" id="sys-test-detail">No receipt loaded</div>
             </div>
             <div class="card">
                 <h3>Uptime</h3>
@@ -705,22 +713,19 @@
 
 <script>
     let activeTab = 'markets';
-    const startTime = Date.now();
 
     // Update clock
     setInterval(() => {
         document.getElementById('header-time').textContent = new Date().toLocaleTimeString();
-        const upMin = Math.floor((Date.now() - startTime) / 60000);
-        const el = document.getElementById('sys-uptime');
-        if (el) el.textContent = upMin < 60 ? upMin + 'm' : Math.floor(upMin/60) + 'h ' + (upMin%60) + 'm';
     }, 1000);
 
-    function switchTab(name) {
+    function switchTab(name, button) {
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.getElementById('tab-' + name).classList.add('active');
-        event.target.classList.add('active');
+        if (button) button.classList.add('active');
         activeTab = name;
+        history.replaceState(null, '', '#' + name);
         loadTabData(name);
         if (name === 'alerts') loadAlertsData();
     }
@@ -741,18 +746,45 @@
         return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
     }
     function pnlClass(n) { return n > 0 ? 'positive' : n < 0 ? 'negative' : ''; }
+    function truthClass(kind) {
+        if (kind === 'REAL' || kind === 'VERIFIED') return 'badge-green';
+        if (kind === 'PAPER') return 'badge-blue';
+        if (kind === 'UNVERIFIED' || kind === 'DEMO') return 'badge-yellow';
+        return 'badge-red';
+    }
+    function truthBadge(p) {
+        const kind = p && p.kind ? p.kind : 'UNKNOWN';
+        return `<span class="badge ${truthClass(kind)}">${kind}</span>`;
+    }
+    function truthDetail(p) {
+        if (!p) return 'Source unknown';
+        const source = p.source || 'source unknown';
+        const observed = p.observed_at ? ` · ${new Date(p.observed_at).toLocaleString()}` : '';
+        return `${source}${observed}${p.message ? ` · ${p.message}` : ''}`;
+    }
+    function fmtDuration(seconds) {
+        if (seconds === null || seconds === undefined) return '--';
+        const total = Math.max(0, Number(seconds));
+        const days = Math.floor(total / 86400);
+        const hours = Math.floor((total % 86400) / 3600);
+        const mins = Math.floor((total % 3600) / 60);
+        if (days) return `${days}d ${hours}h`;
+        if (hours) return `${hours}h ${mins}m`;
+        return `${mins}m`;
+    }
 
     // ===== MARKETS =====
     function loadMarkets() {
         // Stock stats
         fetch('/api/stocks/stats').then(r => r.json()).then(d => {
-            if (d.error) {
+            const kind = d.provenance && d.provenance.kind;
+            if (kind !== 'REAL') {
                 document.getElementById('stock-stats').innerHTML = `
-                    <div class="card"><h3>Scanner</h3><div class="value badge-yellow">Demo Mode</div><div class="sub">${d.error}</div></div>`;
+                    <div class="card"><h3>Stock Scanner</h3><div class="value red">${kind || 'UNAVAILABLE'}</div><div class="sub">${d.error || truthDetail(d.provenance)}</div></div>`;
                 return;
             }
             document.getElementById('stock-stats').innerHTML = `
-                <div class="card"><h3>Stocks Scanned</h3><div class="value blue">${d.total_scanned}</div></div>
+                <div class="card"><h3>Stocks Scanned</h3><div class="value blue">${d.total_scanned}</div><div class="sub">${truthBadge(d.provenance)} ${d.provenance.source}</div></div>
                 <div class="card"><h3>Opportunities</h3><div class="value green">${d.opportunities_found}</div></div>
                 <div class="card"><h3>Top Pick</h3><div class="value">${d.top_opportunity || '--'}</div><div class="sub">Score: ${fmt(d.top_score)}</div></div>
                 <div class="card"><h3>Scan Time</h3><div class="value">${fmt(d.scan_duration)}s</div><div class="sub">${d.last_scan ? new Date(d.last_scan).toLocaleTimeString() : '--'}</div></div>`;
@@ -762,12 +794,12 @@
 
         // Stock opportunities
         fetch('/api/stocks/opportunities').then(r => r.json()).then(data => {
-            if (data.error) {
-                document.getElementById('stock-opportunities').innerHTML = `<tr><td colspan="8" class="empty-msg">Demo mode — ${data.error}</td></tr>`;
+            if (!data.provenance || data.provenance.kind !== 'REAL') {
+                document.getElementById('stock-opportunities').innerHTML = `<tr><td colspan="8" class="empty-msg">${data.error || truthDetail(data.provenance)} — generated signals are hidden</td></tr>`;
                 document.getElementById('stock-count').textContent = '0';
                 return;
             }
-            const arr = Array.isArray(data) ? data : (data.opportunities || []);
+            const arr = data.items || [];
             document.getElementById('stock-count').textContent = arr.length + ' signals';
             if (arr.length === 0) {
                 document.getElementById('stock-opportunities').innerHTML = '<tr><td colspan="8" class="empty-msg">No opportunities found in latest scan</td></tr>';
@@ -791,16 +823,25 @@
 
         // Polymarket stats
         fetch('/api/polymarket/stats').then(r => r.json()).then(d => {
+            const kind = d.provenance && d.provenance.kind;
+            const truth = document.getElementById('poly-truth');
+            truth.className = `badge ${truthClass(kind)}`;
+            truth.textContent = kind || 'UNKNOWN';
             document.getElementById('poly-stats').innerHTML = `
-                <div class="card"><h3>Total Markets</h3><div class="value blue">${d.total_markets || 0}</div></div>
-                <div class="card"><h3>Active</h3><div class="value green">${d.active_markets || 0}</div></div>
+                <div class="card"><h3>Archived Markets</h3><div class="value blue">${d.total_markets || 0}</div><div class="sub">${truthBadge(d.provenance)}</div></div>
+                <div class="card"><h3>Previously Active</h3><div class="value">${d.active_markets || 0}</div><div class="sub">Not current when stale</div></div>
                 <div class="card"><h3>High Volume</h3><div class="value">${d.high_volume_markets || 0}</div></div>
-                <div class="card"><h3>Last Scan</h3><div class="value">${d.last_scan ? new Date(d.last_scan).toLocaleDateString() : 'Never'}</div></div>`;
+                <div class="card"><h3>Last Scan</h3><div class="value">${d.last_scan ? new Date(d.last_scan).toLocaleDateString() : 'Never'}</div><div class="sub">${d.provenance && d.provenance.message ? d.provenance.message : ''}</div></div>`;
         }).catch(() => {});
 
         // Polymarket opportunities
         fetch('/api/polymarket/opportunities').then(r => r.json()).then(data => {
-            const arr = Array.isArray(data) ? data : [];
+            if (!data.provenance || data.provenance.kind !== 'REAL') {
+                document.getElementById('poly-count').textContent = 'hidden';
+                document.getElementById('poly-opportunities').innerHTML = `<tr><td colspan="7" class="empty-msg">${truthDetail(data.provenance)}. ${data.archived_item_count || 0} archived rows are intentionally hidden.</td></tr>`;
+                return;
+            }
+            const arr = data.items || [];
             document.getElementById('poly-count').textContent = arr.length + ' markets';
             if (arr.length === 0) {
                 document.getElementById('poly-opportunities').innerHTML = '<tr><td colspan="7" class="empty-msg">No prediction markets found</td></tr>';
@@ -826,49 +867,18 @@
     let lastTournamentData = null;
 
     function loadStrategyLab() {
-        // Load stats
         fetch('/api/strategy-lab/stats').then(r => r.json()).then(d => {
             document.getElementById('strat-stats').innerHTML = `
-                <div class="card"><h3>Strategies Tested</h3><div class="value blue">${d.strategies_tested || 0}</div></div>
-                <div class="card"><h3>Tournament Winner</h3><div class="value green">${d.winner && d.winner !== 'None' ? d.winner : '--'}</div></div>
-                <div class="card"><h3>Winner Score</h3><div class="value">${d.winner_score ? fmt(d.winner_score, 3) : '--'}</div></div>
-                <div class="card"><h3>Rounds</h3><div class="value">${d.rounds_completed || 0}</div></div>`;
-        }).catch(() => {});
-
-        // Load tournament status
-        fetch('/api/strategy-lab/status').then(r => r.json()).then(d => {
+                <div class="card"><h3>Integration</h3><div class="value red">${d.provenance ? d.provenance.kind : 'UNAVAILABLE'}</div><div class="sub">${d.message || 'No verified optimizer source'}</div></div>
+                <div class="card"><h3>Production Evidence</h3><div class="value">--</div><div class="sub">Synthetic results are not shown</div></div>
+                <div class="card"><h3>Champion</h3><div class="value">--</div><div class="sub">Package 4 will connect the real record</div></div>
+                <div class="card"><h3>Demo Tools</h3><div class="value">${d.demo_tools_enabled ? 'ON' : 'OFF'}</div><div class="sub">Production default is OFF</div></div>`;
             const btn = document.getElementById('start-tournament-btn');
-            if (d.in_progress) {
-                btn.disabled = true;
-                document.getElementById('tournament-status-msg').textContent = '⏳ Tournament in progress...';
-            } else {
-                btn.disabled = false;
-                document.getElementById('tournament-status-msg').textContent = d.has_results ? '✅ Results available' : '';
-            }
-            if (d.has_results) {
-                fetch('/api/strategy-lab/results').then(r => r.json()).then(data => {
-                    if (!data || data.error) return;
-                    lastTournamentData = data;
-                    renderTournamentResults(data);
-                }).catch(() => {});
-            }
+            btn.disabled = true;
+            document.getElementById('tournament-status-msg').textContent = d.message || 'Real optimizer integration pending';
         }).catch(() => {});
-
-        // Load history
-        fetch('/api/strategy-lab/history').then(r => r.json()).then(data => {
-            if (!Array.isArray(data) || data.length === 0) {
-                document.getElementById('tournament-history').innerHTML = '<tr><td colspan="4" class="empty-msg">No history yet</td></tr>';
-                return;
-            }
-            document.getElementById('tournament-history').innerHTML = data.map(h => `
-                <tr>
-                    <td>${new Date(h.timestamp).toLocaleDateString()}</td>
-                    <td><strong class="positive">${h.winner || '--'}</strong></td>
-                    <td>${h.rounds_completed}</td>
-                    <td>${h.participants_count}</td>
-                </tr>
-            `).join('');
-        }).catch(() => {});
+        document.getElementById('tournament-history').innerHTML = '<tr><td colspan="4" class="empty-msg">Synthetic history hidden; real history integration pending</td></tr>';
+        document.getElementById('elimination-log').innerHTML = '<tr><td colspan="4" class="empty-msg">No verified elimination evidence connected</td></tr>';
     }
 
     function renderTournamentResults(data) {
@@ -951,7 +961,7 @@
         fetch('/api/paper-trading/status').then(r => r.json()).then(d => {
             const credentialBadge = document.getElementById('paper-credential-status');
             if (credentialBadge) {
-                credentialBadge.className = 'badge ' + (d.credentials_configured ? 'badge-green' : 'badge-yellow');
+                credentialBadge.className = 'badge ' + (d.credentials_configured ? 'badge-blue' : 'badge-yellow');
                 credentialBadge.textContent = d.credentials_configured
                     ? `Paper mode — credentials from ${d.credential_source}`
                     : 'Paper mode — credentials unavailable';
@@ -966,18 +976,32 @@
                 <div class="card">
                     <h3>Open Positions</h3>
                     <div class="value blue">${d.open_positions || 0}</div>
-                    <div class="sub">Tracked locally</div>
+                    <div class="sub">${truthBadge(d.provenance)} tracked locally</div>
                 </div>
                 <div class="card">
                     <h3>Closed Positions</h3>
                     <div class="value">${d.closed_positions || 0}</div>
-                    <div class="sub">Trade history</div>
+                    <div class="sub">${truthBadge(d.provenance)} local records</div>
                 </div>
                 <div class="card">
-                    <h3>Total Realized P&L</h3>
-                    <div class="value ${pnlClass(d.total_realized_pnl)}">${fmtMoney(d.total_realized_pnl || 0)}</div>
-                    <div class="sub">Paper account tracking</div>
+                    <h3>Local Realized P&L</h3>
+                    <div class="value">${fmtMoney(d.total_realized_pnl || 0)}</div>
+                    <div class="sub">UNVERIFIED — excluded from trusted performance</div>
                 </div>`;
+
+            const positionTruth = document.getElementById('paper-position-truth');
+            const historyTruth = document.getElementById('paper-history-truth');
+            [positionTruth, historyTruth].forEach(el => {
+                if (!el) return;
+                el.className = `badge ${truthClass(d.provenance && d.provenance.kind)}`;
+                el.textContent = d.provenance && d.provenance.kind ? d.provenance.kind : 'UNKNOWN';
+            });
+            document.getElementById('paper-positions').innerHTML = d.open_positions > 0
+                ? `<tr><td colspan="7" class="empty-msg">${d.open_positions} local open-position record(s) exist, but details are not broker-reconciled or connected to this table yet</td></tr>`
+                : '<tr><td colspan="7" class="empty-msg">No locally tracked open positions</td></tr>';
+            document.getElementById('paper-history').innerHTML = d.closed_positions > 0
+                ? `<tr><td colspan="6" class="empty-msg">${d.closed_positions} local closed record(s) exist; history remains hidden until broker proof is connected</td></tr>`
+                : '<tr><td colspan="6" class="empty-msg">No locally tracked closed records</td></tr>';
         }).catch(err => {
             const credentialBadge = document.getElementById('paper-credential-status');
             if (credentialBadge) {
@@ -1089,6 +1113,22 @@
             {url: '/api/strategy-lab/history', name: 'Tournament History'},
         ];
 
+        fetch('/health').then(r => r.json()).then(health => {
+            const server = document.getElementById('sys-server-status');
+            server.textContent = health.ok ? 'Online' : 'Degraded';
+            server.className = `value ${health.ok ? 'green' : 'red'}`;
+            document.getElementById('sys-server-detail').textContent = `${health.trading_mode || 'UNKNOWN'} · started ${health.started_at ? new Date(health.started_at).toLocaleString() : '--'}`;
+            document.getElementById('sys-uptime').textContent = fmtDuration(health.uptime_seconds);
+            const tests = health.test_suite || {};
+            const testKind = tests.provenance && tests.provenance.kind;
+            document.getElementById('sys-test-count').textContent = tests.total == null ? '--' : `${tests.passed}/${tests.total}`;
+            document.getElementById('sys-test-count').className = `value ${testKind === 'VERIFIED' && tests.failed === 0 ? 'green' : 'red'}`;
+            document.getElementById('sys-test-detail').textContent = truthDetail(tests.provenance);
+        }).catch(() => {
+            document.getElementById('sys-server-status').textContent = 'Unavailable';
+            document.getElementById('sys-server-status').className = 'value red';
+        });
+
         // Check each endpoint
         Promise.all(endpoints.map(ep =>
             fetch(ep.url).then(r => ({name: ep.name, status: r.status, ok: r.ok}))
@@ -1113,32 +1153,35 @@
             document.getElementById('module-stats').innerHTML = `
                 <tr>
                     <td>Polymarket Scanner</td>
-                    <td><span class="badge ${poly.total_markets > 0 ? 'badge-green' : 'badge-yellow'}">${poly.total_markets > 0 ? 'Active' : 'No Data'}</span></td>
-                    <td>${poly.total_markets || 0} markets tracked</td>
+                    <td>${truthBadge(poly.provenance)}</td>
+                    <td>${poly.total_markets || 0} archived markets · ${poly.provenance && poly.provenance.message ? poly.provenance.message : ''}</td>
                 </tr>
                 <tr>
                     <td>Stock Scanner</td>
-                    <td><span class="badge ${stocks.total_scanned > 0 ? 'badge-green' : 'badge-yellow'}">${stocks.total_scanned > 0 ? 'Active' : 'Demo'}</span></td>
+                    <td>${truthBadge(stocks.provenance)}</td>
                     <td>${stocks.opportunities_found || 0} opportunities found</td>
                 </tr>
                 <tr>
                     <td>Strategy Lab</td>
-                    <td><span class="badge ${strat.strategies_tested > 0 ? 'badge-green' : 'badge-blue'}">Ready</span></td>
-                    <td>${strat.strategies_tested || 0} strategies tested</td>
+                    <td>${truthBadge(strat.provenance)}</td>
+                    <td>${strat.message || 'No verified source'}</td>
                 </tr>
                 <tr>
                     <td>Paper Trading</td>
-                    <td><span class="badge ${paper.credentials_configured ? 'badge-green' : 'badge-yellow'}">${paper.credentials_configured ? 'Paper Ready' : 'Credentials Missing'}</span></td>
-                    <td>${paper.open_positions || 0} open / ${paper.closed_positions || 0} closed positions</td>
+                    <td>${truthBadge(paper.provenance)}</td>
+                    <td>${paper.open_positions || 0} open / ${paper.closed_positions || 0} closed local records</td>
                 </tr>`;
         });
     }
 
     // Initial load
     document.addEventListener('DOMContentLoaded', () => {
-        loadMarkets();
         loadPaperTrading();
         document.getElementById('header-time').textContent = new Date().toLocaleTimeString();
+        const requested = window.location.hash.slice(1);
+        const button = requested ? document.querySelector(`.tab-btn[data-tab="${requested}"]`) : null;
+        if (button) switchTab(requested, button);
+        else loadMarkets();
     });
 
     // Auto-refresh every 30s

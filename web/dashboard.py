@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
 TradeSight Unified Dashboard
-Multi-market intelligence platform showing Polymarket, Stocks, and Strategy Lab
+Paper-trading control surface with explicit data provenance.
 """
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, abort
 import sqlite3
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import sys
 import pandas as pd
 import threading
+import time
+from pathlib import Path
 
 def sanitize_for_json(obj):
     """Recursively convert numpy types to native Python types."""
@@ -52,6 +54,12 @@ from strategy_lab.tournament import StrategyTournament
 from strategy_lab.ai_engine import create_test_data
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
+APP_STARTED_AT = datetime.now().astimezone()
+APP_STARTED_MONOTONIC = time.monotonic()
+POLYMARKET_STALE_AFTER = timedelta(hours=24)
+DEMO_TOOLS_ENABLED = os.environ.get("TRADESIGHT_ENABLE_DEMO_TOOLS", "").lower() in {
+    "1", "true", "yes"
+}
 # AlertManager — for dashboard alerts tab
 import sys as _sys
 _sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -70,6 +78,79 @@ app.json_encoder = NumpySafeEncoder
 def safe_jsonify(data):
     """Convert numpy types before jsonifying."""
     return json.loads(json.dumps(data, cls=NumpySafeEncoder))
+
+
+def parse_observed_at(value):
+    """Parse a stored timestamp without inventing freshness."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def provenance(kind, source, observed_at=None, message=None, **extra):
+    """Create the dashboard's typed truth label."""
+    payload = {
+        "kind": kind,
+        "source": source,
+        "observed_at": (
+            observed_at.astimezone(timezone.utc).isoformat()
+            if isinstance(observed_at, datetime)
+            else observed_at
+        ),
+        "message": message,
+    }
+    payload.update(extra)
+    return payload
+
+
+def load_test_suite_receipt():
+    """Return the latest real pytest receipt, or UNKNOWN/STALE without guessing."""
+    path = Path(__file__).resolve().parents[1] / "state" / "test-suite-status.json"
+    if not path.is_file():
+        return {
+            "passed": None,
+            "failed": None,
+            "total": None,
+            "provenance": provenance(
+                "UNKNOWN", "state/test-suite-status.json", message="No verified test receipt"
+            ),
+        }
+    try:
+        receipt = json.loads(path.read_text())
+        observed_at = parse_observed_at(receipt.get("finished_at"))
+        age = datetime.now(timezone.utc) - observed_at.astimezone(timezone.utc) if observed_at else None
+        kind = "VERIFIED" if age is not None and age <= timedelta(days=7) else "STALE"
+        return {
+            "passed": receipt.get("passed"),
+            "failed": receipt.get("failed"),
+            "total": receipt.get("total"),
+            "exit_code": receipt.get("exit_code"),
+            "provenance": provenance(
+                kind,
+                "pytest receipt",
+                observed_at,
+                message="Latest complete local test-suite run",
+                age_seconds=int(age.total_seconds()) if age is not None else None,
+            ),
+        }
+    except (OSError, ValueError, TypeError) as exc:
+        return {
+            "passed": None,
+            "failed": None,
+            "total": None,
+            "provenance": provenance(
+                "UNKNOWN", str(path), message=f"Unreadable test receipt: {exc}"
+            ),
+        }
 
 
 def load_alpaca_credentials():
@@ -118,11 +199,27 @@ def get_polymarket_stats():
         
         conn.close()
         
+        observed_at = parse_observed_at(last_scan)
+        age = datetime.now(timezone.utc) - observed_at.astimezone(timezone.utc) if observed_at else None
+        kind = "STALE" if age is None or age > POLYMARKET_STALE_AFTER else "REAL"
+
         return {
             'total_markets': total_markets,
             'last_scan': last_scan,
             'active_markets': active_markets,
-            'high_volume_markets': high_volume_markets
+            'high_volume_markets': high_volume_markets,
+            'provenance': provenance(
+                kind,
+                'local tradesight.db markets table',
+                observed_at,
+                message=(
+                    'Archived prediction-market data; scanner is not currently maintained'
+                    if kind == 'STALE'
+                    else 'Locally stored prediction-market scan'
+                ),
+                stale_after_seconds=int(POLYMARKET_STALE_AFTER.total_seconds()),
+                age_seconds=int(age.total_seconds()) if age is not None else None,
+            ),
         }
     except Exception as e:
         return {
@@ -130,26 +227,66 @@ def get_polymarket_stats():
             'last_scan': None,
             'active_markets': 0,
             'high_volume_markets': 0,
-            'error': str(e)
+            'error': str(e),
+            'provenance': provenance(
+                'UNAVAILABLE', 'local tradesight.db markets table', message=str(e)
+            ),
         }
 
 def get_stock_stats():
-    """Get stock market statistics"""
+    """Get stock statistics from verified Alpaca data only."""
     try:
-        # Create scanner
-        scanner = StockScanner()
+        api_key, secret_key, credential_source = load_alpaca_credentials()
+        if not api_key or not secret_key:
+            return {
+                'total_scanned': 0,
+                'opportunities_found': 0,
+                'scan_duration': 0,
+                'last_scan': None,
+                'top_opportunity': None,
+                'top_score': 0,
+                'error': 'Alpaca market-data credentials are unavailable',
+                'provenance': provenance(
+                    'UNAVAILABLE', 'Alpaca market data', message='No generated fallback was used'
+                ),
+            }
+
+        scanner = StockScanner(
+            alpaca_api_key=api_key,
+            alpaca_secret=secret_key,
+            paper_trading=True,
+            allow_demo_data=False,
+        )
         
         # Run a quick scan (using the correct method name)
         scan_result = scanner.quick_scan(limit=5)
         
-        return {
+        params = scan_result.scan_parameters or {}
+        is_verified = bool(params.get('verified_real_data_only'))
+        kind = 'REAL' if is_verified else 'UNAVAILABLE'
+        result = {
             'total_scanned': scan_result.total_scanned,
             'opportunities_found': scan_result.opportunities_found,
             'scan_duration': scan_result.scan_duration_seconds,
             'last_scan': scan_result.scan_time.isoformat(),
             'top_opportunity': scan_result.top_opportunities[0].symbol if scan_result.top_opportunities else None,
-            'top_score': scan_result.top_opportunities[0].overall_score if scan_result.top_opportunities else 0
+            'top_score': scan_result.top_opportunities[0].overall_score if scan_result.top_opportunities else 0,
+            'provenance': provenance(
+                kind,
+                f'Alpaca IEX via {credential_source}',
+                scan_result.scan_time,
+                message=(
+                    'Verified Alpaca historical bars'
+                    if is_verified
+                    else 'No verified results; generated fallback was rejected'
+                ),
+                data_source_counts=params.get('data_source_counts', {}),
+                skipped_demo_symbols=params.get('skipped_demo_symbols', []),
+            ),
         }
+        if not is_verified:
+            result['error'] = 'Verified Alpaca data was unavailable; no demo signal is shown'
+        return result
     except Exception as e:
         return {
             'total_scanned': 0,
@@ -158,51 +295,29 @@ def get_stock_stats():
             'last_scan': None,
             'top_opportunity': None,
             'top_score': 0,
-            'error': str(e)
+            'error': str(e),
+            'provenance': provenance(
+                'UNAVAILABLE', 'Alpaca market data', message='No generated fallback was shown'
+            ),
         }
 
 def get_strategy_lab_stats():
-    """Get Strategy Lab statistics"""
-    try:
-        from strategy_lab.tournament import get_builtin_strategies
-        
-        # Create tournament
-        tournament = StrategyTournament(
-            initial_balance=10000.0,
-            elimination_rate=0.3,
-            min_survivors=2
-        )
-        
-        # Register built-in strategies
-        builtin_strategies = get_builtin_strategies()
-        for name, strategy_func in builtin_strategies.items():
-            tournament.register_strategy(name, strategy_func)
-        
-        # Create test data for tournament
-        test_data = create_test_data(days=100)
-        round_datasets = [
-            ('Test Data', test_data)
-        ]
-        
-        # Run tournament with test data
-        results = tournament.run_tournament(round_datasets)
-        
-        return {
-            'strategies_tested': results.total_strategies_entered,
-            'winner': results.winner if results.winner != 'None' else 'None',
-            'winner_score': results.winner_avg_score,
-            'rounds_completed': results.total_rounds,
-            'last_run': datetime.now().isoformat()
-        }
-    except Exception as e:
-        return {
-            'strategies_tested': 0,
-            'winner': 'None',
-            'winner_score': 0,
-            'rounds_completed': 0,
-            'last_run': None,
-            'error': str(e)
-        }
+    """Refuse to present synthetic tournaments as optimizer evidence."""
+    return {
+        'strategies_tested': 0,
+        'winner': None,
+        'winner_score': None,
+        'rounds_completed': 0,
+        'last_run': None,
+        'available': False,
+        'demo_tools_enabled': DEMO_TOOLS_ENABLED,
+        'message': 'Real optimizer integration is pending repair package 4',
+        'provenance': provenance(
+            'UNAVAILABLE',
+            'real optimizer/tournament database',
+            message='Synthetic tournament results are disabled in the production dashboard',
+        ),
+    }
 
 
 @app.route('/health')
@@ -218,6 +333,10 @@ def health():
         'ok': True,
         'service': 'tradesight-dashboard',
         'timestamp': datetime.now().isoformat(),
+        'started_at': APP_STARTED_AT.isoformat(),
+        'uptime_seconds': int(time.monotonic() - APP_STARTED_MONOTONIC),
+        'trading_mode': 'PAPER_ONLY',
+        'test_suite': load_test_suite_receipt(),
         'checks': {
             'positions_db_exists': os.path.exists(positions_db),
             'logs_dir_exists': os.path.isdir(logs_dir),
@@ -230,6 +349,11 @@ def health():
             with sqlite3.connect(positions_db) as conn:
                 rows = conn.execute("SELECT status, COUNT(*) FROM positions GROUP BY status").fetchall()
             payload['position_counts'] = {str(status): int(count) for status, count in rows}
+            payload['position_counts_provenance'] = provenance(
+                'UNVERIFIED',
+                'local positions.db',
+                message='Counts are local records; broker reconciliation is package 3',
+            )
     except Exception as e:
         payload['ok'] = False
         payload['checks']['positions_db_read_error'] = str(e)
@@ -290,10 +414,23 @@ def polymarket_opportunities():
             })
         
         conn.close()
-        return jsonify(sanitize_for_json(opportunities))
+        stats = get_polymarket_stats()
+        source_truth = stats.get('provenance', {})
+        visible_items = opportunities if source_truth.get('kind') == 'REAL' else []
+        return jsonify(sanitize_for_json({
+            'items': visible_items,
+            'archived_item_count': len(opportunities),
+            'provenance': source_truth,
+        }))
         
     except Exception as e:
-        return jsonify({'error': str(e)})
+        return jsonify({
+            'items': [],
+            'error': str(e),
+            'provenance': provenance(
+                'UNAVAILABLE', 'local tradesight.db markets table', message=str(e)
+            ),
+        })
 
 @app.route('/api/stocks/stats')
 def stocks_stats():
@@ -304,7 +441,21 @@ def stocks_stats():
 def stocks_opportunities():
     """API endpoint for stock opportunities"""
     try:
-        scanner = StockScanner()
+        api_key, secret_key, credential_source = load_alpaca_credentials()
+        if not api_key or not secret_key:
+            return jsonify({
+                'items': [],
+                'error': 'Alpaca market-data credentials are unavailable',
+                'provenance': provenance(
+                    'UNAVAILABLE', 'Alpaca market data', message='No generated fallback was used'
+                ),
+            })
+        scanner = StockScanner(
+            alpaca_api_key=api_key,
+            alpaca_secret=secret_key,
+            paper_trading=True,
+            allow_demo_data=False,
+        )
         scan_result = scanner.quick_scan(limit=7)
         
         opportunities = []
@@ -324,10 +475,34 @@ def stocks_opportunities():
                 'market_cap': getattr(opp, 'market_cap', 0)
             })
         
-        return jsonify(sanitize_for_json(opportunities))
+        params = scan_result.scan_parameters or {}
+        is_verified = bool(params.get('verified_real_data_only'))
+        truth = provenance(
+            'REAL' if is_verified else 'UNAVAILABLE',
+            f'Alpaca IEX via {credential_source}',
+            scan_result.scan_time,
+            message=(
+                'Verified Alpaca historical bars'
+                if is_verified
+                else 'Generated fallback was rejected; signals are hidden'
+            ),
+            data_source_counts=params.get('data_source_counts', {}),
+            skipped_demo_symbols=params.get('skipped_demo_symbols', []),
+        )
+        return jsonify(sanitize_for_json({
+            'items': opportunities if is_verified else [],
+            'provenance': truth,
+            'error': None if is_verified else 'Verified Alpaca data unavailable',
+        }))
         
     except Exception as e:
-        return jsonify({'error': str(e)})
+        return jsonify({
+            'items': [],
+            'error': str(e),
+            'provenance': provenance(
+                'UNAVAILABLE', 'Alpaca market data', message='No generated fallback was shown'
+            ),
+        })
 
 
 @app.route('/api/paper-trading/status')
@@ -342,6 +517,12 @@ def paper_trading_status():
         'open_positions': 0,
         'closed_positions': 0,
         'total_realized_pnl': 0.0,
+        'provenance': provenance(
+            'UNVERIFIED',
+            'local positions.db',
+            message='Local records are not yet broker-reconciled; package 3 remains required',
+        ),
+        'pnl_label': 'Local realized P&L (unverified)',
     }
     try:
         if os.path.exists(positions_db):
@@ -369,6 +550,11 @@ def strategy_lab_stats():
 @app.route('/api/strategy-lab/tournament')
 def strategy_lab_tournament():
     """API endpoint for tournament results - runs a quick tournament"""
+    if not DEMO_TOOLS_ENABLED:
+        return jsonify({
+            'error': 'Synthetic tournament tools are disabled in the production dashboard',
+            'provenance': provenance('DEMO', 'generated strategy test data'),
+        }), 410
     try:
         from strategy_lab.tournament import get_builtin_strategies
         
@@ -419,7 +605,8 @@ def strategy_lab_tournament():
             'participants': participants,
             'winner': winner_data,
             'rounds_completed': results.total_rounds,
-            'eliminations': results.elimination_log
+            'eliminations': results.elimination_log,
+            'provenance': provenance('DEMO', 'generated strategy test data'),
         }))
         
     except Exception as e:
@@ -436,12 +623,20 @@ tournament_lock = threading.Lock()
 @app.route('/strategy-lab')
 def strategy_lab():
     """Strategy Lab interface for interactive tournament management"""
+    if not DEMO_TOOLS_ENABLED:
+        abort(404)
     return render_template('strategy_lab.html')
 
 @app.route('/api/strategy-lab/start-tournament', methods=['POST'])
 def start_tournament():
     """Start a new tournament with custom parameters"""
     global current_tournament, tournament_in_progress
+
+    if not DEMO_TOOLS_ENABLED:
+        return jsonify({
+            'error': 'Synthetic tournament tools are disabled in the production dashboard',
+            'provenance': provenance('DEMO', 'generated strategy test data'),
+        }), 410
     
     try:
         data = request.get_json() or {}
@@ -529,7 +724,8 @@ def start_tournament():
             'participants': participants,
             'winner': winner_data,
             'rounds_completed': results.total_rounds,
-            'eliminations': results.elimination_log
+            'eliminations': results.elimination_log,
+            'provenance': provenance('DEMO', 'generated strategy test data'),
         })
         
     except Exception as e:
@@ -544,7 +740,12 @@ def tournament_status():
     return jsonify({
         'in_progress': tournament_in_progress,
         'has_results': current_tournament is not None,
-        'history_count': len(tournament_results_history)
+        'history_count': len(tournament_results_history),
+        'demo_tools_enabled': DEMO_TOOLS_ENABLED,
+        'provenance': provenance(
+            'DEMO' if DEMO_TOOLS_ENABLED else 'UNAVAILABLE',
+            'generated strategy test data' if DEMO_TOOLS_ENABLED else 'real optimizer integration',
+        ),
     })
 
 @app.route('/api/strategy-lab/results')
