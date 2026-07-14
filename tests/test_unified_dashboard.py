@@ -202,3 +202,38 @@ def test_dashboard_template_has_no_fake_live_or_hardcoded_test_truth():
     assert 'Pre-epoch local rows remain preserved as <strong>LEGACY / UNVERIFIED</strong>' in html
     assert 'Accounting Reconciliation' in html
     assert 'Strategy Lifecycle' in html
+    assert 'Live Readiness' in html
+    assert 'Live execution is not compiled into this release' in html
+
+
+@patch('dashboard.get_accounting_reconciliation')
+@patch('dashboard.get_strategy_registry')
+@patch('dashboard.get_risk_posture')
+def test_live_readiness_endpoint_is_visible_and_cannot_enable_live(risk, strategy, accounting):
+    from dashboard import app
+
+    accounting.return_value = {
+        'status': 'VERIFIED',
+        'observed_at': '2026-07-14T18:00:00+00:00',
+        'epoch': {'epoch_id': 'paper-test'},
+        'live_trading_allowed': False,
+        'reconciliation': {'mismatches': []},
+        'local': {'trusted_closed_trades': 0, 'legacy_unverified_closed_trades': 197},
+    }
+    strategy.return_value = {
+        'champion': {'strategy': 'RSI Mean Reversion'},
+        'candidate': {'auto_promotion': False},
+        'latest_optimizer': {
+            'quality_gate': {'eligible': False},
+            'champion_decision': {'promoted': False, 'reason': 'candidate rejected'},
+        },
+    }
+    risk.return_value = {'mandatory_controls': {'paper_only': True}}
+    response = app.test_client().get('/api/live-readiness')
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data['status'] == 'NOT_READY'
+    assert data['mode'] == 'PAPER_ONLY'
+    assert data['live_trading_allowed'] is False
+    assert data['live_execution_compiled_in'] is False
+    assert data['total_gates'] >= 10

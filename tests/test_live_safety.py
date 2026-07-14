@@ -65,7 +65,7 @@ def test_shadow_canary_records_receipt_without_broker_order():
         broker.place_paper_trade.assert_not_called()
 
 
-def test_canary_requires_every_live_safety_condition():
+def test_canary_remains_compiled_out_even_if_legacy_policy_flags_are_set():
     policy = LiveSafetyPolicy(
         kill_switch=False,
         approved_symbols=['QQQ'],
@@ -104,8 +104,8 @@ def test_canary_requires_every_live_safety_condition():
         credential_source='keychain',
     )
 
-    assert receipt.allowed is True
-    assert receipt.reasons == []
+    assert receipt.allowed is False
+    assert receipt.reasons == ['live_execution_not_compiled_into_paper_only_release']
 
 
 def test_feedback_normalizes_blank_exit_reason_and_r_multiple():

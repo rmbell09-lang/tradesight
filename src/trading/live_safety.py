@@ -30,6 +30,7 @@ class LiveSafetyPolicy:
     require_secure_credentials: bool = True
     allow_live_orders: bool = False
     allow_tiny_live_canary: bool = False
+    release_live_execution_compiled_in: bool = False
 
 
 @dataclass
@@ -135,6 +136,8 @@ class LiveTradingSafetyGate:
 
         if mode not in {"canary", "live"}:
             reasons.append("unknown_mode")
+        if mode in {"canary", "live"} and not self.policy.release_live_execution_compiled_in:
+            reasons.append("live_execution_not_compiled_into_paper_only_release")
         if mode == "live" and not self.policy.allow_live_orders:
             reasons.append("live_orders_disabled_by_policy")
         if mode == "canary" and not self.policy.allow_tiny_live_canary:

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tradesight"
-version = "1.1.2"
-description = "Self-hosted AI trading strategy lab — backtest, paper trade, run AI tournaments overnight."
+version = "1.2.0rc1"
+description = "Self-hosted strategy research and broker-simulated paper-trading lab with explicit evidence gates."
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -36,10 +36,16 @@ classifiers = [
     "Environment :: Console",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "requests>=2.31.0",
-    "flask>=2.3.0",
+    "requests>=2.32,<3",
+    "flask>=3.1,<4",
+    "numpy>=2.0,<3",
+    "pandas>=2.3,<3",
+    "TA-Lib>=0.6,<1",
+    "yfinance>=1.2,<2",
+    "websocket-client>=1.9,<2",
+    "websockets>=15,<16",
 ]
 
 [project.urls]

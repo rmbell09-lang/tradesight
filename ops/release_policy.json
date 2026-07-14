@@ -1,0 +1,56 @@
+{
+  "schema": "tradesight_release_policy.v1",
+  "paper_only": true,
+  "minimum_python": "3.11",
+  "entrypoint": "install_tradesight.py",
+  "dashboard_port": 5001,
+  "allowed_roots": [
+    "config",
+    "ops",
+    "scripts",
+    "src",
+    "tests",
+    "tradesight",
+    "web"
+  ],
+  "allowed_files": [
+    ".gitignore",
+    "README.md",
+    "START_TRADESIGHT.py",
+    "docs/GUMROAD_LISTING.md",
+    "docs/LIVE_READINESS.md",
+    "docs/index.html",
+    "install_tradesight.py",
+    "launch_tradesight.sh",
+    "pyproject.toml",
+    "requirements-dev.txt",
+    "requirements-runtime.txt",
+    "requirements.txt"
+  ],
+  "excluded_fragments": [
+    ".env",
+    ".bak",
+    ".backup",
+    ".db",
+    ".log",
+    ".pyc",
+    ".runtime",
+    ".venv",
+    "__pycache__",
+    "dist/"
+  ],
+  "excluded_roots": [
+    "data",
+    "dist",
+    "logs",
+    "reports",
+    "state"
+  ],
+  "prohibited_claims": [
+    "94/96",
+    "282/282",
+    "localhost:5000",
+    "runs fully in demo mode with simulated market data",
+    "stocks + polymarket prediction markets"
+  ]
+}

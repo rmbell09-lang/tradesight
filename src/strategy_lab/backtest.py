@@ -436,7 +436,7 @@ class BacktestEngine:
                 # Infer bar frequency from DatetimeIndex for correct annualization
                 if not data.empty and len(data.index) > 1 and hasattr(data.index, 'to_series'):
                     avg_delta = (data.index[-1] - data.index[0]) / (len(data.index) - 1)
-                    bars_per_day = pd.Timedelta('1D') / avg_delta if avg_delta.total_seconds() > 0 else 1.0
+                    bars_per_day = 86400.0 / avg_delta.total_seconds() if avg_delta.total_seconds() > 0 else 1.0
                     annualize_factor = np.sqrt(bars_per_day * 252)
                 else:
                     annualize_factor = np.sqrt(252)

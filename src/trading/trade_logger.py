@@ -12,6 +12,7 @@ Session-level P&L is useful but hides patterns. Trade-level data answers:
 """
 
 import sqlite3
+from contextlib import closing
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +31,7 @@ class TradeLogger:
         self._init_db()
 
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS trades (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,7 +81,7 @@ class TradeLogger:
                  quantity: float, entry_price: float,
                  params_hash: str = '') -> int:
         """Log trade open. Returns open_trade_id."""
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
             cur = conn.execute('''
                 INSERT INTO open_trades
                 (symbol, strategy, params_hash, side, quantity, entry_price, entry_time)
@@ -95,7 +96,7 @@ class TradeLogger:
     def log_close(self, symbol: str, strategy: str, exit_price: float,
                   exit_reason: str = 'signal', params_hash: str = ''):
         """Log trade close. Matches against most recent open trade for this symbol+strategy."""
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
             open_trade = conn.execute('''
                 SELECT id, side, quantity, entry_price, entry_time
                 FROM open_trades
@@ -180,7 +181,7 @@ class TradeLogger:
         except Exception:
             hold_minutes = 0
 
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
             open_trade = conn.execute(
                 '''
                 SELECT id FROM open_trades
@@ -218,7 +219,7 @@ class TradeLogger:
 
     def get_analysis(self, days: int = 30) -> Dict:
         """Return structured analysis of recent trades."""
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
             rows = conn.execute('''
                 SELECT symbol, strategy, side, pnl_dollars, pnl_pct,
                        hold_minutes, exit_reason, market_session

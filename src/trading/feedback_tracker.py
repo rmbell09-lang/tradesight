@@ -32,6 +32,7 @@ Schema:
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -61,7 +62,7 @@ class FeedbackTracker:
         self._init_db()
 
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS param_performance (
                     params_hash TEXT PRIMARY KEY,
@@ -142,7 +143,7 @@ class FeedbackTracker:
         session_id = str(uuid.uuid4())[:8]
         date = datetime.now().strftime('%Y-%m-%d')
 
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
             # Upsert param_performance
             existing = conn.execute(
                 'SELECT times_used, total_pnl, win_sessions, loss_sessions FROM param_performance WHERE params_hash = ?',
@@ -189,7 +190,7 @@ class FeedbackTracker:
         sorted by avg_pnl descending. Used by the optimizer for weighting.
         """
         merged = {}
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
             rows = conn.execute('''
                 SELECT params_hash, params_json, times_used, avg_pnl,
                        win_sessions, loss_sessions, last_pnl
@@ -291,7 +292,7 @@ class FeedbackTracker:
                 market_regime=market_regime,
                 regime_source=regime_source,
             )
-            with sqlite3.connect(self.db_path) as conn:
+            with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
                 conn.execute('''
                     INSERT OR REPLACE INTO trade_feedback
                     (source, source_id, params_hash, params_json, symbol, strategy, side,
@@ -360,7 +361,7 @@ class FeedbackTracker:
         if not positions_db.exists():
             return 0
         inserted = 0
-        with sqlite3.connect(positions_db) as src:
+        with closing(sqlite3.connect(positions_db)) as _resource, _resource as src:
             rows = src.execute('''
                 SELECT id, symbol, strategy, side, entry_price, exit_price, quantity,
                        realized_pnl, COALESCE(exit_reason, ''), entry_time, exit_time
@@ -410,7 +411,7 @@ class FeedbackTracker:
             'sample_weight': 0.0,
             'avg_r_multiple': None,
         }
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
             rows = conn.execute('''
                 SELECT pnl_dollars, pnl_pct, COALESCE(r_multiple, 0.0)
                 FROM trade_feedback
@@ -500,7 +501,7 @@ class FeedbackTracker:
             'reduced_pairs': [],
             'explore_pairs': [],
         }
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
             rows = conn.execute('''
                 SELECT symbol, strategy, COUNT(*) as trades,
                        SUM(pnl_dollars) as total_pnl,
@@ -558,7 +559,7 @@ class FeedbackTracker:
 
     def summary(self) -> str:
         """Human-readable summary of feedback data."""
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
             total_sessions = conn.execute('SELECT COUNT(*) FROM session_log').fetchone()[0]
             total_params = conn.execute('SELECT COUNT(*) FROM param_performance').fetchone()[0]
             best = conn.execute(
@@ -569,7 +570,7 @@ class FeedbackTracker:
             f"Feedback DB: {total_sessions} sessions, {total_params} unique param sets",
         ]
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with closing(sqlite3.connect(self.db_path)) as connection, connection as conn:
                 trade_count = conn.execute('SELECT COUNT(*) FROM trade_feedback').fetchone()[0]
             lines.append(f"Trade-level feedback: {trade_count} closed trades")
         except Exception:

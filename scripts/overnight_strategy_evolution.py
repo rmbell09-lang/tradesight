@@ -19,6 +19,7 @@ import sys
 import json
 import logging
 import argparse
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Callable, List
@@ -1237,7 +1238,7 @@ def count_credible_closed_trades_since(since: Optional[datetime], db_path: Optio
     if not path.is_file():
         return 0
     try:
-        with sqlite3.connect(str(path)) as conn:
+        with closing(sqlite3.connect(str(path))) as connection, connection as conn:
             columns = {row[1] for row in conn.execute('PRAGMA table_info(positions)').fetchall()}
             required = {'status', 'exit_time', 'exit_order_id', 'exit_fill_status'}
             if not required.issubset(columns):

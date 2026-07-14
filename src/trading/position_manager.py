@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import sqlite3
+from contextlib import closing
 
 try:
     from trading.trade_logger import TradeLogger
@@ -95,7 +96,7 @@ class PositionManager:
         db_path = self.data_dir / 'positions.db'
         
         try:
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 # Positions table
                 conn.execute('''
                     CREATE TABLE IF NOT EXISTS positions (
@@ -250,7 +251,7 @@ class PositionManager:
             )
             
             db_path = self.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 conn.execute('''
                     INSERT INTO positions 
                     (symbol, strategy, side, quantity, entry_price, current_price, entry_time,
@@ -290,7 +291,7 @@ class PositionManager:
                 return False
 
             db_path = self.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 # Find open position
                 position_data = conn.execute('''
                     SELECT id, side, quantity, entry_price FROM positions 
@@ -334,7 +335,7 @@ class PositionManager:
         """Update current prices and unrealized P&L for open positions"""
         try:
             db_path = self.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 # Get all open positions
                 positions = conn.execute('''
                     SELECT id, symbol, side, quantity, entry_price,
@@ -401,7 +402,7 @@ class PositionManager:
         """Add entry_reason and exit_reason columns if they don't exist (Task 25)."""
         try:
             db_path = self.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 # Check existing columns
                 cols = [row[1] for row in conn.execute("PRAGMA table_info(positions)").fetchall()]
                 if 'entry_reason' not in cols:
@@ -439,7 +440,7 @@ class PositionManager:
         
         try:
             db_path = self.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 # Get closed trades for this symbol
                 query = "SELECT realized_pnl, entry_price, quantity FROM positions WHERE symbol=? AND status='closed'"
                 params_list = [symbol]
@@ -488,7 +489,7 @@ class PositionManager:
         """Get current portfolio state and performance"""
         try:
             db_path = self.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 # Get position summary
                 summary = conn.execute('''
                     SELECT 
@@ -572,7 +573,7 @@ class PositionManager:
         try:
             synced_at = datetime.now().isoformat()
             db_path = self.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 cols = [row[1] for row in conn.execute("PRAGMA table_info(balance_cache)").fetchall()]
                 if 'equity' not in cols:
                     conn.execute("ALTER TABLE balance_cache ADD COLUMN equity REAL")
@@ -601,7 +602,7 @@ class PositionManager:
             state = self.get_portfolio_state()
             
             db_path = self.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 conn.execute('''
                     INSERT INTO portfolio_history 
                     (timestamp, total_value, available_cash, total_positions_value,
@@ -626,7 +627,7 @@ class PositionManager:
             
             # Check strategy allocation
             db_path = self.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 strategy_value = conn.execute('''
                     SELECT SUM(ABS(quantity * current_price)) 
                     FROM positions 
@@ -659,7 +660,7 @@ class PositionManager:
             
             # Get historical performance
             db_path = self.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 # Recent closed positions
                 recent_trades = conn.execute('''
                     SELECT symbol, strategy, side, quantity, entry_price, exit_price, 

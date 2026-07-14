@@ -297,8 +297,8 @@ def make_trader_for_cooldown(base_dir):
 
 
 def _seed_closed_stop_loss(db_path, symbol, days_ago):
-    from datetime import datetime, timedelta
-    exit_time = (datetime.utcnow() - timedelta(days=days_ago)).isoformat()
+    from datetime import datetime, timedelta, timezone
+    exit_time = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "INSERT INTO positions "

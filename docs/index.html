@@ -150,14 +150,14 @@
         <div class="feature-card">
           <div class="feature-icon">🧠</div>
           <h5>AI Strategy Lab</h5>
-          <p style="color:#8b949e;">Overnight tournaments evolve trading strategies automatically. Hundreds of variations tested, losers killed, winners promoted. Wake up to results.</p>
+          <p style="color:#8b949e;">Real-data tournaments compare strategy families and preserve champion, challenger, and rejection evidence. Promotion remains frozen until every quality gate passes.</p>
         </div>
       </div>
       <div class="col-md-4">
         <div class="feature-card">
           <div class="feature-icon">📡</div>
-          <h5>Multi-Market Scanner</h5>
-          <p style="color:#8b949e;">Scans Polymarket prediction markets + US equities. Every asset scored by confidence. Know where to look before you open your brokerage.</p>
+          <h5>Verified Stock Scanner</h5>
+          <p style="color:#8b949e;">Scores US equities only when verified Alpaca market data is available. Archived Polymarket records are labeled stale and hidden from current decisions.</p>
         </div>
       </div>
       <div class="col-md-4">
@@ -171,21 +171,21 @@
         <div class="feature-card">
           <div class="feature-icon">🖥️</div>
           <h5>Local Dashboard</h5>
-          <p style="color:#8b949e;">Everything at localhost:5000 — Markets, Tournaments, Trading, Settings. No SaaS login. No cloud. Your machine, your data.</p>
+          <p style="color:#8b949e;">Everything at localhost:5001 — market evidence, strategies, paper orders, accounting, risk controls, and live-readiness gates.</p>
         </div>
       </div>
       <div class="col-md-4">
         <div class="feature-card">
           <div class="feature-icon">⚙️</div>
-          <h5>Set and Forget</h5>
-          <p style="color:#8b949e;">Cron jobs handle overnight runs. Check dashboard in the morning. That's it. No babysitting, no manual runs.</p>
+          <h5>Evidence-Triggered Evaluation</h5>
+          <p style="color:#8b949e;">Daily evaluation collects fresh evidence while full searches run only after meaningful new bars, trades, regime changes, or a failsafe deadline.</p>
         </div>
       </div>
       <div class="col-md-4">
         <div class="feature-card">
           <div class="feature-icon">🚀</div>
-          <h5>Demo Mode</h5>
-          <p style="color:#8b949e;">Fully functional with simulated data — no API keys needed to explore. Install Python, launch, explore. Zero setup friction.</p>
+          <h5>Fail-Closed Data Truth</h5>
+          <p style="color:#8b949e;">Missing credentials or stale data are shown as unavailable. TradeSight never substitutes generated prices for current market evidence.</p>
         </div>
       </div>
     </div>
@@ -202,21 +202,21 @@
           <li><span class="check">✅</span> Full Python source code (MIT license)</li>
           <li><span class="check">✅</span> Web dashboard (Flask, no framework bloat)</li>
           <li><span class="check">✅</span> AI Strategy Lab — tournament + backtesting engine</li>
-          <li><span class="check">✅</span> Polymarket scanner with confidence scoring</li>
+          <li><span class="check">✅</span> Verified Alpaca stock scanner; stale archived Polymarket data is hidden</li>
           <li><span class="check">✅</span> Stock scanner with 15+ technical indicators</li>
           <li><span class="check">✅</span> Paper trading orchestrator (Alpaca integration)</li>
           <li><span class="check">✅</span> Overnight automation cron scripts</li>
-          <li><span class="check">✅</span> 94 tests passing</li>
+          <li><span class="check">✅</span> Test receipt shown from the latest complete local suite</li>
           <li><span class="check">✅</span> Mac + Linux setup guide</li>
-          <li><span class="check">✅</span> Demo mode — works immediately, no API keys needed</li>
+          <li><span class="check">✅</span> Explicit REAL / PAPER / STALE / UNVERIFIED labels</li>
         </ul>
       </div>
       <div class="col-md-6">
         <h2 class="section-title">Tech Stack</h2>
         <ul class="list-unstyled" style="color:#8b949e; line-height:2;">
           <li>🐍 <strong style="color:#e6edf3;">Python 3.11+</strong> — clean, readable, hackable</li>
-          <li>🌐 <strong style="color:#e6edf3;">Flask dashboard</strong> — localhost:5000, zero external dependencies</li>
-          <li>📊 <strong style="color:#e6edf3;">Data:</strong> Polymarket API + Alpaca (both free)</li>
+          <li>🌐 <strong style="color:#e6edf3;">Flask dashboard</strong> — localhost:5001</li>
+          <li>📊 <strong style="color:#e6edf3;">Data:</strong> Alpaca market and paper-trading APIs</li>
           <li>🗄️ <strong style="color:#e6edf3;">SQLite</strong> — no Postgres, no Redis, no Docker</li>
           <li>💻 <strong style="color:#e6edf3;">Runs on:</strong> Mac, Linux (tested on M4 Mac Mini)</li>
         </ul>

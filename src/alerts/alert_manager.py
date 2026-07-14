@@ -7,7 +7,7 @@ Receives structured alert events and routes them to configured channels
 import json
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -144,7 +144,7 @@ class AlertManager:
         return {
             'source': 'TradeSight',
             'type': alert_type.value,
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             **data,
         }
 

@@ -10,8 +10,9 @@ import os
 import sys
 import json
 import sqlite3
+from contextlib import closing
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
@@ -387,7 +388,7 @@ class PaperTrader:
         
         try:
             db_path = self.position_manager.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 # Get total portfolio value
                 portfolio = self.position_manager.get_portfolio_state()
                 total_value = portfolio.total_value or self.initial_balance if hasattr(self, 'initial_balance') else 500
@@ -429,7 +430,7 @@ class PaperTrader:
                 self.logger.warning("No tournament history found")
                 return []
             
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 # Get recent tournament winners
                 winners = conn.execute('''
                     SELECT winner, winner_avg_score, start_time
@@ -490,7 +491,7 @@ class PaperTrader:
         """Persist an accepted-but-not-filled exit without closing the position."""
         try:
             db_path = self.position_manager.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 conn.execute(
                     "UPDATE positions SET exit_order_id=?, exit_fill_status=?, "
                     "exit_reason=COALESCE(NULLIF(exit_reason, ''), ?), "
@@ -514,7 +515,7 @@ class PaperTrader:
             if strategy:
                 strategy_clause = ' AND strategy=?'
                 params.append(strategy)
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 row = conn.execute(
                     "SELECT exit_fill_status FROM positions "
                     "WHERE symbol=? AND status='open' "
@@ -538,7 +539,7 @@ class PaperTrader:
                 days=float(self.config.get('loss_cooldown_days', 7))
             )).isoformat()
             db_path = self.position_manager.data_dir / "positions.db"
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 recent_close = conn.execute(
                     "SELECT exit_reason, realized_pnl, exit_time FROM positions "
                     "WHERE symbol=? AND status='closed' AND exit_time >= ? "
@@ -609,7 +610,7 @@ class PaperTrader:
         db_path = self.position_manager.data_dir / "positions.db"
         closed_count = 0
         exit_time = datetime.now().isoformat()
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as connection, connection as conn:
             for row in rows:
                 pos_id, symbol, strategy, side, qty, entry_price, entry_time, existing_reason = row
                 pnl = (fill_price - entry_price) * qty if side == "long" else (entry_price - fill_price) * qty
@@ -642,7 +643,7 @@ class PaperTrader:
             return 0
         try:
             db_path = self.position_manager.data_dir / "positions.db"
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 pending_rows = conn.execute(
                     "SELECT id, symbol, strategy, side, quantity, entry_price, entry_time, "
                     "COALESCE(exit_reason, ''), exit_order_id, COALESCE(exit_fill_status, '') "
@@ -696,7 +697,7 @@ class PaperTrader:
                             exit_reason or 'broker_reconciled',
                         )
                 else:
-                    with sqlite3.connect(db_path) as conn:
+                    with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                         conn.execute(
                             "UPDATE positions SET exit_fill_status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                             (order_status or exit_fill_status, pos_id)
@@ -717,7 +718,7 @@ class PaperTrader:
             if state.balance_synced_at is None:
                 return None
             db_path = self.position_manager.data_dir / "positions.db"
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 row = conn.execute(
                     "SELECT COALESCE(SUM(realized_pnl), 0), COALESCE(SUM(CASE WHEN status='open' THEN unrealized_pnl ELSE 0 END), 0) "
                     "FROM positions"
@@ -1233,7 +1234,7 @@ class PaperTrader:
             if action == 'buy':
                 try:
                     db_path = self.position_manager.data_dir / "positions.db"
-                    with sqlite3.connect(db_path) as _pc:
+                    with closing(sqlite3.connect(db_path)) as _resource, _resource as _pc:
                         existing = _pc.execute(
                             "SELECT COUNT(*) FROM positions WHERE symbol=? AND status='open'",
                             (symbol,)
@@ -1259,10 +1260,9 @@ class PaperTrader:
             # Prevents ADBE-style re-entry loops after getting stopped out
             if action == 'buy':
                 try:
-                    from datetime import datetime, timedelta
                     db_path = self.position_manager.data_dir / "positions.db"
-                    cooldown_cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
-                    with sqlite3.connect(db_path) as _cd:
+                    cooldown_cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+                    with closing(sqlite3.connect(db_path)) as connection, connection as _cd:
                         sl_count = _cd.execute(
                             "SELECT COUNT(*) FROM positions "
                             "WHERE symbol=? AND status='closed' AND exit_reason='STOP_LOSS' "
@@ -1468,7 +1468,7 @@ class PaperTrader:
             enforce_min_hold = self.config.get('enforce_min_hold_hours', False)
             if enforce_min_hold and min_hold > 0 and not force:
                 try:
-                    with sqlite3.connect(db_path) as conn:
+                    with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                         recent_entry = conn.execute(
                             "SELECT entry_time FROM positions WHERE symbol=? AND strategy=? AND status='open' "
                             "ORDER BY entry_time DESC LIMIT 1",
@@ -1487,7 +1487,7 @@ class PaperTrader:
                 except (TypeError, ValueError) as e:
                     self.logger.debug(f"[PDT-GUARD] Could not check hold time: {e}")
 
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 open_count = conn.execute(
                     "SELECT COUNT(*) FROM positions WHERE symbol=? AND strategy=? AND status=?",
                     (symbol, strategy, "open")
@@ -1543,7 +1543,7 @@ class PaperTrader:
                 # GUARD 2: sanity check — reject if fill deviates >25% from any open entry price.
                 # This catches stale/cached prices from Alpaca paper trading (e.g. ADBE $425→$262).
                 try:
-                    with sqlite3.connect(db_path) as _g:
+                    with closing(sqlite3.connect(db_path)) as _resource, _resource as _g:
                         entry_prices = [r[0] for r in _g.execute(
                             "SELECT entry_price FROM positions WHERE symbol=? AND strategy=? AND status='open'",
                             (symbol, strategy)
@@ -1571,7 +1571,7 @@ class PaperTrader:
                     exit_order_id = f"alpaca_close_position:{symbol}:{datetime.now().isoformat()}"
 
                 # Close ALL open DB positions for this symbol+strategy
-                with sqlite3.connect(db_path) as conn:
+                with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                     open_positions = conn.execute(
                         "SELECT id, symbol, strategy, side, quantity, entry_price, entry_time, COALESCE(exit_reason, '') "
                         "FROM positions "
@@ -1637,7 +1637,7 @@ class PaperTrader:
                 hour=0, minute=0, second=0, microsecond=0
             ).isoformat()
             db_path = self.position_manager.data_dir / 'positions.db'
-            with sqlite3.connect(str(db_path)) as conn:
+            with closing(sqlite3.connect(str(db_path))) as connection, connection as conn:
                 # Exclude placeholder/demo exits from daily circuit-breaker P&L.
                 # 1) Demo-mode closures typically have no order_id (status may be 'closed' or NULL)
                 # 2) Price-sanity guard: long exit < 50% of entry, short exit > 150% of entry
@@ -1755,7 +1755,7 @@ class PaperTrader:
 
         try:
             db_path = self.position_manager.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 open_positions = conn.execute(
                     "SELECT symbol, strategy, side, quantity, entry_price, "
                     "COALESCE(high_water_mark, entry_price), "
@@ -1810,7 +1810,7 @@ class PaperTrader:
                     )
                     if sane_vs_hwm and sane_vs_entry:
                         try:
-                            with sqlite3.connect(self.position_manager.data_dir / 'positions.db') as c2:
+                            with closing(sqlite3.connect(self.position_manager.data_dir / 'positions.db')) as _resource, _resource as c2:
                                 c2.execute(
                                     "UPDATE positions SET high_water_mark=? "
                                     "WHERE symbol=? AND strategy=? AND status='open'",
@@ -1830,7 +1830,7 @@ class PaperTrader:
                 # --- Activate trailing stop when gain >= 2% (long only) ---
                 if side == 'long' and not trailing_active and pnl_pct >= trailing_activation_pct:
                     try:
-                        with sqlite3.connect(self.position_manager.data_dir / 'positions.db') as c3:
+                        with closing(sqlite3.connect(self.position_manager.data_dir / 'positions.db')) as _resource, _resource as c3:
                             c3.execute(
                                 "UPDATE positions SET trailing_stop_active=1 "
                                 "WHERE symbol=? AND strategy=? AND status='open'",
@@ -1909,7 +1909,7 @@ class PaperTrader:
                     if closed:
                         try:
                             _db = self.position_manager.data_dir / 'positions.db'
-                            with sqlite3.connect(_db) as _jc2:
+                            with closing(sqlite3.connect(_db)) as _resource, _resource as _jc2:
                                 _jc2.execute(
                                     "UPDATE positions SET exit_reason=? "
                                     "WHERE symbol=? AND strategy=? AND status='closed' "
@@ -1965,7 +1965,7 @@ class PaperTrader:
         """
         try:
             db_path = self.position_manager.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 open_positions = conn.execute(
                     "SELECT symbol, strategy, entry_price, side, quantity FROM positions WHERE status='open'"
                 ).fetchall()
@@ -2044,7 +2044,7 @@ class PaperTrader:
             if getattr(self.alpaca, 'demo_mode', False):
                 try:
                     db_path = self.position_manager.data_dir / 'positions.db'
-                    with sqlite3.connect(db_path) as conn:
+                    with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                         open_count = conn.execute(
                             "SELECT COUNT(*) FROM positions WHERE status='open'"
                         ).fetchone()[0]
@@ -2180,7 +2180,7 @@ class PaperTrader:
                             # Count open positions in this group
                             try:
                                 db_path = self.position_manager.data_dir / 'positions.db'
-                                with sqlite3.connect(db_path) as _cconn:
+                                with closing(sqlite3.connect(db_path)) as _resource, _resource as _cconn:
                                     placeholders = ','.join('?' for _ in group_symbols)
                                     group_count = _cconn.execute(
                                         "SELECT COUNT(*) FROM positions WHERE symbol IN (%s) AND status='open'" % placeholders,
@@ -2259,7 +2259,7 @@ class PaperTrader:
         """Check if we already have a position for this symbol+strategy"""
         try:
             db_path = self.position_manager.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 position = conn.execute('''
                     SELECT id FROM positions 
                     WHERE symbol = ? AND strategy = ? AND status = 'open'
@@ -2278,7 +2278,7 @@ class PaperTrader:
             cutoff_date = (datetime.now() - timedelta(days=self.config['position_hold_days'])).isoformat()
             
             db_path = self.position_manager.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 aged_positions = conn.execute('''
                     SELECT symbol, strategy FROM positions 
                     WHERE status = 'open' AND entry_time < ?
@@ -2367,7 +2367,7 @@ class PaperTrader:
             try:
                 db_path = self.position_manager.data_dir / 'positions.db'
                 cutoff = (datetime.now() - timedelta(days=7)).isoformat()
-                with sqlite3.connect(db_path) as conn:
+                with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                     closed = conn.execute(
                         "SELECT symbol, side, entry_price, exit_price, realized_pnl, strategy, exit_time, "
                         "exit_order_id, exit_fill_status "
@@ -2458,7 +2458,7 @@ class PaperTrader:
             # Bug fix: previously only triggered when local DB had 0 positions,
             # meaning stale local positions blocked orphan detection for new symbols.
             if remote_positions:
-                with sqlite3.connect(self.position_manager.data_dir / 'positions.db') as _conn:
+                with closing(sqlite3.connect(self.position_manager.data_dir / 'positions.db')) as _resource, _resource as _conn:
                     local_open = set(
                         row[0] for row in _conn.execute(
                             "SELECT DISTINCT symbol FROM positions WHERE status=\'open\'"
@@ -2527,7 +2527,7 @@ class PaperTrader:
             return
         try:
             db_path = self.position_manager.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 local_symbols = set(
                     row[0] for row in conn.execute(
                         "SELECT DISTINCT symbol FROM positions WHERE status='open'"
@@ -2568,7 +2568,7 @@ class PaperTrader:
         """
         try:
             db_path = self.position_manager.data_dir / 'positions.db'
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 local_open = conn.execute(
                     "SELECT id, symbol, strategy, entry_price, quantity, side, entry_time, COALESCE(exit_reason, '') "
                     "FROM positions WHERE status='open'"
@@ -2806,7 +2806,7 @@ class PaperTrader:
                     db_path = self.position_manager.data_dir / 'positions.db'
                     # Find trades closed in the last 20 minutes (this session window)
                     cutoff = (datetime.now() - timedelta(minutes=20)).isoformat()
-                    with sqlite3.connect(db_path) as conn:
+                    with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                         closed_this_session = conn.execute(
                             "SELECT id, symbol, strategy, side, entry_price, exit_price, realized_pnl, "
                             "quantity, COALESCE(exit_reason, ''), entry_time, exit_time "

@@ -7,12 +7,14 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT_PATH = ROOT / "state" / "test-suite-status.json"
+ET = ZoneInfo("America/New_York")
 
 
 def parse_count(output: str, label: str) -> int:
@@ -21,7 +23,7 @@ def parse_count(output: str, label: str) -> int:
 
 
 def main() -> int:
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(ET)
     command = [sys.executable, "-m", "pytest", "-q"]
     result = subprocess.run(
         command,
@@ -41,7 +43,7 @@ def main() -> int:
         "schema": "tradesight.test_suite.v1",
         "command": command,
         "started_at": started_at.isoformat(),
-        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": datetime.now(ET).isoformat(),
         "exit_code": result.returncode,
         "passed": passed,
         "failed": failed + errors,

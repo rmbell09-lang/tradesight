@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -55,7 +56,7 @@ def ensure_trade_evidence_schema(db_path: Path) -> None:
         "signal_snapshot_json": "TEXT",
         "risk_snapshot_json": "TEXT",
     }
-    with sqlite3.connect(str(db_path)) as conn:
+    with closing(sqlite3.connect(str(db_path))) as connection, connection as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(positions)")}
         for name, definition in additions.items():
             if name not in columns:
@@ -227,7 +228,7 @@ class TradeEvidenceService:
               FROM positions %s
              ORDER BY COALESCE(exit_time,entry_time) DESC LIMIT ?
         """ % where
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with closing(sqlite3.connect(str(self.db_path))) as connection, connection as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(query, params).fetchall()
         result = []

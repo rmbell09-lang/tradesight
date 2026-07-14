@@ -1,0 +1,26 @@
+{
+  "schema": "tradesight_live_readiness_policy.v1",
+  "paper_only": true,
+  "live_execution_compiled_in": false,
+  "minimum_python": "3.11",
+  "requirements": {
+    "verified_accounting_sessions": 30,
+    "forward_paper_sessions": 60,
+    "broker_confirmed_forward_trades": 100,
+    "minimum_clean_live_canary_trades_before_scale_review": 20,
+    "maximum_clean_live_canary_trades_before_scale_review": 50
+  },
+  "pilot_constraints": {
+    "strategies": 1,
+    "regular_market_hours_only": true,
+    "highly_liquid_stocks_or_etfs_only": true,
+    "leverage_allowed": false,
+    "shorting_allowed": false,
+    "options_allowed": false,
+    "automatic_strategy_switching": false,
+    "hard_per_trade_loss_limit_required": true,
+    "hard_daily_loss_limit_required": true,
+    "hard_total_pilot_loss_limit_required": true,
+    "paper_live_execution_comparison_required": true
+  }
+}

@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import sqlite3
+from contextlib import closing
 import logging
 import random
 from datetime import datetime, timedelta
@@ -355,7 +356,7 @@ class StrategyAutomation:
         db_path = self.data_dir / 'tournament_history.db'
         
         try:
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 # Create tables if they don't exist
                 conn.execute('''
                     CREATE TABLE IF NOT EXISTS tournament_sessions (
@@ -448,7 +449,7 @@ class StrategyAutomation:
 
         
         try:
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as connection, connection as conn:
                 # Get today's sessions
                 today = datetime.now().strftime('%Y-%m-%d')
                 sessions = conn.execute(

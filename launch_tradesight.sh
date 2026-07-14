@@ -1,23 +1,14 @@
 #!/bin/bash
-# TradeSight Launcher Script
-
-echo "🎯 Starting TradeSight Trading Intelligence Platform..."
-echo "========================================"
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR" || exit 1
+RUNTIME="$SCRIPT_DIR/.runtime/bin/python"
 
-# Activate any virtual environment if needed (optional)
-# source venv/bin/activate 2>/dev/null || true
+if [[ ! -x "$RUNTIME" ]]; then
+  echo "TradeSight runtime is not installed. Run: python3 install_tradesight.py" >&2
+  exit 2
+fi
 
-# Start the web dashboard
-echo "📊 Launching TradeSight Dashboard..."
-echo "🌐 Opening http://localhost:5000"
-echo "💡 Press Ctrl+C to stop TradeSight"
-echo ""
-
-# Open browser (optional - remove if you don't want auto-open)
-sleep 2 && open "http://localhost:5000" 2>/dev/null &
-
-# Start the web server
-python3 web/dashboard.py
+export TRADESIGHT_HOME="$SCRIPT_DIR"
+export TRADESIGHT_PORT="${TRADESIGHT_PORT:-5001}"
+exec "$RUNTIME" -m tradesight "$@"

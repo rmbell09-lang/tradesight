@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -131,7 +132,7 @@ def ensure_schema(db_path: Path, epoch: Dict[str, Any]) -> None:
     """Add non-destructive evidence columns and classify preserved rows."""
 
     db_path = Path(db_path)
-    with sqlite3.connect(str(db_path)) as conn:
+    with closing(sqlite3.connect(str(db_path))) as connection, connection as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(positions)")}
         additions = {
             "accounting_epoch_id": "TEXT",
@@ -270,7 +271,7 @@ def reconcile_accounting(
                 order_cache[order_id] = {"error": str(exc)}
         return order_cache[order_id]
 
-    with sqlite3.connect(str(db_path)) as conn:
+    with closing(sqlite3.connect(str(db_path))) as connection, connection as conn:
         conn.row_factory = sqlite3.Row
         local_open_rows = conn.execute(
             "SELECT id,symbol,side,quantity,entry_price,current_price,strategy FROM positions WHERE status='open'"

@@ -1,216 +1,114 @@
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rmbell09-lang/tradesight/blob/main/intro_demo.ipynb)
-[![PyPI version](https://badge.fury.io/py/tradesight.svg)](https://pypi.org/project/tradesight/)
+# TradeSight
 
-# 🎯 TradeSight — Python Algorithmic Trading & Backtesting Strategy Lab
+TradeSight is a self-hosted strategy-research and **paper-trading** application. It evaluates strategy families against historical data, preserves champion/challenger evidence, and connects to an Alpaca paper account for broker-simulated orders and reconciliation.
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Flask](https://img.shields.io/badge/flask-2.3+-green.svg)](https://flask.palletsprojects.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests: 282/282](https://img.shields.io/badge/tests-282%2F282%20passing-brightgreen.svg)]()
-[![Paper Trading](https://img.shields.io/badge/mode-paper%20trading-orange.svg)]()
-[![Public Proof](https://img.shields.io/badge/public%20proof-2026--06--20-blue.svg)](https://rentry.co/tradesight-public-credibility-proof-20260620)
-[![GitHub Stars](https://img.shields.io/github/stars/rmbell09-lang/tradesight?style=social)](https://github.com/rmbell09-lang/tradesight)
-[![Strategies](https://img.shields.io/badge/strategies-9-brightgreen.svg)](https://github.com/rmbell09-lang/tradesight#strategies)
+TradeSight is research software. It is not financial advice, does not promise returns, and does not contain an enabled live-money execution path.
 
-**Build, test, and evolve trading strategies with AI — entirely on your own machine. No cloud subscription. No data leaks. No monthly fees.**
+## What is real in the current release
 
-TradeSight is a self-hosted Python app that runs AI-powered strategy tournaments overnight, backtests technical indicators, and executes paper trades via Alpaca — all from a local web dashboard.
+- Alpaca market data is labeled `REAL` only after source verification.
+- Orders, positions, and fills from the Alpaca paper endpoint are labeled `PAPER`.
+- Broker/local accounting is reconciled from a defined paper-account epoch.
+- Historical local P&L that lacks complete broker proof is preserved as `LEGACY / UNVERIFIED` and excluded from trusted performance.
+- Strategy Lab reads the persisted optimizer, tournament database, champion, challengers, and rejection evidence.
+- The Live Readiness screen shows mandatory evidence gates but cannot activate live trading.
+- Polymarket records are archived and hidden when stale; the scanner is not currently maintained.
 
-Public proof snapshot: https://rentry.co/tradesight-public-credibility-proof-20260620
+## Requirements
 
-TradeSight is for research, backtesting, and paper trading. It is not financial advice, and it does not guarantee income, returns, accuracy, or live-trading performance.
+- Python 3.11 or newer
+- macOS or Linux
+- Alpaca **paper** credentials for broker-backed market and trading evidence
 
-<p align="center">
-  <img src="docs/demo.svg" alt="TradeSight Demo — Paper Trading Report" width="800">
-</p>
+## Supported installation
 
----
-
-## 🤔 Who Is This For?
-
-- **Algorithmic trading hobbyists** who want to test strategies without risking real money
-- **Python developers** exploring quantitative finance and AI-driven decision systems
-- **Privacy-conscious traders** who don't want their strategies on someone else's server
-- **Makers** building autonomous financial agents
-
----
-
-## ✨ Features <a name=strategies></a>
-
-| Feature | Description |
-|---|---|
-| 🧬 **AI Strategy Tournaments** | Automated overnight evolution of trading strategies — the best wins, rest are retired |
-| 🛡️ **Safer Optimizer Promotion Gates** | Family-aware RSI/MACD/Momentum tuning with OOS, walk-forward, regime, Monte Carlo, and overfit checks before any parameter promotion |
-| 📊 **15+ Technical Indicators** | MACD, RSI, Bollinger Bands, EMA crossovers, ATR, volume analysis, and more |
-| 💸 **Paper Trading** | Connect an Alpaca paper account — trade with simulated funds and track paper-only P&L |
-| 🔍 **Multi-Market Scanner** | Scan stocks + Polymarket prediction markets for signals simultaneously |
-| 🌐 **Web Dashboard** | Real-time Flask interface — positions, signals, tournament results, logs |
-| ⏰ **Cron Automation** | Overnight strategy improvement runs automatically — wake up to new results |
-| 🔒 **100% Local** | Runs on your machine. Your strategies stay yours. |
-
----
-
-## 🚀 Quick Start
-
-### Requirements
-- Python 3.11+
-- macOS or Linux (Windows via WSL)
-- [Alpaca paper trading account](https://alpaca.markets/) (free, optional — demo mode works without it)
-
-### Install
-
-**macOS (Homebrew):**
-```bash
-brew tap rmbell09-lang/tradesight
-brew install tradesight
-```
-
-**From source:**
-```bash
-git clone https://github.com/rmbell09-lang/tradesight.git
-cd tradesight
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Run
+Extract the verified TradeSight source release, then run:
 
 ```bash
-python3 START_TRADESIGHT.py
+python3 install_tradesight.py
+./launch_tradesight.sh
 ```
 
-Dashboard opens at **http://localhost:5000**
+The installer:
 
-### Demo Mode (No API Keys Required)
-TradeSight runs fully in demo mode with simulated market data — no Alpaca account needed to explore.
+- selects Python 3.11 or newer;
+- creates an isolated `.runtime` environment;
+- installs declared runtime dependencies;
+- installs the local extracted source without cloning another repository; and
+- verifies the CLI in `PAPER_ONLY` mode.
 
-### Alpaca Paper Trading (Optional)
-1. Create a free [Alpaca paper account](https://alpaca.markets/)
-2. Export your paper-trading API keys before launching:
-```bash
-export ALPACA_API_KEY="YOUR_KEY"
-export ALPACA_SECRET_KEY="YOUR_SECRET"
-python3 START_TRADESIGHT.py
-```
+Release verification may use `--no-register` so an extracted test copy cannot
+replace the canonical CLI pointer.
 
----
+The dashboard opens at `http://127.0.0.1:5001`.
 
-## 📸 Dashboard
-
-```
-┌─────────────────────────────────────────────────┐
-│  TradeSight Dashboard          [Localhost:5000]  │
-├──────────┬──────────┬───────────┬───────────────┤
-│ Markets  │Tournaments│  Trading  │   Settings    │
-├──────────┴──────────┴───────────┴───────────────┤
-│  Active Signals: 3    Open Positions: 2          │
-│  Best Strategy: MACD Crossover (score: 0.72)     │
-│  Paper P&L: -$113.96  (initial RSI strategy)     │
-│  Next Tournament: Tonight @ 2:00 AM              │
-└─────────────────────────────────────────────────┘
-```
-
----
-
-## 🧪 Test Results
-
-```
-282/282 tests passing ✅
-```
+For development from the canonical source tree:
 
 ```bash
-python -m pytest tests/ -v
+python3 install_tradesight.py
+.runtime/bin/python -m pip install -r requirements-dev.txt
+.runtime/bin/python -m pytest tests -q
+.runtime/bin/tradesight --no-browser
 ```
 
----
+## Data labels
 
-## 🏗️ Architecture
+- `REAL`: verified external market evidence.
+- `PAPER`: broker-simulated trading evidence.
+- `DEMO`: explicit development-only synthetic data.
+- `STALE`: retained data too old to support a current decision.
+- `UNVERIFIED`: local evidence that has not met broker-proof requirements.
 
+TradeSight never silently substitutes generated prices for unavailable market data.
+
+## Strategy lifecycle
+
+`Candidate → Backtest → Out-of-sample → Shadow paper → Qualified → Champion → Retired`
+
+Daily evaluation continues with new real data. Full searches are evidence-triggered. A challenger cannot promote automatically and must pass out-of-sample, walk-forward, multiple-testing, Monte Carlo, and forward-paper evidence gates.
+
+## Live-money status
+
+This release is technically locked to paper trading. The readiness dashboard requires, among other evidence:
+
+- 30 verified accounting sessions with zero unexplained differences;
+- 60 forward-paper sessions and 100 broker-confirmed forward trades;
+- a frozen strategy with a passing qualification receipt;
+- protected controls, working outbound safety alerts, and passed failure drills; and
+- Ray's explicit strategy approval and hard per-trade, daily, and total-pilot loss limits.
+
+Passing those gates would only support a separate canary-build review. It would not automatically enable trading or guarantee profitability.
+
+## Release integrity
+
+Build a local, unpublished release candidate with:
+
+```bash
+.runtime/bin/python scripts/build_release.py
+.runtime/bin/python scripts/verify_release.py dist/releases/tradesight-1.2.0rc1-paper-only.zip
 ```
-tradesight/
-├── src/
-│   ├── scanner.py          # Multi-market signal scanner
-│   ├── strategy_lab/       # AI tournament engine
-│   ├── trading/            # Alpaca paper trade executor
-│   ├── indicators/         # 15+ technical indicators
-│   └── automation/         # Overnight cron jobs
-├── web/                    # Flask dashboard
-├── config/                 # API keys + settings
-├── data/                   # Price history cache
-└── tests/                  # 169 unit tests
+
+The builder uses an allowlist, rejects runtime/private state and common credential patterns, writes a SHA-256 manifest, and never publishes the archive.
+
+## Tests
+
+Run the complete canonical suite instead of relying on a hardcoded README count:
+
+```bash
+.runtime/bin/python -m pytest tests -q
 ```
 
----
+The dashboard displays the latest test receipt and marks it stale when it ages out.
 
-## 📈 Public Proof & Paper-Trading Notes
+## Safety boundaries
 
-TradeSight includes an Alpaca paper-trading workflow for testing strategy automation with simulated funds. It is designed for local research, backtesting, and paper-trading experiments before any real-money decision.
+- Paper endpoint only.
+- No live activation endpoint.
+- No automatic strategy promotion.
+- No automatic scaling.
+- New paper entries fail closed on stale signals or unverified accounting.
+- Exits remain available during operational suspensions.
 
-Current public proof snapshot: https://rentry.co/tradesight-public-credibility-proof-20260620
+## License
 
-Important limits:
-
-- Paper-trading results are simulated and may not match live-market execution.
-- Backtests and historical paper-trading snapshots are not predictions.
-- TradeSight is not financial advice.
-- No income, return, win-rate, or live-trading performance is promised.
-
----
-
-## 🗺️ Roadmap
-
-- [x] Multi-indicator technical analysis (15+ indicators)
-- [x] AI strategy tournament engine
-- [x] Alpaca paper trading integration
-- [x] Real-time web dashboard
-- [x] Overnight automation (cron)
-- [x] Family-aware optimizer validation with OOS, walk-forward, regime, and overfit gates
-- [ ] Phase 1: Active stop-loss + take-profit execution
-- [ ] Phase 1: Trailing stop with high-water mark
-- [ ] Phase 2: Confluence strategy (multi-indicator entry gates)
-- [x] Phase 2: Market regime detection (bull/bear/sideways filter)
-- [x] Phase 3: Monte Carlo simulation for strategy validation
-
----
-
-
----
-
-## 💰 Support Development
-
-TradeSight is MIT-licensed and free to use. If it saved you time or you want the packaged strategy lab with setup guide and pre-tuned parameters:
-
-**[Get TradeSight Strategy Lab on Gumroad →](https://qcautonomous.gumroad.com/l/zpkutz)** — $49 one-time
-
-Includes: packaged download, setup walkthrough, pre-configured Alpaca integration, and strategy parameter reference.
-
-## 🔗 Related Projects & Alternatives
-
-TradeSight is similar to — but different from — these popular Python trading tools:
-
-| Project | What It Does | How TradeSight Differs |
-|---|---|---|
-| [backtrader](https://github.com/mementum/backtrader) | Python backtesting framework | TradeSight adds AI strategy evolution + live paper trading web dashboard |
-| [freqtrade](https://github.com/freqtrade/freqtrade) | Crypto trading bot | TradeSight focuses on **stocks** (Alpaca API) with overnight strategy tournaments |
-| [vectorbt](https://github.com/polakowo/vectorbt) | Vectorized backtesting in notebooks | TradeSight is a self-hosted web app — no notebook required |
-| [zipline-reloaded](https://github.com/stefan-jansen/zipline-reloaded) | Algorithmic trading library | TradeSight is a full app, not a library — no Python trading experience needed |
-| [Jesse](https://github.com/jesse-ai/jesse) | Crypto strategy framework | TradeSight is for **stocks + prediction markets**, not crypto |
-| [nautilus_trader](https://github.com/nautechsystems/nautilus_trader) | High-performance trading platform | TradeSight is simpler, self-hosted, built for hobbyists not HFT |
-| [BillingWatch](https://github.com/rmbell09-lang/BillingWatch) | Self-hosted billing anomaly detection | Same maker — catch Stripe issues before they cost you |
-
-> **Also useful for:** python trading bot · algorithmic trading python · paper trading software · free backtesting · stock trading python · quantitative finance · algo trading strategy tester · self-hosted trading platform · automated trading system · backtesting framework
-
----
-
-## 📄 License
-
-MIT — free to use, modify, and build on.
-
----
-
-## ⭐ If This Helped You
-
-Star the repo — it helps other Python traders find it.
-
-Got broken AI-generated code? → [Vibe Code Rescue](https://rmbell09-lang.github.io/tradesight/vibe-code-rescue.html)
+MIT. Third-party data and brokerage services retain their own terms.

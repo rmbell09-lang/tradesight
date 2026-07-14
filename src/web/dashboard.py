@@ -8,6 +8,7 @@ Runs on port 5001 (same as existing TradeSight Flask app if any).
 
 import json
 import sqlite3
+from contextlib import closing
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -163,7 +164,7 @@ def api_performance():
     """Portfolio performance summary."""
     try:
         db_path = DATA_DIR / 'positions.db'
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as connection, connection as conn:
             # Portfolio value from latest snapshot or positions
             open_positions = conn.execute(
                 "SELECT COUNT(*) FROM positions WHERE status='open'"
@@ -246,7 +247,7 @@ def api_trades():
     """Recent trades list."""
     try:
         db_path = DATA_DIR / 'positions.db'
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as connection, connection as conn:
             # Check if journal columns exist
             cols = [row[1] for row in conn.execute("PRAGMA table_info(positions)").fetchall()]
             has_journal = 'entry_reason' in cols
@@ -283,7 +284,7 @@ def api_portfolio():
     """Current open positions."""
     try:
         db_path = DATA_DIR / 'positions.db'
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as connection, connection as conn:
             rows = conn.execute(
                 "SELECT symbol, strategy, side, quantity, entry_price, "
                 "current_price, entry_time FROM positions WHERE status='open'"

@@ -7,6 +7,7 @@ Paper-trading control surface with explicit data provenance.
 from flask import Flask, render_template, jsonify, request, abort, make_response
 from functools import wraps
 import sqlite3
+from contextlib import closing
 import json
 from datetime import datetime, timedelta, timezone
 import os
@@ -61,6 +62,7 @@ from trading.accounting_truth import (
 )
 from trading.trade_evidence import TradeEvidenceService
 from trading.runtime_risk import OperationalRiskGate
+from trading.live_readiness import LiveReadinessService
 from security.operator_guard import OperatorGuard
 from data.alpaca_client import AlpacaClient
 
@@ -68,6 +70,7 @@ app = Flask(__name__, static_folder='static', static_url_path='/static')
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _operator_guard = OperatorGuard(PROJECT_ROOT)
 _runtime_risk_gate = OperationalRiskGate(PROJECT_ROOT)
+_live_readiness = LiveReadinessService(PROJECT_ROOT)
 APP_STARTED_AT = datetime.now().astimezone()
 APP_STARTED_MONOTONIC = time.monotonic()
 POLYMARKET_STALE_AFTER = timedelta(hours=24)
@@ -227,6 +230,8 @@ def get_accounting_reconciliation(force=False):
                 order_fetcher=client.get_order,
             )
             payload["credential_source"] = credential_source
+
+        _live_readiness.record_accounting_observation(payload)
 
         _accounting_cache["loaded_at"] = now
         _accounting_cache["payload"] = payload
@@ -406,6 +411,12 @@ def health():
         'started_at': APP_STARTED_AT.isoformat(),
         'uptime_seconds': int(time.monotonic() - APP_STARTED_MONOTONIC),
         'trading_mode': 'PAPER_ONLY',
+        'runtime': {
+            'python_version': sys.version.split()[0],
+            'python_executable': sys.executable,
+            'minimum_supported': '3.11',
+            'supported': sys.version_info >= (3, 11),
+        },
         'test_suite': load_test_suite_receipt(),
         'checks': {
             'positions_db_exists': os.path.exists(positions_db),
@@ -416,7 +427,7 @@ def health():
 
     try:
         if os.path.exists(positions_db):
-            with sqlite3.connect(positions_db) as conn:
+            with closing(sqlite3.connect(positions_db)) as connection, connection as conn:
                 rows = conn.execute("SELECT status, COUNT(*) FROM positions GROUP BY status").fetchall()
             payload['position_counts'] = {str(status): int(count) for status, count in rows}
             receipt_path = PROJECT_ROOT / 'state' / 'accounting-reconciliation.json'
@@ -1010,7 +1021,12 @@ def operator_session_delete():
 
 @app.route('/api/security/risk-status')
 def security_risk_status():
-    accounting = get_accounting_reconciliation()
+    return jsonify(sanitize_for_json(get_risk_posture()))
+
+
+def get_risk_posture(accounting=None):
+    """Return the current protected paper-risk posture without enabling live trading."""
+    accounting = accounting or get_accounting_reconciliation()
     alert_stats = (
         _dashboard_alert_manager.get_alert_stats()
         if _DASHBOARD_ALERTS_AVAILABLE and _dashboard_alert_manager
@@ -1031,7 +1047,7 @@ def security_risk_status():
         'accounting_verified': accounting_status == 'VERIFIED',
         'outbound_alert_channel': outbound_ready,
     }
-    return jsonify(sanitize_for_json({
+    return {
         'schema': 'tradesight_risk_posture.v1',
         'status': 'READY' if all(mandatory.values()) else 'DEGRADED',
         'mandatory_controls': mandatory,
@@ -1043,7 +1059,16 @@ def security_risk_status():
         'new_entries_allowed': not runtime.get('new_entries_suspended', True),
         'exits_always_allowed': True,
         'live_trading_allowed': False,
-    }))
+    }
+
+
+@app.route('/api/live-readiness')
+def live_readiness():
+    """Evidence-backed readiness checklist; this endpoint cannot unlock trading."""
+    accounting = get_accounting_reconciliation()
+    strategy = get_strategy_registry()
+    risk = get_risk_posture(accounting=accounting)
+    return jsonify(sanitize_for_json(_live_readiness.snapshot(accounting, strategy, risk)))
 
 @app.route('/api/alerts/recent')
 def alerts_recent():
@@ -1196,7 +1221,7 @@ def emergency_close_all_positions():
         # the exit. Marking them closed here would fabricate fills and P&L.
         pm = PositionManager(base_dir=PROJECT_ROOT)
         db_path = pm.data_dir / 'positions.db'
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as connection, connection as conn:
             for item in closed:
                 conn.execute(
                     "UPDATE positions SET exit_order_id=COALESCE(?,exit_order_id), "
@@ -1257,7 +1282,7 @@ def emergency_restore_positions():
         db_path = pm.data_dir / 'positions.db'
         restored = []
 
-        with sqlite3.connect(db_path) as conn:
+        with closing(sqlite3.connect(db_path)) as connection, connection as conn:
             for pos in alpaca_positions:
                 symbol = pos.get('symbol')
                 qty = float(pos.get('qty', 0))
@@ -1304,4 +1329,8 @@ def emergency_restore_positions():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=False, host="127.0.0.1", port=5001)
+    app.run(
+        debug=False,
+        host=os.environ.get("TRADESIGHT_HOST", "127.0.0.1"),
+        port=int(os.environ.get("TRADESIGHT_PORT", "5001")),
+    )

@@ -1,0 +1,8 @@
+Flask>=3.1,<4
+requests>=2.32,<3
+numpy>=2.0,<3
+pandas>=2.3,<3
+TA-Lib>=0.6,<1
+yfinance>=1.2,<2
+websocket-client>=1.9,<2
+websockets>=15,<16

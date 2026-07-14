@@ -357,6 +357,7 @@
     <button class="tab-btn active" data-tab="markets" onclick="switchTab('markets', this)">📈 Markets</button>
     <button class="tab-btn" data-tab="strategy-lab" onclick="switchTab('strategy-lab', this)">🧪 Strategy Lab</button>
     <button class="tab-btn" data-tab="paper-trading" onclick="switchTab('paper-trading', this)">💰 Paper Trading</button>
+    <button class="tab-btn" data-tab="live-readiness" onclick="switchTab('live-readiness', this)">🔒 Live Readiness</button>
     <button class="tab-btn" data-tab="system" onclick="switchTab('system', this)">⚙️ System</button>
     <button class="tab-btn" data-tab="alerts" onclick="switchTab('alerts', this)">🔔 Alerts</button>
 </div>
@@ -612,6 +613,55 @@
         </div>
     </div>
 
+    <!-- ===== LIVE READINESS TAB ===== -->
+    <div id="tab-live-readiness" class="tab-panel">
+        <div class="truth-banner" style="border-left-color:#ef4444;">
+            <strong>Live execution is not compiled into this release.</strong>
+            This screen measures evidence for a future, separately authorized canary build. Passing every gate would not activate trading and would not guarantee profit.
+        </div>
+        <div class="stats-row">
+            <div class="card">
+                <h3>Readiness Status</h3>
+                <div class="value red" id="readiness-status">CHECKING</div>
+                <div class="sub">Fail-closed evidence result</div>
+            </div>
+            <div class="card">
+                <h3>Mandatory Gates</h3>
+                <div class="value blue" id="readiness-score">--</div>
+                <div class="sub">Passed / total</div>
+            </div>
+            <div class="card">
+                <h3>Trading Mode</h3>
+                <div class="value" id="readiness-mode">PAPER ONLY</div>
+                <div class="sub">No live activation endpoint</div>
+            </div>
+            <div class="card">
+                <h3>Automatic Scaling</h3>
+                <div class="value red">OFF</div>
+                <div class="sub">Review required after a future canary</div>
+            </div>
+        </div>
+
+        <div class="table-card">
+            <div class="table-header"><h2>🧾 Mandatory Evidence Gates</h2><span class="badge badge-red" id="readiness-lock">LOCKED</span></div>
+            <table>
+                <thead><tr><th>Gate</th><th>Status</th><th>Current</th><th>Required</th><th>Evidence</th></tr></thead>
+                <tbody id="readiness-gates"><tr><td colspan="5" class="loading-msg">Loading readiness evidence...</td></tr></tbody>
+            </table>
+        </div>
+
+        <div class="grid-2">
+            <div class="table-card">
+                <div class="table-header"><h2>🧪 Future Canary Constraints</h2></div>
+                <table><tbody id="pilot-constraints"><tr><td class="loading-msg">Loading policy...</td></tr></tbody></table>
+            </div>
+            <div class="table-card">
+                <div class="table-header"><h2>⛔ Current Blockers</h2></div>
+                <div id="readiness-blockers" style="padding:18px;color:#cbd5e1;line-height:1.8;">Loading blockers...</div>
+            </div>
+        </div>
+    </div>
+
     <!-- ===== SYSTEM TAB ===== -->
     <div id="tab-system" class="tab-panel">
         <div class="stats-row" id="system-stats">
@@ -803,6 +853,7 @@
         if (name === 'markets') loadMarkets();
         else if (name === 'strategy-lab') loadStrategyLab();
         else if (name === 'paper-trading') loadPaperTrading();
+        else if (name === 'live-readiness') loadLiveReadiness();
         else if (name === 'system') loadSystem();
     }
 
@@ -1401,6 +1452,50 @@
             .catch(err => setOperatorStatus(`Restore failed: ${err}`));
     }
 
+    // ===== LIVE READINESS =====
+    function humanizePolicyKey(value) {
+        return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+    }
+
+    function readinessValue(value) {
+        if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+        if (Array.isArray(value)) return value.join(' · ');
+        if (value && typeof value === 'object') return JSON.stringify(value);
+        return value ?? '--';
+    }
+
+    function loadLiveReadiness() {
+        fetch('/api/live-readiness').then(r => r.json()).then(data => {
+            const ready = data.status === 'READY_FOR_SEPARATE_CANARY_BUILD_REVIEW';
+            const status = document.getElementById('readiness-status');
+            status.textContent = ready ? 'EVIDENCE COMPLETE' : 'NOT READY';
+            status.className = `value ${ready ? 'green' : 'red'}`;
+            document.getElementById('readiness-score').textContent = `${data.passed_gates || 0}/${data.total_gates || 0}`;
+            document.getElementById('readiness-mode').textContent = data.mode || 'PAPER ONLY';
+            document.getElementById('readiness-lock').textContent = data.live_execution_compiled_in ? 'REVIEW REQUIRED' : 'COMPILED OUT';
+            document.getElementById('readiness-lock').className = 'badge badge-red';
+            const gates = Array.isArray(data.gates) ? data.gates : [];
+            document.getElementById('readiness-gates').innerHTML = gates.length ? gates.map(gate => `
+                <tr>
+                    <td><strong>${escapeHtml(gate.label)}</strong></td>
+                    <td><span class="badge ${gate.passed ? 'badge-green' : 'badge-red'}">${gate.passed ? 'PASS' : 'BLOCKED'}</span></td>
+                    <td>${escapeHtml(readinessValue(gate.current))}</td>
+                    <td>${escapeHtml(readinessValue(gate.required))}</td>
+                    <td>${escapeHtml(gate.evidence)}</td>
+                </tr>`).join('') : '<tr><td colspan="5" class="empty-msg">No readiness receipt available</td></tr>';
+            const constraints = data.pilot_constraints || {};
+            document.getElementById('pilot-constraints').innerHTML = Object.entries(constraints).map(([key, value]) => `
+                <tr><td>${escapeHtml(humanizePolicyKey(key))}</td><td><strong>${escapeHtml(readinessValue(value))}</strong></td></tr>`).join('');
+            const blockers = Array.isArray(data.next_blockers) ? data.next_blockers : [];
+            document.getElementById('readiness-blockers').innerHTML = blockers.length
+                ? blockers.map(item => `<div>• ${escapeHtml(item)}</div>`).join('')
+                : '<div>All evidence gates passed. Live remains locked pending a separate explicitly authorized canary build review.</div>';
+        }).catch(err => {
+            document.getElementById('readiness-status').textContent = 'UNAVAILABLE';
+            document.getElementById('readiness-blockers').textContent = `Readiness evidence unavailable: ${err}`;
+        });
+    }
+
     // ===== SYSTEM =====
     function loadSystem() {
         const endpoints = [
@@ -1414,6 +1509,7 @@
             {url: '/api/strategy-lab/stats', name: 'Strategy Lab Stats'},
             {url: '/api/strategy-lab/status', name: 'Tournament Status'},
             {url: '/api/strategy-lab/history', name: 'Tournament History'},
+            {url: '/api/live-readiness', name: 'Live Readiness'},
         ];
 
         fetch('/health').then(r => r.json()).then(health => {
