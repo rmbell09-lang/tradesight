@@ -75,7 +75,7 @@ This release is technically locked to paper trading. The readiness dashboard req
 - 60 forward-paper sessions and 100 broker-confirmed forward trades;
 - a frozen strategy with a passing qualification receipt;
 - protected controls, working outbound safety alerts, and passed failure drills; and
-- Ray's explicit strategy approval and hard per-trade, daily, and total-pilot loss limits.
+- the operator's explicit strategy approval and hard per-trade, daily, and total-pilot loss limits.
 
 Passing those gates would only support a separate canary-build review. It would not automatically enable trading or guarantee profitability.
 
