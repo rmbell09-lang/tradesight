@@ -20,6 +20,16 @@ TradeSight is research software. It is not financial advice, does not promise re
 - macOS or Linux
 - Alpaca **paper** credentials for broker-backed market and trading evidence
 
+## Optional packaged download
+
+The GitHub source project remains free to download; purchasing the packaged release is optional.
+
+Prefer a packaged download? QC Autonomous, the seller behind this project, offers **TradeSight 1.2 for $49** with customer-release Python source, a local dashboard and Strategy Lab, installation guidance, and release documentation.
+
+You will need Python 3.11+ and Alpaca paper credentials for broker-backed paper workflows. **Paper trading only:** no enabled live-money execution path, promised returns, or financial advice.
+
+[See the package contents, screenshots, and requirements on Gumroad](https://qcautonomous.gumroad.com/l/zpkutz?utm_source=github&utm_medium=readme&utm_campaign=tradesight_9812)
+
 ## Supported installation
 
 Extract the verified TradeSight source release, then run:
